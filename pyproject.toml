@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nhc"
+version = "0.4.0"
+description = "Hierarchical-options mixture-of-experts consensus training for NetHack/MiniHack: curriculum-pretrained specialists plus a PPO+GAE consensus learner in a single local Python process."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "nethack_curriculum contributors" },
+]
+keywords = ["nethack", "minihack", "reinforcement-learning", "ppo", "moe", "curriculum"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.6.0",
+    "nle>=1.2.0",
+    "minihack>=1.0.2",
+    "gymnasium==1.0.0",
+    "numpy>=1.26",
+    "hydra-core>=1.3.2",
+    "omegaconf>=2.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-timeout>=2.4.0",
+    "ruff>=0.15.10",
+    "mypy>=1.20.1",
+]
+
+[project.scripts]
+nhc = "nhc.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nhc*"]
+exclude = ["tests*", "archive*", "legacy*", "logs*", "outputs*", "runs*", "checkpoints*"]
+
+[tool.setuptools.package-data]
+"nhc.des" = ["*.des"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

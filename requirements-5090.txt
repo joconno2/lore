@@ -1,0 +1,18 @@
+# Pinned deps for the local 5090 learner box.
+# Install order matters: torch first (CUDA wheel), then everything else.
+# CUDA 12.4 wheels are the lowest version that knows about sm_120 (Blackwell / 5090).
+#
+#   pip install --extra-index-url https://download.pytorch.org/whl/cu124 \
+#       -r requirements-5090.txt
+#
+torch==2.6.0+cu124
+numpy==1.26.4
+ray[default]==2.46.0
+nle==1.2.0
+minihack==1.0.2
+gymnasium==1.0.0
+hydra-core==1.3.2
+omegaconf==2.3.0
+pytest==8.3.3
+pytest-timeout==2.3.1
+ruff==0.6.9

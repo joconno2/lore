@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+runs/
+results/
+*.npy
+*.pt
+*.pth
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+logs/
