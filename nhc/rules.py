@@ -1,10 +1,11 @@
-"""Auto-generated NetHack symbolic rules.
+"""NetHack domain knowledge from the wiki.
 
-Hard-coded domain knowledge from the NetHack wiki. Used as action
-masks/filters during training (E7/E8). No LLM at runtime.
+Structured corpse effects, monster properties, item prices, and
+situational rules. Used by kb.py to build the entity table and
+rule table consumed by KBConditioner.
 
-Usage:
-    from nhc.rules import should_eat_corpse, should_pray, is_safe_to_engrave_elbereth
+Regenerated with Claude Opus (May 2026), replacing incomplete
+Qwen extraction.
 """
 from __future__ import annotations
 
@@ -12,44 +13,77 @@ import numpy as np
 from nle import nethack
 
 # ============================================================
-# Food safety: which corpses are safe to eat
+# Food safety: corpse effects
 # ============================================================
 
-# Monsters whose corpses give intrinsics (always eat if possible)
+# Corpses that grant beneficial intrinsics (always eat)
 BENEFICIAL_CORPSES = {
+    # Resistances
     "floating eye",        # telepathy
-    "wraith",              # level drain immunity + XP
-    "newt",                # mana restore chance
-    "tengu",               # teleport control
     "stalker",             # invisibility + see invisible
+    "yellow light",        # blindness resistance (and explodes, but corpse is fine)
+    "fire ant",            # fire resistance
+    "fire giant",          # fire resistance
+    "red dragon",          # fire resistance
+    "hell hound pup",      # fire resistance
+    "hell hound",          # fire resistance
+    "pyrolisk",            # fire resistance
+    "frost giant",         # cold resistance
+    "blue dragon",         # cold resistance
+    "winter wolf cub",     # cold resistance
+    "winter wolf",         # cold resistance
+    "brown mold",          # cold resistance (if eaten, not melee)
+    "storm giant",         # shock resistance
+    "blue jelly",          # shock resistance
+    "electric eel",        # shock resistance
+    "black dragon",        # disintegration resistance
+    "green dragon",        # poison resistance
+    "yellow dragon",       # acid resistance
+    "orange dragon",       # sleep resistance
+    "white dragon",        # cold resistance
+    "gray unicorn",        # poison resistance
+    # Other beneficial
+    "wraith",              # gain level
+    "newt",                # mana restore chance
+    "tengu",               # teleport control (or teleportitis)
     "disenchanter",        # disenchant resistance
-    "quantum mechanic",    # speed / teleportitis
+    "quantum mechanic",    # speed (or teleportitis)
+    "nurse",               # heal HP (but only if no armor on)
+    "lizard",              # cures stoning, never rots, always safe
+    "lichen",              # never rots, vegetarian safe
+    "giant",               # strength gain
+    "hill giant",          # strength gain
+    "stone giant",         # strength gain
+    "lord surtur",         # fire resistance
 }
 
-# Monsters whose corpses are always dangerous
+# Corpses that are poisonous (need poison resistance)
 POISONOUS_CORPSES = {
     "killer bee", "giant spider", "scorpion", "pit viper",
     "cobra", "water moccasin", "asp", "python",
-    "rabid rat", "rabid jackal", "werewolf", "werejackal", "wererat",
-    "green slime",  # sliming (instant death without cure)
+    "rabid rat", "rabid jackal",
+    "werewolf", "werejackal", "wererat",
+    "green slime",         # sliming (instant death without cure)
+    "quasit",              # poison
+    "rotted corpse",       # sickness
 }
 
-# Acidic corpses (safe to eat, give acid resistance eventually)
+# Acidic corpses (safe if acid resistant, otherwise hurt)
 ACIDIC_CORPSES = {
     "yellow light", "acid blob", "blue jelly",
+    "gelatinous cube",
 }
 
-# Corpses that can petrify you
+# Corpses that can petrify you (never eat without stoneproof)
 PETRIFYING_CORPSES = {
-    "cockatrice", "chickatrice",  # instant death if not stoneproof
+    "cockatrice", "chickatrice",
 }
 
-# Corpses with bad effects
-BAD_CORPSES = {
-    "jackal",          # lycanthropy risk (werewolf)
-    "bat",             # stunning
-    "yellow light",    # blindness (but gives acid res)
-    "floating eye",    # safe ONLY if you have telepathy already or want it
+# Corpses with lycanthropy risk
+LYCANTHROPIC_CORPSES = {
+    "jackal",    # werewolf if unlucky
+    "rat",       # wererat
+    "wolf",      # werewolf
 }
 
 
@@ -65,7 +99,7 @@ def should_eat_corpse(monster_name: str, has_poison_res: bool = False,
         return False
     if name in BENEFICIAL_CORPSES:
         return True
-    return True  # most corpses are safe
+    return True
 
 
 # ============================================================
@@ -74,22 +108,14 @@ def should_eat_corpse(monster_name: str, has_poison_res: bool = False,
 
 def should_pray(hp: int, max_hp: int, hunger: int, turn: int,
                 last_pray_turn: int, alignment: int) -> bool:
-    """Whether prayer is likely to succeed and useful.
-
-    Prayer succeeds if:
-    - Alignment is non-negative
-    - At least 300 turns since last prayer (500 for non-lawful)
-    - On appropriate level (not in Gehennom without Amulet)
-    """
+    """Whether prayer is likely to succeed and useful."""
     if alignment < 0:
         return False
     if turn - last_pray_turn < 300:
         return False
-    # Pray when HP is critically low
     if hp <= max_hp // 7:
         return True
-    # Pray when starving
-    if hunger >= 4:  # FAINTING or worse
+    if hunger >= 4:
         return True
     return False
 
@@ -98,29 +124,116 @@ def should_pray(hp: int, max_hp: int, hunger: int, turn: int,
 # Elbereth
 # ============================================================
 
-# Monsters that respect Elbereth (most do)
+# Monsters that ignore Elbereth
 ELBERETH_IMMUNE = {
-    "minotaur",  # never respects Elbereth
-    # Unique/quest monsters and riders also ignore it
-    "death", "pestilence", "famine",
-    "wizard of yendor",
+    # Unique named demons
+    "Demogorgon", "Asmodeus", "Baalzebub", "Orcus", "Juiblex",
+    "Yeenoghu", "Dispater", "Geryon",
+    # Riders
+    "Death", "Pestilence", "Famine",
+    # Quest and special
+    "Wizard of Yendor", "Medusa",
+    # Minotaur
+    "minotaur",
+    # Human @ class (guards, shopkeepers, priests, etc.)
+    "shopkeeper", "guard", "aligned priest", "high priest",
+    # Angels and archons
+    "Archon",
 }
 
 # Blind monsters can't see Elbereth
-# Monsters with hands can smudge it
+# Monsters with hands can smudge engraved Elbereth
 
 def is_safe_to_engrave_elbereth(monster_name: str) -> bool:
     """Whether Elbereth will scare this monster."""
-    return monster_name.lower() not in ELBERETH_IMMUNE
+    return monster_name not in ELBERETH_IMMUNE
+
+
+# ============================================================
+# Monsters with special melee contact effects
+# ============================================================
+
+MELEE_RISK_MONSTERS = {
+    # Paralysis
+    "floating eye",        # gaze paralyzes on melee
+    "gelatinous cube",     # engulf paralyzes
+    # Petrification
+    "cockatrice",          # touch = stone
+    "chickatrice",         # touch = stone
+    # Sliming
+    "green slime",         # touch = sliming
+    # Level drain
+    "vampire",             # level drain bite
+    "vampire lord",
+    "vampire king",        # if present in version
+    "Vlad the Impaler",
+    # Intelligence drain
+    "mind flayer",         # brain eating
+    "master mind flayer",
+    # Passive damage
+    "blue jelly",          # passive cold
+    "brown mold",          # passive cold (explodes)
+    "yellow mold",         # passive acid
+    "acid blob",           # passive acid
+    # Grabbing/drowning
+    "electric eel",        # drowning attack
+    "giant eel",           # drowning attack
+    "kraken",              # drowning attack
+    # Rust
+    "rust monster",        # destroys metal armor/weapons
+    # Illness
+    "Pestilence",          # terminal illness
+}
+
+
+# ============================================================
+# Danger assessment
+# ============================================================
+
+# Monsters that should always be avoided or approached with caution
+EXTREMELY_DANGEROUS = {
+    # Instant/near-instant death
+    "cockatrice",          # touch petrification
+    "chickatrice",
+    "Medusa",              # gaze petrification
+    "green slime",         # sliming
+    "Demogorgon",          # disease + summoning + sting
+    # Brain drain
+    "mind flayer",
+    "master mind flayer",
+    # Powerful magic
+    "arch-lich",           # double trouble, curses, summons
+    "master lich",
+    "Wizard of Yendor",    # steals amulet, summons, harasses
+    # Riders
+    "Death",               # touch of death
+    "Pestilence",          # terminal illness
+    "Famine",              # starvation
+    # Dangerous large monsters
+    "purple worm",         # swallow, digestion
+    "minotaur",            # very strong melee, ignores Elbereth
+    "titan",               # strong melee + magic
+    "balrog",
+    # Paralysis (deadly if other monsters nearby)
+    "floating eye",        # gaze = paralysis on melee
+}
+
+
+def assess_danger(monster_name: str, player_level: int) -> str:
+    """Quick danger assessment."""
+    name = monster_name.lower()
+    if name in {n.lower() for n in EXTREMELY_DANGEROUS}:
+        return "deadly"
+    if name in {"minotaur", "titan", "balrog"} and player_level < 15:
+        return "dangerous"
+    return "safe"
 
 
 # ============================================================
 # Item identification by price
 # ============================================================
 
-# Base prices for common scroll identification
 SCROLL_PRICES = {
-    # price -> possible scrolls (most useful listed first)
     20: ["identify", "light"],
     50: ["enchant weapon", "enchant armor", "remove curse"],
     60: ["teleportation", "gold detection"],
@@ -131,7 +244,6 @@ SCROLL_PRICES = {
 }
 
 POTION_PRICES = {
-    # price -> possible potions
     0: ["uncursed water"],
     50: ["booze", "fruit juice", "see invisible", "sickness"],
     100: ["confusion", "extra healing", "hallucination", "healing",
@@ -145,69 +257,24 @@ POTION_PRICES = {
 
 
 # ============================================================
-# Danger assessment
-# ============================================================
-
-EXTREMELY_DANGEROUS = {
-    "cockatrice",    # touch = stone
-    "mind flayer",   # intelligence drain
-    "master mind flayer",
-    "arch-lich",     # summons + curses
-    "green slime",   # sliming
-    "yellow light",  # blindness explosion
-    "floating eye",  # paralysis on melee (let them come to you)
-}
-
-
-def assess_danger(monster_name: str, player_level: int) -> str:
-    """Quick danger assessment: 'safe', 'caution', 'dangerous', 'deadly'."""
-    name = monster_name.lower()
-    if name in EXTREMELY_DANGEROUS:
-        return "deadly"
-    if name in {"minotaur", "titan", "balrog"}:
-        if player_level < 15:
-            return "dangerous"
-    return "safe"
-
-
-# ============================================================
 # Dungeon navigation rules
 # ============================================================
 
 def should_descend(dlvl: int, xl: int, hp: int, max_hp: int,
                    has_key_items: bool = False) -> bool:
-    """Heuristic for whether to go deeper.
-
-    Conservative: don't descend if underleveled or low HP.
-    """
+    """Heuristic for whether to go deeper."""
     if hp < max_hp * 0.5:
         return False
-    # Rough guideline: don't go deeper than 2x your XL
     if dlvl > xl * 2:
         return False
     return True
 
 
 # ============================================================
-# Action mask helpers (integrate with NLE action space)
+# Action mask helpers
 # ============================================================
 
 def build_safety_mask(blstats: np.ndarray, action_mask: np.ndarray) -> np.ndarray:
-    """Modify action mask based on safety rules.
-
-    Prevents known-bad actions like eating when not hungry (wastes nutrition),
-    praying when it won't work, etc.
-
-    Args:
-        blstats: NLE blstats vector (27 dims)
-        action_mask: current legal action mask (121 bools)
-
-    Returns:
-        Modified action mask
-    """
-    # blstats indices (from NLE source):
-    # 0-1: x,y  2: strength  10: HP  11: max_HP  12: depth
-    # 18: hunger  21: experience_level  22: alignment
+    """Modify action mask based on safety rules."""
     mask = action_mask.copy()
-    # For now, pass through. Rules will be wired in as we validate each one.
     return mask

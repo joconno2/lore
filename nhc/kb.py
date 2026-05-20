@@ -79,17 +79,8 @@ BL_HUNGER = 18
 BL_XL = 21
 BL_ALIGNMENT = 22
 
-# Monsters with special melee contact effects
-MELEE_RISK_MONSTERS = {
-    "floating eye",       # paralysis
-    "cockatrice",         # petrification
-    "chickatrice",        # petrification
-    "green slime",        # sliming
-    "yellow light",       # blindness explosion
-    "black light",        # blindness explosion
-    "mind flayer",        # intelligence drain
-    "master mind flayer",  # intelligence drain
-}
+# Import from rules.py (single source of truth)
+from nhc.rules import MELEE_RISK_MONSTERS
 
 # Build name-to-id lookup once
 _NAME_TO_ID: dict[str, int] = {}
@@ -368,6 +359,100 @@ def build_rule_table() -> list[Rule]:
 
     rules.append(Rule(rid, _fight_when_strong, "fight",
                        "combat", "Engage monsters when HP above 60%"))
+    rid += 1
+
+    # --- Retreat rules ---
+    def _retreat_low_hp_monsters(bl, mons):
+        monster_count = sum(1 for m in mons
+                           if nethack.GLYPH_MON_OFF <= m < nethack.GLYPH_PET_OFF)
+        return monster_count > 0 and bl[BL_HP] < bl[BL_MAXHP] * 0.25
+
+    rules.append(Rule(rid, _retreat_low_hp_monsters, "retreat",
+                       "combat", "Retreat when HP below 25% and monsters present"))
+    rid += 1
+
+    # --- Eat lizard corpse to cure stoning ---
+    def _eat_lizard_if_stoning(bl, mons):
+        body_ids = {m - nethack.GLYPH_BODY_OFF for m in mons
+                    if nethack.GLYPH_BODY_OFF <= m < nethack.GLYPH_RIDDEN_OFF}
+        lizard_id = _name_to_monster_id("lizard")
+        cockatrice_nearby = any(
+            nethack.permonst(m - nethack.GLYPH_MON_OFF).mname in {"cockatrice", "chickatrice"}
+            for m in mons if nethack.GLYPH_MON_OFF <= m < nethack.GLYPH_PET_OFF
+        )
+        return cockatrice_nearby and lizard_id is not None and lizard_id in body_ids
+
+    rules.append(Rule(rid, _eat_lizard_if_stoning, "eat_corpse",
+                       "food", "Eat lizard corpse when cockatrice nearby (cures stoning)"))
+    rid += 1
+
+    # --- Level drain avoidance ---
+    def _avoid_vampires(bl, mons):
+        from nhc.rules import MELEE_RISK_MONSTERS
+        for m in mons:
+            if nethack.GLYPH_MON_OFF <= m < nethack.GLYPH_PET_OFF:
+                name = nethack.permonst(m - nethack.GLYPH_MON_OFF).mname
+                if "vampire" in name.lower():
+                    return True
+        return False
+
+    rules.append(Rule(rid, _avoid_vampires, "avoid_melee",
+                       "combat", "Avoid melee with vampires (level drain)"))
+    rid += 1
+
+    # --- Drowning avoidance ---
+    def _avoid_water_monsters(bl, mons):
+        for m in mons:
+            if nethack.GLYPH_MON_OFF <= m < nethack.GLYPH_PET_OFF:
+                name = nethack.permonst(m - nethack.GLYPH_MON_OFF).mname
+                if name in {"electric eel", "giant eel", "kraken"}:
+                    return True
+        return False
+
+    rules.append(Rule(rid, _avoid_water_monsters, "avoid_melee",
+                       "combat", "Avoid water monsters (drowning risk)"))
+    rid += 1
+
+    # --- Rust monster avoidance ---
+    def _avoid_rust_monster(bl, mons):
+        for m in mons:
+            if nethack.GLYPH_MON_OFF <= m < nethack.GLYPH_PET_OFF:
+                name = nethack.permonst(m - nethack.GLYPH_MON_OFF).mname
+                if name == "rust monster":
+                    return True
+        return False
+
+    rules.append(Rule(rid, _avoid_rust_monster, "use_ranged",
+                       "combat", "Use ranged attacks against rust monsters (destroys metal gear)"))
+    rid += 1
+
+    # --- Search when stuck ---
+    def _search_stuck(bl, _mons):
+        return bl[BL_HP] >= bl[BL_MAXHP] * 0.8
+
+    rules.append(Rule(rid, _search_stuck, "search",
+                       "navigation", "Search for hidden doors/passages when healthy"))
+    rid += 1
+
+    # --- Eat when hungry ---
+    def _eat_when_hungry(bl, _mons):
+        return bl[BL_HUNGER] >= 2
+
+    rules.append(Rule(rid, _eat_when_hungry, "eat",
+                       "food", "Eat when hungry or worse"))
+    rid += 1
+
+    # --- Don't fight shopkeepers ---
+    def _avoid_shopkeeper(bl, mons):
+        for m in mons:
+            if nethack.GLYPH_MON_OFF <= m < nethack.GLYPH_PET_OFF:
+                name = nethack.permonst(m - nethack.GLYPH_MON_OFF).mname
+                if name == "shopkeeper":
+                    return True
+        return False
+
+    rules.append(Rule(rid, _avoid_shopkeeper, "avoid_melee",
+                       "combat", "Never fight shopkeepers"))
     rid += 1
 
     # Pad to round number for meta-controller alignment
