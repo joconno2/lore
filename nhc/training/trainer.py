@@ -40,6 +40,7 @@ import logging
 import math
 import os
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -210,6 +211,10 @@ class TrainConfig:
     # short-circuit ``step < total_steps`` immediately).
     reset_step_counter: bool = False
 
+    # Override NLE's default max_episode_steps (5000). Shorter caps force
+    # the agent to score quickly instead of learning to survive passively.
+    max_episode_steps: int | None = None
+
     # Bookkeeping.
     log_every: int = 5
     ckpt_every: int = 200
@@ -305,6 +310,7 @@ def _make_env_pool(cfg: TrainConfig) -> tuple[Any, np.ndarray | None,
             cfg.env_id_override,
             num_envs=cfg.num_envs,
             num_workers=cfg.num_env_workers,
+            max_episode_steps=cfg.max_episode_steps,
         )
         seeds = [cfg.seed + i for i in range(cfg.num_envs)]
         obs_np, _ = pool.reset(seed=seeds)
@@ -486,6 +492,9 @@ def _run_single_spec_loop(
     update = start_update
     t0 = time.time()
     steps_window = 0
+    recent_ep_rewards: deque[float] = deque(maxlen=1000)
+    best_mean_reward = float('-inf')
+    last_mean_reward = 0.0
 
     with rd.metrics() as db:
         db.log_event(sid, step, "start_local", {
@@ -569,6 +578,10 @@ def _run_single_spec_loop(
                         ev = cfg.env_id_override or "(pinned)"
                         for i in np.where(done_np)[0]:
                             info_i = per_env[i] if per_env else {}
+                            # BatchedAsyncVectorEnv nests terminal info
+                            # under "final_info" (gym auto-reset semantics).
+                            if "final_info" in info_i and isinstance(info_i["final_info"], dict):
+                                info_i = info_i["final_info"]
                             success = bool(info_i.get("episode_success",
                                           info_i.get("is_ascended", False)))
                             outcomes.append((int(i), success,
@@ -613,6 +626,11 @@ def _run_single_spec_loop(
 
             for slot, success, ep_r, ep_l, ep_env_id, ep_level in outcomes:
                 db.log_episode(sid, step, slot, ep_env_id, ep_r, ep_l, success)
+                recent_ep_rewards.append(ep_r)
+            if len(recent_ep_rewards) >= 100:
+                window_mean = float(np.mean(recent_ep_rewards))
+                last_mean_reward = window_mean
+                best_mean_reward = max(best_mean_reward, window_mean)
             # Per-env-id rolling stats so the metrics DB can show
             # SR-per-curriculum-level over time without us having to
             # parse out env_ids in post-hoc analysis.
@@ -662,7 +680,11 @@ def _run_single_spec_loop(
 
     _save_specialist(model, optim, rd, sid, step, update)
     _save_scheduler_snapshot(pool, rd, sid)
-    return {"sid": sid, "total_steps": step, "updates": update}
+    return {
+        "sid": sid, "total_steps": step, "updates": update,
+        "mean_reward": last_mean_reward,
+        "best_mean_reward": best_mean_reward if best_mean_reward > float('-inf') else 0.0,
+    }
 
 
 def _save_scheduler_snapshot(pool: Any, rd: RunDir, sid: str) -> None:

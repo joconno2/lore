@@ -7,6 +7,8 @@ translate to whatever subset that env actually exposes.
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import gymnasium as gym
 import torch
@@ -200,7 +202,7 @@ class _Wrap(gym.Wrapper):
         return {"glyphs": glyphs, "blstats": blstats, "message": msg}
 
 
-def make_env(env_id: str) -> gym.Env:
+def make_env(env_id: str, max_episode_steps: int | None = None) -> gym.Env:
     _register_envs(env_id)
     # For NLE tasks (NetHackScore, NetHackChallenge, etc.) pin the agent
     # character to Human Valkyrie Lawful Female. NLE's default
@@ -215,6 +217,8 @@ def make_env(env_id: str) -> gym.Env:
     kwargs: dict = {"observation_keys": OBS_KEYS}
     if env_id.startswith("NetHack"):
         kwargs["character"] = "val-hum-law-fem"
+    if max_episode_steps is not None:
+        kwargs["max_episode_steps"] = max_episode_steps
     try:
         env = gym.make(env_id, **kwargs)
     except (TypeError, ValueError):
@@ -222,7 +226,10 @@ def make_env(env_id: str) -> gym.Env:
         # (older MiniHack subclasses used custom entry points that reject
         # `character`). Retry with just observation_keys.
         try:
-            env = gym.make(env_id, observation_keys=OBS_KEYS)
+            kw2: dict = {"observation_keys": OBS_KEYS}
+            if max_episode_steps is not None:
+                kw2["max_episode_steps"] = max_episode_steps
+            env = gym.make(env_id, **kw2)
         except (TypeError, ValueError):
             env = gym.make(env_id)
     return _Wrap(env)
@@ -263,7 +270,7 @@ def action_mask_for(env_id: str) -> np.ndarray:
 
 
 def _chunk_worker(env_id: str, chunk_size: int, base_seed: int,
-                  conn) -> None:
+                  conn, max_episode_steps: int | None = None) -> None:
     """Subprocess body for ``BatchedAsyncVectorEnv``.
 
     Owns ``chunk_size`` real envs in one process. Receives commands over a
@@ -278,7 +285,7 @@ def _chunk_worker(env_id: str, chunk_size: int, base_seed: int,
       ('close', None)                        -> None  then exit
     """
     _register_envs(env_id)
-    envs = [make_env(env_id) for _ in range(chunk_size)]
+    envs = [make_env(env_id, max_episode_steps=max_episode_steps) for _ in range(chunk_size)]
     obs_states: list[dict] = [None] * chunk_size  # last obs per env after auto-reset
     try:
         while True:
@@ -312,7 +319,12 @@ def _chunk_worker(env_id: str, chunk_size: int, base_seed: int,
                         # done the returned obs is the *first obs of the next
                         # episode*, with the terminal info bundled.
                         info_final = info
-                        o, _info_reset = env.reset()
+                        for _reset_attempt in range(3):
+                            with warnings.catch_warnings(record=True) as caught:
+                                warnings.simplefilter("always")
+                                o, _info_reset = env.reset()
+                            if not any("moveloop" in str(w.message) for w in caught):
+                                break
                         info = {"final_observation": None, "final_info": info_final}
                     obss[i] = o
                     obs_states[i] = o
@@ -343,7 +355,8 @@ class BatchedAsyncVectorEnv:
     keeps working.
     """
     def __init__(self, env_id: str, *, num_envs: int, num_workers: int,
-                 seed: int | None = None):
+                 seed: int | None = None,
+                 max_episode_steps: int | None = None):
         import multiprocessing as mp
         if num_envs % num_workers != 0:
             raise ValueError(f"num_envs ({num_envs}) must divide num_workers "
@@ -359,7 +372,8 @@ class BatchedAsyncVectorEnv:
             parent_conn, child_conn = ctx.Pipe(duplex=True)
             p = ctx.Process(target=_chunk_worker,
                             args=(env_id, self.chunk,
-                                  (seed or 0) + w * self.chunk, child_conn),
+                                  (seed or 0) + w * self.chunk, child_conn,
+                                  max_episode_steps),
                             daemon=True)
             p.start()
             child_conn.close()

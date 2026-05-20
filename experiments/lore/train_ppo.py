@@ -35,9 +35,13 @@ def main():
     p.add_argument("--num-env-workers", type=int, default=8)
     p.add_argument("--rollout-len", type=int, default=64)
     p.add_argument("--learning-rate", type=float, default=3e-4)
-    p.add_argument("--entropy-coef", type=float, default=0.01)
+    p.add_argument("--entropy-coef", type=float, default=0.05)
+    p.add_argument("--entropy-coef-final", type=float, default=0.005)
+    p.add_argument("--entropy-coef-anneal-steps", type=int, default=200_000_000)
     p.add_argument("--reward-clip", type=float, default=10.0)
     p.add_argument("--normalize-returns", action="store_true")
+    p.add_argument("--max-episode-steps", type=int, default=2000,
+                   help="Override NLE max episode length (default 2000)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda")
     p.add_argument("--run-id", default=None,
@@ -59,8 +63,11 @@ def main():
         total_steps=args.total_steps,
         learning_rate=args.learning_rate,
         entropy_coef=args.entropy_coef,
+        entropy_coef_final=args.entropy_coef_final,
+        entropy_coef_anneal_steps=args.entropy_coef_anneal_steps,
         reward_clip=args.reward_clip,
         normalize_returns=args.normalize_returns,
+        max_episode_steps=args.max_episode_steps,
         env_id_override="NetHackScore-v0",
         reset_step_counter=True,
         seed=args.seed,
@@ -73,6 +80,10 @@ def main():
         print("  KB dim: %d, rules: %d" % (args.kb_dim, args.kb_num_rules))
     print("  Total steps: %d" % args.total_steps)
     print("  Num envs: %d" % args.num_envs)
+    print("  Max episode steps: %d" % args.max_episode_steps)
+    print("  Entropy: %.4f -> %.4f over %dM steps" % (
+        args.entropy_coef, args.entropy_coef_final,
+        args.entropy_coef_anneal_steps // 1_000_000))
     print("  Run ID: %s" % run_id)
     print("=" * 60)
 
