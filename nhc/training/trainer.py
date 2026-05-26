@@ -630,7 +630,12 @@ def _run_single_spec_loop(
             if len(recent_ep_rewards) >= 100:
                 window_mean = float(np.mean(recent_ep_rewards))
                 last_mean_reward = window_mean
-                best_mean_reward = max(best_mean_reward, window_mean)
+                if window_mean > best_mean_reward:
+                    best_mean_reward = window_mean
+                    _save_specialist(model, optim, rd, sid, step, update,
+                                     path_override=rd.spec_best_ckpt(sid))
+                    logger.info("new best mean_r=%.1f at step %d, saved best ckpt",
+                                best_mean_reward, step)
             # Per-env-id rolling stats so the metrics DB can show
             # SR-per-curriculum-level over time without us having to
             # parse out env_ids in post-hoc analysis.
@@ -936,7 +941,8 @@ def _maybe_resume_specialist(model, optim, rd: RunDir, sid: str
 
 
 def _save_specialist(model, optim, rd: RunDir, sid: str,
-                     step: int, update: int) -> None:
+                     step: int, update: int,
+                     path_override: Path | None = None) -> None:
     blob = {
         "model": model.state_dict(),
         "optim": optim.state_dict(),
@@ -946,7 +952,7 @@ def _save_specialist(model, optim, rd: RunDir, sid: str,
         "hostname": os.uname().nodename if hasattr(os, "uname") else "",
         "torch_version": torch.__version__,
     }
-    torch.save(blob, rd.spec_ckpt(sid))
+    torch.save(blob, path_override or rd.spec_ckpt(sid))
 
 
 # =========================================================================

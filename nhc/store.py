@@ -146,6 +146,9 @@ class RunDir:
     def spec_ckpt(self, sid: str) -> Path:
         return self.spec_dir / f"{sid}.pt"
 
+    def spec_best_ckpt(self, sid: str) -> Path:
+        return self.spec_dir / f"{sid}_best.pt"
+
     def spec_sched(self, sid: str) -> Path:
         return self.spec_dir / f"{sid}.scheduler.json"
 
