@@ -44,7 +44,10 @@ from typing import Any, Optional
 
 import numpy as np
 
-from nhc.curriculum import CurriculumScheduler
+try:
+    from nhc.curriculum import CurriculumScheduler
+except ImportError:
+    CurriculumScheduler = None  # Only needed for LocalCurriculumVecEnv
 from nhc.env import (
     BatchedAsyncVectorEnv,  # re-exported below as LocalPinnedVecEnv
     NUM_ACTIONS,
