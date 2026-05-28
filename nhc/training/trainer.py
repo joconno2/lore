@@ -479,7 +479,8 @@ def _run_single_spec_loop(
     value_buf_t = torch.empty((T, B), dtype=torch.float32, device=device)
     reward_buf_t = torch.empty((T, B), dtype=torch.float32, device=device)
     done_buf_t = torch.empty((T, B), dtype=torch.float32, device=device)
-    feat_buf_t = torch.empty((T, B, model.hidden_dim),
+    feat_dim = model.hidden_dim + (model.kb.kb_dim if model.kb is not None else 0)
+    feat_buf_t = torch.empty((T, B, feat_dim),
                              dtype=torch.float32, device=device)
     mask_buf_t = (torch.empty((T, B, A), dtype=torch.bool, device=device)
                   if fixed_mask is None else None)
