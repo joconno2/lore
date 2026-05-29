@@ -256,6 +256,20 @@ def _is_walkable_glyph(g: int) -> bool:
     return False
 
 
+def _is_door_glyph(g: int) -> bool:
+    """Check if glyph is any door (open or closed)."""
+    if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87:
+        return (g - GLYPH_CMAP_OFF) in (12, 13, 14, 15, 16)  # doorway, open, closed
+    return False
+
+
+def _is_closed_door_glyph(g: int) -> bool:
+    """Check if glyph is a closed door."""
+    if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87:
+        return (g - GLYPH_CMAP_OFF) in (15, 16)  # vertical/horizontal closed door
+    return False
+
+
 def _count_explored(glyphs: np.ndarray) -> float:
     """Return fraction of non-zero tiles (rough exploration estimate)."""
     if glyphs is None:
@@ -708,36 +722,42 @@ class ExpertAgent:
     def _p6_navigation(self, s) -> Optional[int]:
         py, px = s.position
         glyphs = s._glyphs
+        if glyphs is None:
+            return Actions.SEARCH
 
         # On downstairs and healthy enough: descend
         if s.on_stairs_down:
             if s.hp > s.max_hp * 0.5 and s.depth <= s.xlevel * 2:
+                if self.verbose:
+                    self._log("P6", "descending stairs")
                 return Actions.DOWN
 
-        # Find stairs down in glyph map
-        stairs_pos = _find_stairs_down(glyphs) if glyphs is not None else None
-        explored = _count_explored(glyphs) if glyphs is not None else 0.0
+        # Check for adjacent closed door (open it cardinally)
+        door_action = self._try_open_adjacent_door(s, glyphs, py, px)
+        if door_action is not None:
+            return door_action
 
-        # If stairs found and explored enough: go there
+        # Find stairs down
+        stairs_pos = _find_stairs_down(glyphs)
+        explored = _count_explored(glyphs)
+
+        # BFS to nearest unexplored tile adjacent to stone
+        target = _find_unexplored(glyphs, py, px)
+        if target is not None:
+            step = self._bfs_step_toward(glyphs, py, px, target[0], target[1])
+            if step is not None:
+                return step
+
+        # If stairs found and explored enough: path to stairs
         if stairs_pos is not None and explored > 0.3:
             if s.hp > s.max_hp * 0.5:
                 sr, sc = stairs_pos
                 if (sr, sc) != (py, px):
-                    return _direction_toward(py, px, sr, sc)
+                    step = self._bfs_step_toward(glyphs, py, px, sr, sc)
+                    if step is not None:
+                        return step
 
-        # Explore: BFS to nearest unexplored tile
-        if glyphs is not None:
-            target = _find_unexplored(glyphs, py, px)
-            if target is not None:
-                return _direction_toward(py, px, target[0], target[1])
-
-        # Fully explored, stairs known: go there
-        if stairs_pos is not None:
-            sr, sc = stairs_pos
-            if (sr, sc) != (py, px):
-                return _direction_toward(py, px, sr, sc)
-
-        # Stuck: search for hidden doors (with random unstick after 20 searches)
+        # Stuck: search for hidden doors
         self.search_count += 1
         if self.search_count > 20:
             import random
@@ -745,6 +765,80 @@ class ExpertAgent:
             return random.choice(dirs)
 
         return Actions.SEARCH
+
+    def _try_open_adjacent_door(self, s, glyphs, py, px) -> Optional[int]:
+        """Try to open a closed door adjacent to the player (cardinal only)."""
+        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nr, nc = py + dy, px + dx
+            if 0 <= nr < 21 and 0 <= nc < 79:
+                g = int(glyphs[nr, nc])
+                if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87:
+                    cmap_idx = g - GLYPH_CMAP_OFF
+                    # 15 = vertical closed door, 16 = horizontal closed door
+                    if cmap_idx in (15, 16):
+                        if self.verbose:
+                            self._log("P6", f"opening door at ({nr},{nc})")
+                        # Walk into the door to open it (NetHack auto-opens)
+                        return Actions.DELTA_TO_MOVE.get((dy, dx), Actions.SEARCH)
+        return None
+
+    def _bfs_step_toward(self, glyphs, py, px, ty, tx) -> Optional[int]:
+        """BFS pathfind from (py,px) to (ty,tx), return first step action.
+        Respects walls, doors (cardinal only through doors), no diagonal squeeze."""
+        rows, cols = glyphs.shape
+        parent = {}
+        visited = set()
+        from collections import deque
+        queue = deque([(py, px)])
+        visited.add((py, px))
+        found = False
+
+        while queue:
+            r, c = queue.popleft()
+            if (r, c) == (ty, tx):
+                found = True
+                break
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dy == 0 and dx == 0:
+                        continue
+                    nr, nc = r + dy, c + dx
+                    if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
+                        continue
+                    if (nr, nc) in visited:
+                        continue
+                    g = int(glyphs[nr, nc])
+                    if not _is_walkable_glyph(g):
+                        # Also allow closed doors (we can open them)
+                        if not _is_closed_door_glyph(g):
+                            continue
+                    is_diagonal = abs(dy) + abs(dx) > 1
+                    if is_diagonal:
+                        # Can't move diagonally through doors
+                        src_g = int(glyphs[r, c])
+                        if _is_door_glyph(g) or _is_door_glyph(src_g):
+                            continue
+                        # Can't squeeze diagonally between two walls
+                        adj1 = int(glyphs[r, c + dx]) if 0 <= c + dx < cols else 0
+                        adj2 = int(glyphs[r + dy, c]) if 0 <= r + dy < rows else 0
+                        if not (_is_walkable_glyph(adj1) or _is_walkable_glyph(adj2)):
+                            continue
+                    visited.add((nr, nc))
+                    parent[(nr, nc)] = (r, c)
+                    queue.append((nr, nc))
+
+        if not found:
+            return None
+
+        # Trace path back to first step
+        cur = (ty, tx)
+        while parent.get(cur) != (py, px):
+            cur = parent.get(cur)
+            if cur is None:
+                return None
+        # cur is now the first step from (py, px)
+        dy, dx = cur[0] - py, cur[1] - px
+        return Actions.DELTA_TO_MOVE.get((dy, dx), None)
 
     # ----------------------------------------------------------
     # Helper methods
