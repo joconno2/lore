@@ -288,6 +288,14 @@ class GameState:
     # Position
     position: tuple[int, int] = (0, 0)  # (row, col)
 
+    @property
+    def py(self) -> int:
+        return self.position[0]
+
+    @property
+    def px(self) -> int:
+        return self.position[1]
+
     # Surroundings
     adjacent_monsters: list = field(default_factory=list)
     visible_monsters: list = field(default_factory=list)
