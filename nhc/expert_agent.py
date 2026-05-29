@@ -744,14 +744,49 @@ class ExpertAgent:
                     if step is not None:
                         return step
 
-        # Stuck: search for hidden doors
+        # Try to find and path to nearest closed door
+        door_pos = self._find_nearest_closed_door(glyphs, py, px)
+        if door_pos is not None:
+            step = self._bfs_step_toward(glyphs, py, px, door_pos[0], door_pos[1])
+            if step is not None:
+                if self.verbose:
+                    self._log("P6", f"heading to closed door at {door_pos}")
+                return step
+
+        # Stuck: search for hidden doors (with random unstick)
         self.search_count += 1
-        if self.search_count > 20:
+        if self.search_count > 15:
             import random
+            self.search_count = 0
             dirs = list(Actions.MOVE_DELTAS.keys())
             return random.choice(dirs)
 
         return Actions.SEARCH
+
+    def _find_nearest_closed_door(self, glyphs, py, px):
+        """Find nearest closed door on the map via BFS."""
+        if glyphs is None:
+            return None
+        rows, cols = glyphs.shape
+        from collections import deque
+        visited = set()
+        queue = deque([(py, px)])
+        visited.add((py, px))
+        while queue:
+            r, c = queue.popleft()
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dy == 0 and dx == 0:
+                        continue
+                    nr, nc = r + dy, c + dx
+                    if 0 <= nr < rows and 0 <= nc < cols and (nr, nc) not in visited:
+                        visited.add((nr, nc))
+                        g = int(glyphs[nr, nc])
+                        if _is_closed_door_glyph(g):
+                            return (nr, nc)
+                        if _is_walkable_glyph(g):
+                            queue.append((nr, nc))
+        return None
 
     def _try_open_adjacent_door(self, s, glyphs, py, px) -> Optional[int]:
         """Try to open a closed door adjacent to the player (cardinal only)."""
