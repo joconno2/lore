@@ -215,8 +215,8 @@ def _find_unexplored(glyphs: np.ndarray, py: int, px: int) -> Optional[tuple]:
                 if g == stone_glyph:
                     # Unexplored stone. Return the explored neighbor as target.
                     return (r, c) if (r, c) != (py, px) else None
-                # Walkable: floor, corridor, open doors, objects, monsters, stairs
-                if _is_walkable_glyph(g):
+                # Walkable OR closed door (we can open doors)
+                if _is_walkable_glyph(g) or _is_closed_door_glyph(g):
                     queue.append((nr, nc))
 
     return None
@@ -271,11 +271,12 @@ def _is_closed_door_glyph(g: int) -> bool:
 
 
 def _count_explored(glyphs: np.ndarray) -> float:
-    """Return fraction of non-zero tiles (rough exploration estimate)."""
+    """Return fraction of non-stone tiles (rough exploration estimate)."""
     if glyphs is None:
         return 0.0
     total = glyphs.size
-    explored = np.count_nonzero(glyphs)
+    stone_count = np.sum(glyphs == GLYPH_CMAP_OFF)
+    explored = total - stone_count
     return explored / max(1, total)
 
 
