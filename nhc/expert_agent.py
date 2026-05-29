@@ -191,6 +191,7 @@ def _find_unexplored(glyphs: np.ndarray, py: int, px: int) -> Optional[tuple]:
     if glyphs is None:
         return None
     rows, cols = glyphs.shape
+    stone_glyph = GLYPH_CMAP_OFF  # cmap index 0 = stone/unexplored
 
     visited = set()
     queue = [(py, px)]
@@ -211,10 +212,10 @@ def _find_unexplored(glyphs: np.ndarray, py: int, px: int) -> Optional[tuple]:
                     continue
                 visited.add((nr, nc))
                 g = int(glyphs[nr, nc])
-                if g == 0:
-                    # Dark / unexplored. Return the explored parent as target.
-                    return (r, c) if (r, c) != (py, px) else (nr, nc)
-                # Walkable: floor, corridor, lit corridor, dark room, objects, monsters, stairs
+                if g == stone_glyph:
+                    # Unexplored stone. Return the explored neighbor as target.
+                    return (r, c) if (r, c) != (py, px) else None
+                # Walkable: floor, corridor, open doors, objects, monsters, stairs
                 if _is_walkable_glyph(g):
                     queue.append((nr, nc))
 
@@ -242,11 +243,15 @@ def _is_walkable_glyph(g: int) -> bool:
     # Objects on the floor
     if GLYPH_OBJ_OFF <= g < GLYPH_CMAP_OFF:
         return True
-    # Dungeon features: room, corridor, lit corridor, dark room, stairs, doors
+    # Dungeon features
     if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87:
         cmap_idx = g - GLYPH_CMAP_OFF
-        # Room floor, dark room, corridor, lit corridor, stairs, open door, altar, fountain
-        walkable_cmaps = {19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
+        # 12=doorway, 13=vertical open door, 14=horizontal open door
+        # 19=room, 20=dark room, 21=corridor, 22=lit corridor
+        # 23=upstair, 24=downstair, 25=upladder, 26=downladder
+        # 27=altar, 28=grave, 29=throne, 30=sink, 31=fountain
+        # 32=pool, 33=moat, 34=water, 35=drawbridge, 36=lava (NOT walkable)
+        walkable_cmaps = {12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}
         return cmap_idx in walkable_cmaps
     return False
 
@@ -352,6 +357,9 @@ class ExpertAgent:
         self._corpse_name: str = ""
         self._on_item: bool = False
         self._on_edible_item: bool = False
+        # Multi-step action state
+        self._pending_action: Optional[str] = None  # "eat", "pray", etc.
+        self._eat_attempts: int = 0
 
     def reset(self) -> None:
         """Reset state for a new episode."""
@@ -386,15 +394,46 @@ class ExpertAgent:
                 if self.verbose:
                     self._log("MORE", f"clearing prompt: {msg_str[:60]}")
                 return Actions.MORE
-            # Also handle common menu/prompt patterns that block input
+            # Handle eat prompts
+            if "What do you want to eat?" in msg_str:
+                # Find first food item letter in inventory
+                food_letter = self._find_food_letter(s)
+                if food_letter is not None:
+                    if self.verbose:
+                        self._log("EAT", f"selecting item '{food_letter}'")
+                    self._pending_action = None
+                    return self._letter_to_action(food_letter)
+                else:
+                    # No food found, cancel with ESC
+                    if self.verbose:
+                        self._log("EAT", "no food in inventory, canceling")
+                    self._pending_action = None
+                    self.has_food = False
+                    return Actions.MORE  # ESC or space to cancel
+            # "eat it? [yn]" for corpse on ground
+            if "eat it?" in msg_str or "eat this?" in msg_str:
+                if self.verbose:
+                    self._log("EAT", f"confirming: {msg_str[:40]}")
+                self._pending_action = None
+                return self._letter_to_action('y')
+            # Handle yn prompts (default yes)
             if msg_str.endswith("[yn]") or msg_str.endswith("[ynq]"):
                 if self.verbose:
                     self._log("YN", f"answering yes to: {msg_str[:60]}")
-                return Actions.MORE  # CR = yes/default for most prompts
+                return self._letter_to_action('y')
+            # Handle menu dismissal
             if msg_str.endswith("[q]") or msg_str.endswith("(end)"):
                 if self.verbose:
                     self._log("MENU", f"dismissing: {msg_str[:60]}")
                 return Actions.MORE
+            # "Never mind" means last action failed, clear pending
+            if "Never mind" in msg_str or "You cannot eat that" in msg_str:
+                if self._pending_action == "eat":
+                    self._eat_attempts += 1
+                    if self._eat_attempts >= 3:
+                        self._pending_action = None
+                        self.has_food = False
+                        self._eat_attempts = 0
 
         # Track stuck detection
         pos = s.position
@@ -621,11 +660,17 @@ class ExpertAgent:
     def _p3_food(self, s) -> Optional[int]:
         if s.hunger_state in ("hungry", "weak"):
             if self.has_food:
+                self._pending_action = "eat"
+                self._eat_attempts = 0
+                if self.verbose:
+                    self._log("P3", "hungry, eating from inventory")
                 return Actions.EAT
-            # Check for corpse on our tile (from message or glyph)
+            # Check for corpse on our tile
             if self._on_corpse and self._corpse_safe_to_eat(self._corpse_name):
-                return Actions.EAT
-            if self._on_edible_item:
+                self._pending_action = "eat"
+                self._eat_attempts = 0
+                if self.verbose:
+                    self._log("P3", f"hungry, eating corpse: {self._corpse_name}")
                 return Actions.EAT
 
         return None
@@ -857,8 +902,10 @@ class ExpertAgent:
             return
         self.has_food = False
         self.has_lizard_corpse = False
-        for item_str in s.inventory.values():
+        self.inventory_items = {}
+        for letter, item_str in s.inventory.items():
             lower = item_str.lower()
+            self.inventory_items[letter] = item_str
             if "food ration" in lower or "ration" in lower or "tripe" in lower:
                 self.has_food = True
             if "lizard corpse" in lower:
@@ -866,6 +913,44 @@ class ExpertAgent:
                 self.has_food = True
             if "corpse" in lower or "meatball" in lower or "egg" in lower:
                 self.has_food = True
+
+    def _find_food_letter(self, s) -> Optional[str]:
+        """Find the inventory letter of the best food item to eat."""
+        if not s.inventory:
+            return None
+        # Prefer: food ration > tripe > corpse > other
+        best = None
+        best_priority = -1
+        for letter, item_str in s.inventory.items():
+            lower = item_str.lower()
+            if "food ration" in lower:
+                if best_priority < 3:
+                    best, best_priority = letter, 3
+            elif "tripe" in lower:
+                if best_priority < 2:
+                    best, best_priority = letter, 2
+            elif "corpse" in lower:
+                if best_priority < 1:
+                    best, best_priority = letter, 1
+            elif "meatball" in lower or "egg" in lower or "apple" in lower:
+                if best_priority < 1:
+                    best, best_priority = letter, 1
+        return best
+
+    def _letter_to_action(self, letter: str) -> int:
+        """Convert a character to an NLE action index.
+        NLE TextCharacters cover digits and some punctuation.
+        For letters, we need to find the matching action by ord value."""
+        target = ord(letter)
+        try:
+            from nle import nethack
+            for i, a in enumerate(nethack.ACTIONS):
+                if int(a) == target:
+                    return i
+        except ImportError:
+            pass
+        # Fallback: search known TextCharacters range (105-120 in canonical order)
+        return Actions.MORE  # default to CR if can't find it
 
 
 # ============================================================
