@@ -10,6 +10,7 @@ development.
 """
 from __future__ import annotations
 
+import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -18,103 +19,87 @@ from typing import Optional
 # ============================================================
 
 try:
-    from nhc.combat import ThreatDB, ThreatReport, CorpseReport
-except ImportError:
-    ThreatDB = None  # type: ignore
-    ThreatReport = None  # type: ignore
-    CorpseReport = None  # type: ignore
-
-try:
-    from nhc.prayer import (
-        PrayerState, HungerState, TroubleSeverity,
-        COND_STONE, COND_SLIME, COND_STRNGL, COND_ILL,
+    from nhc.obs_parser import (
+        GameState, MonsterInfo,
+        glyph_is_monster, glyph_is_pet, glyph_is_stairs_down,
+        glyph_is_stairs_up, glyph_to_monster_name, glyph_to_mon_id,
+        GLYPH_MON_OFF, GLYPH_PET_OFF, GLYPH_BODY_OFF, GLYPH_OBJ_OFF,
+        GLYPH_CMAP_OFF, GLYPH_RIDDEN_OFF,
+        CMAP_UPSTAIR, CMAP_DNSTAIR, CMAP_ROOM, CMAP_CORR,
+        CMAP_LITCORR, CMAP_DARKROOM,
+        S_DNSTAIR, S_UPSTAIR,
+        MAP_H, MAP_W,
+        COND_STONE, COND_SLIME,
     )
+    _HAS_OBS_PARSER = True
 except ImportError:
-    PrayerState = None  # type: ignore
-    HungerState = None  # type: ignore
-    TroubleSeverity = None  # type: ignore
+    _HAS_OBS_PARSER = False
+    GameState = None
+    # Fallback constants
+    GLYPH_MON_OFF = 0
+    GLYPH_PET_OFF = 381
+    GLYPH_BODY_OFF = 1144
+    GLYPH_OBJ_OFF = 1906
+    GLYPH_CMAP_OFF = 2359
+    GLYPH_RIDDEN_OFF = 1525
+    MAP_H = 21
+    MAP_W = 79
+    S_DNSTAIR = GLYPH_CMAP_OFF + 24
+    S_UPSTAIR = GLYPH_CMAP_OFF + 23
     COND_STONE = 0x00000001
     COND_SLIME = 0x00000002
-    COND_STRNGL = 0x00000004
-    COND_ILL = 0x00001000
+
+try:
+    from nhc.combat import ThreatDB, ThreatReport, CorpseReport
+    _HAS_COMBAT = True
+except ImportError:
+    ThreatDB = None
+    _HAS_COMBAT = False
+
+try:
+    from nhc.prayer import PrayerState, HungerState, TroubleSeverity
+    _HAS_PRAYER = True
+except ImportError:
+    PrayerState = None
+    _HAS_PRAYER = False
 
 try:
     from nhc.item_id import AppearanceTracker
+    _HAS_ITEM_ID = True
 except ImportError:
-    AppearanceTracker = None  # type: ignore
-
-try:
-    from nhc.obs_parser import GameState
-except ImportError:
-    GameState = None  # type: ignore
+    AppearanceTracker = None
+    _HAS_ITEM_ID = False
 
 try:
     from nhc.navigation import DungeonMap
+    _HAS_NAV = True
 except ImportError:
-    DungeonMap = None  # type: ignore
+    DungeonMap = None
+    _HAS_NAV = False
 
 
 # ============================================================
 # NLE action indices (from nle.nethack.ACTIONS canonical order)
 # ============================================================
-# The full NLE action space has 113 actions. These are the indices
-# into that canonical tuple that the expert agent uses.
-
-# Compass movement: indices 0-7
-# nle.nethack.CompassDirection values in ACTIONS order:
-#   N=0, E=1, S=2, W=3, NE=4, SE=5, SW=6, NW=7
-# But the actual canonical ACTIONS tuple starts with CompassCardinalDirection
-# then CompassIntercardinalDirection, then MiscDirection, then Commands.
-# The standard ordering in nle.nethack.ACTIONS is:
-#   0:N, 1:E, 2:S, 3:W, 4:NE, 5:SE, 6:SW, 7:NW,
-#   8:up, 9:down, 10:wait,
-#   11-onwards: commands
-#
-# We build a symbolic map and resolve at runtime if nle is available.
 
 class Actions:
     """Static action index mapping for the canonical NLE action space.
 
-    If nle is importable, indices are resolved from nle.nethack.ACTIONS.
-    Otherwise, hardcoded defaults from NLE 0.9.x are used.
+    Hardcoded defaults from NLE 0.9.x. Overridden at import time if
+    nle is importable.
     """
-    # Movement directions (CompassCardinal + CompassIntercardinal)
     N = 0; E = 1; S = 2; W = 3
     NE = 4; SE = 5; SW = 6; NW = 7
-    # MiscDirection
     UP = 8; DOWN = 9; WAIT = 10
-    # Commands (alphabetical in NLE, but we only need a subset)
-    APPLY = 11
-    CLOSE = 12
-    DROP = 13
-    EAT = 14
-    ENGRAVE = 15
-    FIRE = 16
-    INV = 17
-    KICK = 18
-    LOOT = 19
-    OPEN = 20
-    PAY = 21
-    PICKUP = 22
-    PRAY = 23
-    PUTON = 24
-    QUAFF = 25
-    READ = 26
-    REMOVE = 27
-    RIDE = 28
-    SEARCH = 29
-    TAKEOFF = 30
-    THROW = 31
-    WEAR = 32
-    WIELD = 33
-    ZAP = 34
-    # Special
+    APPLY = 11; CLOSE = 12; DROP = 13; EAT = 14
+    ENGRAVE = 15; FIRE = 16; INV = 17; KICK = 18
+    LOOT = 19; OPEN = 20; PAY = 21; PICKUP = 22
+    PRAY = 23; PUTON = 24; QUAFF = 25; READ = 26
+    REMOVE = 27; RIDE = 28; SEARCH = 29; TAKEOFF = 30
+    THROW = 31; WEAR = 32; WIELD = 33; ZAP = 34
     MORE = 35
-    # Total count (not all are used)
     NUM_ACTIONS = 113
 
-    # Direction deltas: index -> (dy, dx) in NLE screen coords
-    # NLE uses (row, col) where row increases downward
     MOVE_DELTAS = {
         0: (-1, 0),   # N
         1: (0, 1),    # E
@@ -125,15 +110,11 @@ class Actions:
         6: (1, -1),   # SW
         7: (-1, -1),  # NW
     }
-
-    # Reverse: (dy, dx) -> action index
     DELTA_TO_MOVE = {v: k for k, v in MOVE_DELTAS.items()}
 
 
 def _try_resolve_actions():
-    """Attempt to resolve action indices from NLE at import time.
-    Silently falls back to hardcoded defaults if nle is not installed.
-    """
+    """Attempt to resolve action indices from NLE at import time."""
     try:
         from nle import nethack
         act_list = list(nethack.ACTIONS)
@@ -142,7 +123,6 @@ def _try_resolve_actions():
             name = a.name if hasattr(a, "name") else str(a)
             lookup[name] = i
 
-        # Map our symbolic names to resolved indices
         compass = {
             "N": "CompassDirection.N", "E": "CompassDirection.E",
             "S": "CompassDirection.S", "W": "CompassDirection.W",
@@ -177,8 +157,6 @@ def _try_resolve_actions():
                 setattr(Actions, attr, lookup[nle_name])
 
         Actions.NUM_ACTIONS = len(act_list)
-
-        # Rebuild delta maps
         Actions.MOVE_DELTAS = {
             Actions.N: (-1, 0), Actions.E: (0, 1),
             Actions.S: (1, 0), Actions.W: (0, -1),
@@ -186,7 +164,6 @@ def _try_resolve_actions():
             Actions.SW: (1, -1), Actions.NW: (-1, -1),
         }
         Actions.DELTA_TO_MOVE = {v: k for k, v in Actions.MOVE_DELTAS.items()}
-
     except ImportError:
         pass
 
@@ -194,265 +171,11 @@ _try_resolve_actions()
 
 
 # ============================================================
-# Blstats indices (canonical NLE order, matches nhc/kb.py)
-# ============================================================
-
-BL_X = 0
-BL_Y = 1
-BL_STR25 = 2
-BL_STR125 = 3
-BL_DEX = 4
-BL_CON = 5
-BL_INT = 6
-BL_WIS = 7
-BL_CHA = 8
-BL_SCORE = 9
-BL_HP = 10
-BL_MAXHP = 11
-BL_DEPTH = 12
-BL_GOLD = 13
-BL_ENE = 14
-BL_MAXENE = 15
-BL_AC = 16
-BL_XP = 17
-BL_HUNGER = 18
-BL_CAP = 19
-BL_DNUM = 20
-BL_XL = 21
-BL_ALIGNMENT = 22
-BL_CONDITION = 23
-BL_MONSTER = 24
-BL_TIME = 25
-
-# NLE glyph offsets (from nle.nethack constants)
-try:
-    from nle import nethack as _nh
-    GLYPH_MON_OFF = _nh.GLYPH_MON_OFF
-    GLYPH_PET_OFF = _nh.GLYPH_PET_OFF
-    GLYPH_BODY_OFF = _nh.GLYPH_BODY_OFF
-    GLYPH_OBJ_OFF = _nh.GLYPH_OBJ_OFF
-    GLYPH_CMAP_OFF = _nh.GLYPH_CMAP_OFF
-    GLYPH_RIDDEN_OFF = _nh.GLYPH_RIDDEN_OFF
-    MAX_GLYPH = _nh.MAX_GLYPH
-    _NLE_AVAILABLE = True
-except ImportError:
-    # Fallback values from NLE 0.9.x
-    GLYPH_MON_OFF = 0
-    GLYPH_PET_OFF = 381
-    GLYPH_BODY_OFF = 1524
-    GLYPH_OBJ_OFF = 1905
-    GLYPH_CMAP_OFF = 2840
-    GLYPH_RIDDEN_OFF = 1143
-    MAX_GLYPH = 5976
-    _NLE_AVAILABLE = False
-
-# Dungeon tile glyphs (cmap indices for navigation)
-# floor, corridor, open door, stairs down, stairs up
-CMAP_FLOOR = 23   # room floor
-CMAP_CORR = 24    # corridor
-CMAP_DOOR_OPEN = 28
-CMAP_STAIRDN = 30
-CMAP_STAIRUP = 29
-CMAP_DOOR_CLOSED = 27
-
-
-# ============================================================
-# Lightweight obs parser (stub for when obs_parser.py is missing)
-# ============================================================
-
-@dataclass
-class _BasicGameState:
-    """Minimal game state extracted from NLE observations.
-    Used as a fallback when nhc.obs_parser.GameState is unavailable.
-    """
-    # Player position and stats
-    py: int = 0
-    px: int = 0
-    hp: int = 0
-    max_hp: int = 0
-    depth: int = 1
-    xl: int = 1
-    hunger: int = 1  # HungerState enum value
-    alignment: int = 0
-    ac: int = 10
-    turn: int = 0
-    condition: int = 0
-    score: int = 0
-
-    # Map data
-    glyphs: object = None  # 21x79 array
-    message: bytes = b""
-
-    # Derived
-    adjacent_monsters: list = field(default_factory=list)
-    visible_monsters: list = field(default_factory=list)
-    on_stairs_down: bool = False
-    on_stairs_up: bool = False
-    on_food: bool = False
-    on_item: bool = False
-    on_corpse: bool = False
-    corpse_name: str = ""
-    stairs_down_pos: Optional[tuple] = None
-    explored_ratio: float = 0.0
-
-    def update(self, obs: dict) -> None:
-        """Parse raw NLE observation dict into structured state."""
-        bl = obs.get("blstats")
-        if bl is None:
-            return
-        bl = list(bl)
-
-        self.px = int(bl[BL_X])
-        self.py = int(bl[BL_Y])
-        self.hp = int(bl[BL_HP])
-        self.max_hp = max(1, int(bl[BL_MAXHP]))
-        self.depth = int(bl[BL_DEPTH])
-        self.xl = int(bl[BL_XL])
-        self.hunger = int(bl[BL_HUNGER])
-        self.alignment = int(bl[BL_ALIGNMENT])
-        self.ac = int(bl[BL_AC])
-        self.turn = int(bl[BL_TIME]) if len(bl) > BL_TIME else 0
-        self.condition = int(bl[BL_CONDITION]) if len(bl) > BL_CONDITION else 0
-        self.score = int(bl[BL_SCORE])
-
-        glyphs = obs.get("glyphs")
-        if glyphs is not None:
-            self.glyphs = glyphs
-            self._parse_surroundings(glyphs)
-
-        msg = obs.get("message")
-        if msg is not None:
-            if hasattr(msg, "tobytes"):
-                self.message = msg.tobytes().rstrip(b"\x00")
-            elif isinstance(msg, bytes):
-                self.message = msg.rstrip(b"\x00")
-            else:
-                self.message = bytes(msg)
-
-    def _parse_surroundings(self, glyphs) -> None:
-        """Scan the glyph grid for monsters, items, and terrain near player."""
-        self.adjacent_monsters = []
-        self.visible_monsters = []
-        self.on_stairs_down = False
-        self.on_stairs_up = False
-        self.on_food = False
-        self.on_item = False
-        self.on_corpse = False
-        self.corpse_name = ""
-        self.stairs_down_pos = None
-
-        rows = len(glyphs) if hasattr(glyphs, "__len__") else 0
-        if rows == 0:
-            return
-
-        cols = len(glyphs[0]) if rows > 0 and hasattr(glyphs[0], "__len__") else 0
-        py, px = self.py, self.px
-
-        # Check tile under player
-        if 0 <= py < rows and 0 <= px < cols:
-            g = int(glyphs[py][px])
-            if _glyph_is_stairs_down(g):
-                self.on_stairs_down = True
-            if _glyph_is_stairs_up(g):
-                self.on_stairs_up = True
-            if _glyph_is_corpse(g):
-                self.on_corpse = True
-                self.corpse_name = _corpse_name(g)
-            if _glyph_is_object(g):
-                self.on_item = True
-
-        # Scan 21x79 for monsters
-        explored = 0
-        total_tiles = 0
-        for r in range(rows):
-            for c in range(cols):
-                g = int(glyphs[r][c])
-                if g == GLYPH_CMAP_OFF + 32:
-                    # unexplored / dark
-                    pass
-                else:
-                    if _glyph_is_floor_or_corridor(g):
-                        explored += 1
-                    total_tiles += 1
-
-                if _glyph_is_stairs_down(g):
-                    self.stairs_down_pos = (r, c)
-
-                if _glyph_is_monster(g) and (r != py or c != px):
-                    mon_name = _monster_name(g)
-                    dist = max(abs(r - py), abs(c - px))
-                    entry = {"name": mon_name, "row": r, "col": c,
-                             "dist": dist, "glyph": g}
-                    self.visible_monsters.append(entry)
-                    if dist == 1:
-                        self.adjacent_monsters.append(entry)
-
-        self.explored_ratio = explored / max(1, total_tiles)
-
-
-# ============================================================
-# Glyph helper functions
-# ============================================================
-
-def _glyph_is_monster(g: int) -> bool:
-    return GLYPH_MON_OFF <= g < GLYPH_PET_OFF
-
-def _glyph_is_pet(g: int) -> bool:
-    return GLYPH_PET_OFF <= g < GLYPH_PET_OFF + (GLYPH_PET_OFF - GLYPH_MON_OFF)
-
-def _glyph_is_corpse(g: int) -> bool:
-    return GLYPH_BODY_OFF <= g < GLYPH_BODY_OFF + (GLYPH_PET_OFF - GLYPH_MON_OFF)
-
-def _glyph_is_object(g: int) -> bool:
-    return GLYPH_OBJ_OFF <= g < GLYPH_CMAP_OFF
-
-def _glyph_is_stairs_down(g: int) -> bool:
-    return g == GLYPH_CMAP_OFF + CMAP_STAIRDN
-
-def _glyph_is_stairs_up(g: int) -> bool:
-    return g == GLYPH_CMAP_OFF + CMAP_STAIRUP
-
-def _glyph_is_floor_or_corridor(g: int) -> bool:
-    if g == GLYPH_CMAP_OFF + CMAP_FLOOR:
-        return True
-    if g == GLYPH_CMAP_OFF + CMAP_CORR:
-        return True
-    if g == GLYPH_CMAP_OFF + CMAP_DOOR_OPEN:
-        return True
-    return False
-
-def _glyph_is_closed_door(g: int) -> bool:
-    return g == GLYPH_CMAP_OFF + CMAP_DOOR_CLOSED
-
-def _monster_name(g: int) -> str:
-    """Get monster name from glyph. Requires NLE for real names."""
-    if _NLE_AVAILABLE:
-        mon_id = g - GLYPH_MON_OFF
-        try:
-            return _nh.permonst(mon_id).mname
-        except Exception:
-            return f"monster_{mon_id}"
-    return f"monster_{g - GLYPH_MON_OFF}"
-
-def _corpse_name(g: int) -> str:
-    """Get monster name whose corpse this is."""
-    if _NLE_AVAILABLE:
-        mon_id = g - GLYPH_BODY_OFF
-        try:
-            return _nh.permonst(mon_id).mname
-        except Exception:
-            return f"corpse_{mon_id}"
-    return f"corpse_{g - GLYPH_BODY_OFF}"
-
-
-# ============================================================
-# Navigation helpers (stub for when navigation.py is missing)
+# Navigation helpers
 # ============================================================
 
 def _direction_toward(py: int, px: int, ty: int, tx: int) -> int:
-    """Return the movement action index to step from (py,px) toward (ty,tx).
-    Uses Chebyshev-adjacent step (diagonal OK).
-    """
+    """Movement action to step from (py,px) toward (ty,tx). Chebyshev step."""
     dy = 0 if ty == py else (1 if ty > py else -1)
     dx = 0 if tx == px else (1 if tx > px else -1)
     if dy == 0 and dx == 0:
@@ -461,7 +184,7 @@ def _direction_toward(py: int, px: int, ty: int, tx: int) -> int:
 
 
 def _direction_away(py: int, px: int, ty: int, tx: int) -> int:
-    """Return movement action to step away from (ty, tx)."""
+    """Movement action to step away from (ty, tx)."""
     dy = 0 if ty == py else (-1 if ty > py else 1)
     dx = 0 if tx == px else (-1 if tx > px else 1)
     if dy == 0 and dx == 0:
@@ -469,23 +192,18 @@ def _direction_away(py: int, px: int, ty: int, tx: int) -> int:
     return Actions.DELTA_TO_MOVE.get((dy, dx), Actions.SEARCH)
 
 
-def _find_unexplored(glyphs, py: int, px: int) -> Optional[tuple]:
-    """BFS for nearest unexplored tile adjacent to an explored tile.
+def _find_unexplored(glyphs: np.ndarray, py: int, px: int) -> Optional[tuple]:
+    """BFS for nearest reachable tile adjacent to unexplored space.
     Returns (row, col) or None.
     """
     if glyphs is None:
         return None
-    rows = len(glyphs) if hasattr(glyphs, "__len__") else 0
-    if rows == 0:
-        return None
-    cols = len(glyphs[0]) if hasattr(glyphs[0], "__len__") else 0
+    rows, cols = glyphs.shape
 
     visited = set()
     queue = [(py, px)]
     visited.add((py, px))
     head = 0
-
-    dark_glyph = GLYPH_CMAP_OFF + 32  # unexplored/dark space
 
     while head < len(queue):
         r, c = queue[head]
@@ -500,15 +218,112 @@ def _find_unexplored(glyphs, py: int, px: int) -> Optional[tuple]:
                 if (nr, nc) in visited:
                     continue
                 visited.add((nr, nc))
-                g = int(glyphs[nr][nc])
-                if g == dark_glyph or g == 0:
-                    # This is unexplored. Return the explored tile
-                    # adjacent to it as the target.
+                g = int(glyphs[nr, nc])
+                if g == 0:
+                    # Dark / unexplored. Return the explored parent as target.
                     return (r, c) if (r, c) != (py, px) else (nr, nc)
-                if _glyph_is_floor_or_corridor(g) or _glyph_is_monster(g) or _glyph_is_object(g):
+                # Walkable: floor, corridor, lit corridor, dark room, objects, monsters, stairs
+                if _is_walkable_glyph(g):
                     queue.append((nr, nc))
 
     return None
+
+
+def _find_stairs_down(glyphs: np.ndarray) -> Optional[tuple]:
+    """Scan the glyph map for downstairs. Returns (row, col) or None."""
+    if glyphs is None:
+        return None
+    rows, cols = glyphs.shape
+    for r in range(rows):
+        for c in range(cols):
+            g = int(glyphs[r, c])
+            if g == S_DNSTAIR or g == S_DNSTAIR + 2:  # stairs or ladder
+                return (r, c)
+    return None
+
+
+def _is_walkable_glyph(g: int) -> bool:
+    """Check if a glyph represents a tile the player can walk on."""
+    # Monsters (we can walk toward them to attack)
+    if GLYPH_MON_OFF <= g < GLYPH_OBJ_OFF:
+        return True
+    # Objects on the floor
+    if GLYPH_OBJ_OFF <= g < GLYPH_CMAP_OFF:
+        return True
+    # Dungeon features: room, corridor, lit corridor, dark room, stairs, doors
+    if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87:
+        cmap_idx = g - GLYPH_CMAP_OFF
+        # Room floor, dark room, corridor, lit corridor, stairs, open door, altar, fountain
+        walkable_cmaps = {19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
+        return cmap_idx in walkable_cmaps
+    return False
+
+
+def _count_explored(glyphs: np.ndarray) -> float:
+    """Return fraction of non-zero tiles (rough exploration estimate)."""
+    if glyphs is None:
+        return 0.0
+    total = glyphs.size
+    explored = np.count_nonzero(glyphs)
+    return explored / max(1, total)
+
+
+# ============================================================
+# Glyph helpers for item/corpse detection
+# ============================================================
+
+def _tile_has_corpse(glyphs: np.ndarray, row: int, col: int) -> tuple[bool, str]:
+    """Check if there's a corpse at (row, col). Returns (has_corpse, name)."""
+    if glyphs is None:
+        return False, ""
+    g = int(glyphs[row, col])
+    if GLYPH_BODY_OFF <= g < GLYPH_BODY_OFF + 381:
+        if _HAS_OBS_PARSER:
+            name = glyph_to_monster_name(GLYPH_MON_OFF + (g - GLYPH_BODY_OFF))
+            return True, name or ""
+        return True, f"corpse_{g - GLYPH_BODY_OFF}"
+    return False, ""
+
+
+def _tile_has_object(glyphs: np.ndarray, row: int, col: int) -> bool:
+    """Check if there's a non-corpse object at (row, col)."""
+    if glyphs is None:
+        return False
+    g = int(glyphs[row, col])
+    return GLYPH_OBJ_OFF <= g < GLYPH_CMAP_OFF
+
+
+# ============================================================
+# Stub ThreatReport for when combat.py is unavailable
+# ============================================================
+
+@dataclass
+class _StubThreatReport:
+    name: str
+    danger_level: int = 5
+    special_attacks: list = field(default_factory=list)
+    required_resistances: list = field(default_factory=list)
+    elbereth_effective: bool = True
+    ranged_preferred: bool = False
+    instakill_risk: bool = False
+    recommended_action: str = "melee"
+
+    def __post_init__(self):
+        instakill_names = {
+            "cockatrice", "chickatrice", "Medusa",
+            "green slime", "Death", "Pestilence", "Famine",
+        }
+        if self.name in instakill_names:
+            self.instakill_risk = True
+            self.danger_level = 10
+            self.recommended_action = "flee"
+        ranged_names = {
+            "floating eye", "cockatrice", "chickatrice",
+            "rust monster", "acid blob", "brown mold",
+        }
+        if self.name in ranged_names:
+            self.ranged_preferred = True
+            self.recommended_action = "ranged"
 
 
 # ============================================================
@@ -524,52 +339,50 @@ class ExpertAgent:
     """
 
     def __init__(self):
-        # Game state parser
-        if GameState is not None:
-            self.state = GameState()
-        else:
-            self.state = _BasicGameState()
-
-        # Subsystems
-        self.threat_db = ThreatDB() if ThreatDB is not None else None
-        self.prayer = PrayerState() if PrayerState is not None else None
-        self.item_tracker = AppearanceTracker() if AppearanceTracker is not None else None
-        self.dungeon_map = DungeonMap() if DungeonMap is not None else None
+        self.state: GameState = GameState() if _HAS_OBS_PARSER else None
+        self.threat_db = ThreatDB() if _HAS_COMBAT else None
+        self.prayer = PrayerState() if _HAS_PRAYER else None
+        self.item_tracker = AppearanceTracker() if _HAS_ITEM_ID else None
 
         # Per-episode state
         self.resistances: set[str] = set()
         self.has_food: bool = False
         self.has_lizard_corpse: bool = False
-        self.inventory_items: list[str] = []
         self.last_action: int = Actions.SEARCH
         self.turns_on_tile: int = 0
         self.last_pos: tuple = (0, 0)
         self.search_count: int = 0
 
+        # Per-turn tile state (detected from messages + glyphs)
+        self._on_corpse: bool = False
+        self._corpse_name: str = ""
+        self._on_item: bool = False
+        self._on_edible_item: bool = False
+
     def reset(self) -> None:
         """Reset state for a new episode."""
-        if GameState is not None:
-            self.state = GameState()
-        else:
-            self.state = _BasicGameState()
-        if PrayerState is not None:
+        self.state = GameState() if _HAS_OBS_PARSER else None
+        if _HAS_PRAYER:
             self.prayer = PrayerState()
         self.resistances = set()
         self.has_food = False
         self.has_lizard_corpse = False
-        self.inventory_items = []
         self.last_action = Actions.SEARCH
         self.turns_on_tile = 0
         self.last_pos = (0, 0)
         self.search_count = 0
+        self._on_corpse = False
+        self._corpse_name = ""
+        self._on_item = False
+        self._on_edible_item = False
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
-        self.state.update(obs)
         s = self.state
+        s.update(obs)
 
         # Track stuck detection
-        pos = (s.py, s.px)
+        pos = s.position
         if pos == self.last_pos:
             self.turns_on_tile += 1
         else:
@@ -577,22 +390,25 @@ class ExpertAgent:
             self.search_count = 0
         self.last_pos = pos
 
-        # Update prayer subsystem
+        # Update prayer subsystem from blstats
         if self.prayer is not None:
-            self.prayer.update_from_blstats(obs.get("blstats", []))
+            bl = obs.get("blstats")
+            if bl is not None:
+                self.prayer.update_from_blstats(bl)
 
-        # Parse message for clues
-        self._parse_message(s.message)
+        # Parse messages for resistance gains and inventory clues
+        self._parse_message_for_state(s)
 
-        # Priority-based decision cascade
-        action = self._decide(s)
-        self.last_action = action
-        return action
+        # Detect what's on the player's tile (from messages + glyphs)
+        self._detect_tile_contents(s)
+
+        # Scan inventory for food / lizard
+        self._check_inventory(s)
+
+        return self._decide(s)
 
     def _decide(self, s) -> int:
-        """Priority cascade. Returns the action for the highest-priority
-        applicable rule.
-        """
+        """Priority cascade. Returns action for highest-priority applicable rule."""
         # P0: Critical emergencies
         a = self._p0_emergencies(s)
         if a is not None:
@@ -628,7 +444,6 @@ class ExpertAgent:
         if a is not None:
             return a
 
-        # Fallback: search
         return Actions.SEARCH
 
     # ----------------------------------------------------------
@@ -636,42 +451,41 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p0_emergencies(self, s) -> Optional[int]:
-        cond = s.condition
+        conds = s.conditions
 
         # Stoning
-        if cond & COND_STONE:
+        if "stoned" in conds:
             if self.has_lizard_corpse:
                 return Actions.EAT
             return self._try_pray(s, "stoning")
 
         # Sliming
-        if cond & COND_SLIME:
+        if "slimed" in conds:
             if self.has_lizard_corpse:
-                return Actions.EAT  # lizard cures sliming too
+                return Actions.EAT
             return self._try_pray(s, "sliming")
 
-        # HP critical: <= maxHP/7
+        # HP critical: HP <= max(5, maxHP // 7)
         if s.hp <= max(5, s.max_hp // 7):
             pray_action = self._try_pray(s, "hp_critical")
             if pray_action is not None:
                 return pray_action
             # Can't pray: flee or Elbereth
-            if s.adjacent_monsters:
+            if s.has_adjacent_monsters:
                 return self._flee_or_elbereth(s)
-            return Actions.SEARCH  # rest and hope
+            return Actions.SEARCH  # rest
 
         # Fainting from hunger
-        if s.hunger >= 4:  # FAINTING
+        if s.hunger_state in ("fainting", "fainted", "starved"):
             pray_action = self._try_pray(s, "starving")
             if pray_action is not None:
                 return pray_action
-            # Try to eat anything
-            if self.has_food or s.on_food or s.on_corpse:
+            if self.has_food:
                 return Actions.EAT
-            return None  # fall through, maybe food on ground
+            return None
 
-        # Terminal illness
-        if cond & COND_ILL:
+        # Terminal illness / food poisoning
+        if "foodpois" in conds or "termill" in conds:
             return self._try_pray(s, "illness")
 
         return None
@@ -681,77 +495,79 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p1_adjacent_combat(self, s) -> Optional[int]:
-        if not s.adjacent_monsters:
+        # Filter out pets
+        hostile = [m for m in s.adjacent_monsters if not m.is_pet]
+        if not hostile:
             return None
+
+        py, px = s.position
 
         # Assess each adjacent monster
         threats = []
-        for mon in s.adjacent_monsters:
-            name = mon["name"]
+        for mon in hostile:
+            name = mon.name
             if self.threat_db is not None:
                 report = self.threat_db.assess_threat(name, self._player_state(s))
             else:
                 report = _StubThreatReport(name)
             threats.append((mon, report))
 
-        # Sort by danger (highest first)
         threats.sort(key=lambda x: -x[1].danger_level)
 
-        # Check for instakill risks
+        # Instakill risks: flee or Elbereth
         any_instakill = any(r.instakill_risk for _, r in threats)
         if any_instakill:
-            # Flee or Elbereth
             return self._flee_or_elbereth(s)
 
         top_mon, top_report = threats[0]
 
-        # Elbereth if recommended and danger is high
+        # Elbereth if recommended and high danger
         if (top_report.recommended_action == "elbereth"
                 and top_report.elbereth_effective
                 and top_report.danger_level >= 6):
-            return Actions.ENGRAVE  # write Elbereth
+            return Actions.ENGRAVE
 
-        # Ranged preferred: step away if possible
+        # Ranged preferred: step away
         if top_report.ranged_preferred:
-            return _direction_away(s.py, s.px, top_mon["row"], top_mon["col"])
+            return _direction_away(py, px, top_mon.row, top_mon.col)
 
         # Flee recommendation
         if top_report.recommended_action == "flee":
             return self._flee_from(s, top_mon)
 
-        # Melee: attack the highest-priority target
-        return _direction_toward(s.py, s.px, top_mon["row"], top_mon["col"])
+        # Melee the highest-priority target
+        return _direction_toward(py, px, top_mon.row, top_mon.col)
 
     # ----------------------------------------------------------
     # P2: Ranged threats (visible non-adjacent)
     # ----------------------------------------------------------
 
     def _p2_ranged_threats(self, s) -> Optional[int]:
-        non_adjacent = [m for m in s.visible_monsters if m["dist"] > 1]
+        py, px = s.position
+        non_adjacent = [
+            m for m in s.visible_monsters
+            if not m.is_pet and (abs(m.row - py) > 1 or abs(m.col - px) > 1)
+        ]
         if not non_adjacent:
             return None
 
-        # Check for dangerous ranged monsters
         for mon in non_adjacent:
-            name = mon["name"]
             if self.threat_db is not None:
-                report = self.threat_db.assess_threat(name, self._player_state(s))
+                report = self.threat_db.assess_threat(mon.name, self._player_state(s))
             else:
-                report = _StubThreatReport(name)
-
+                report = _StubThreatReport(mon.name)
             if report.danger_level >= 8 and report.instakill_risk:
-                # Dangerous ranged monster: flee
-                return _direction_away(s.py, s.px, mon["row"], mon["col"])
+                return _direction_away(py, px, mon.row, mon.col)
 
-        # Non-critical ranged monsters: approach to melee (score comes from kills)
-        closest = min(non_adjacent, key=lambda m: m["dist"])
+        # Approach closest non-critical monster for kills
+        closest = min(non_adjacent, key=lambda m: max(abs(m.row - py), abs(m.col - px)))
         if self.threat_db is not None:
-            report = self.threat_db.assess_threat(closest["name"], self._player_state(s))
+            report = self.threat_db.assess_threat(closest.name, self._player_state(s))
         else:
-            report = _StubThreatReport(closest["name"])
+            report = _StubThreatReport(closest.name)
 
         if report.danger_level <= 6 and s.hp > s.max_hp * 0.5:
-            return _direction_toward(s.py, s.px, closest["row"], closest["col"])
+            return _direction_toward(py, px, closest.row, closest.col)
 
         return None
 
@@ -760,18 +576,14 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p3_food(self, s) -> Optional[int]:
-        # Hungry or worse: eat
-        if s.hunger >= 2:  # HUNGRY
+        if s.hunger_state in ("hungry", "weak"):
             if self.has_food:
                 return Actions.EAT
-            if s.on_corpse and self._corpse_safe_to_eat(s.corpse_name):
+            # Check for corpse on our tile (from message or glyph)
+            if self._on_corpse and self._corpse_safe_to_eat(self._corpse_name):
                 return Actions.EAT
-            if s.on_food:
+            if self._on_edible_item:
                 return Actions.EAT
-
-        # Standing on a safe corpse and not satiated
-        if s.on_corpse and s.hunger > 0 and self._corpse_safe_to_eat(s.corpse_name):
-            return Actions.EAT
 
         return None
 
@@ -780,7 +592,7 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p4_items(self, s) -> Optional[int]:
-        if s.on_item:
+        if self._on_item:
             return Actions.PICKUP
         return None
 
@@ -789,18 +601,14 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p5_corpse_intrinsics(self, s) -> Optional[int]:
-        if not s.on_corpse:
-            return None
-
-        name = s.corpse_name
-        if not name:
+        if not self._on_corpse or not self._corpse_name:
             return None
 
         if self.threat_db is not None:
-            report = self.threat_db.corpse_value(name, self.resistances)
+            report = self.threat_db.corpse_value(self._corpse_name, self.resistances)
             if report.safe_to_eat and report.priority >= 5:
                 return Actions.EAT
-        elif self._corpse_safe_to_eat(name):
+        elif self._corpse_safe_to_eat(self._corpse_name):
             return Actions.EAT
 
         return None
@@ -810,34 +618,40 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p6_navigation(self, s) -> Optional[int]:
-        # If on stairs down and explored enough and healthy enough: descend
+        py, px = s.position
+        glyphs = s._glyphs
+
+        # On downstairs and healthy enough: descend
         if s.on_stairs_down:
-            # Only descend if HP > 50% and XL is reasonable for depth
-            if s.hp > s.max_hp * 0.5 and s.depth <= s.xl * 2:
+            if s.hp > s.max_hp * 0.5 and s.depth <= s.xlevel * 2:
                 return Actions.DOWN
 
-        # If stairs down found, go there (if explored enough)
-        if s.stairs_down_pos is not None and s.explored_ratio > 0.4:
+        # Find stairs down in glyph map
+        stairs_pos = _find_stairs_down(glyphs) if glyphs is not None else None
+        explored = _count_explored(glyphs) if glyphs is not None else 0.0
+
+        # If stairs found and explored enough: go there
+        if stairs_pos is not None and explored > 0.3:
             if s.hp > s.max_hp * 0.5:
-                sr, sc = s.stairs_down_pos
-                if (sr, sc) != (s.py, s.px):
-                    return _direction_toward(s.py, s.px, sr, sc)
+                sr, sc = stairs_pos
+                if (sr, sc) != (py, px):
+                    return _direction_toward(py, px, sr, sc)
 
-        # Explore: BFS to nearest unexplored
-        target = _find_unexplored(s.glyphs, s.py, s.px)
-        if target is not None:
-            return _direction_toward(s.py, s.px, target[0], target[1])
+        # Explore: BFS to nearest unexplored tile
+        if glyphs is not None:
+            target = _find_unexplored(glyphs, py, px)
+            if target is not None:
+                return _direction_toward(py, px, target[0], target[1])
 
-        # If stairs down known and fully explored: go there
-        if s.stairs_down_pos is not None:
-            sr, sc = s.stairs_down_pos
-            if (sr, sc) != (s.py, s.px):
-                return _direction_toward(s.py, s.px, sr, sc)
+        # Fully explored, stairs known: go there
+        if stairs_pos is not None:
+            sr, sc = stairs_pos
+            if (sr, sc) != (py, px):
+                return _direction_toward(py, px, sr, sc)
 
-        # Stuck: search for hidden doors (up to a limit, then random move)
+        # Stuck: search for hidden doors (with random unstick after 20 searches)
         self.search_count += 1
         if self.search_count > 20:
-            # Try a random direction to get unstuck
             import random
             dirs = list(Actions.MOVE_DELTAS.keys())
             return random.choice(dirs)
@@ -857,25 +671,26 @@ class ExpertAgent:
                 return Actions.PRAY
             return None
         # No prayer subsystem: heuristic check
-        # Assume first prayer at turn >= 300 is safe
-        if s.turn >= 300 and s.alignment >= 0:
+        if s.turn >= 300:
             return Actions.PRAY
         return None
 
     def _flee_or_elbereth(self, s) -> int:
         """Flee from adjacent monsters, or write Elbereth if surrounded."""
-        if len(s.adjacent_monsters) >= 3:
-            # Surrounded: Elbereth is better than running
+        hostile = [m for m in s.adjacent_monsters if not m.is_pet]
+        py, px = s.position
+
+        if len(hostile) >= 3:
             return Actions.ENGRAVE
 
-        if s.adjacent_monsters:
-            return self._flee_from(s, s.adjacent_monsters[0])
+        if hostile:
+            return self._flee_from(s, hostile[0])
 
         return Actions.SEARCH
 
-    def _flee_from(self, s, monster: dict) -> int:
-        """Move away from a specific monster."""
-        return _direction_away(s.py, s.px, monster["row"], monster["col"])
+    def _flee_from(self, s, monster) -> int:
+        py, px = s.position
+        return _direction_away(py, px, monster.row, monster.col)
 
     def _corpse_safe_to_eat(self, name: str) -> bool:
         """Quick safety check without ThreatDB."""
@@ -886,7 +701,6 @@ class ExpertAgent:
         }
         if name in unsafe:
             return False
-        # Poisonous corpses need poison resistance
         poisonous = {
             "killer bee", "scorpion", "pit viper", "cobra",
             "water moccasin", "asp", "python", "giant spider",
@@ -897,33 +711,85 @@ class ExpertAgent:
         return True
 
     def _player_state(self, s) -> dict:
-        """Build player_state dict for combat.py assess_threat calls."""
+        """Build player_state dict for combat.py assess_threat."""
         return {
             "hp": s.hp,
             "max_hp": s.max_hp,
             "ac": s.ac,
-            "level": s.xl,
-            "speed": 12,  # default human speed
+            "level": s.xlevel,
+            "speed": 12,
             "resistances": self.resistances,
             "equipment": {},
-            "position": (s.py, s.px),
-            "has_elbereth_source": True,  # assume we can always write
+            "position": s.position,
+            "has_elbereth_source": True,
         }
 
-    def _parse_message(self, msg: bytes) -> None:
-        """Extract useful info from game messages."""
-        if not msg:
-            return
-        text = msg.decode("ascii", errors="replace").lower()
+    def _detect_tile_contents(self, s) -> None:
+        """Detect items, corpses, and objects on the player's tile.
 
-        # Track food in inventory
-        if "food ration" in text or "ration" in text:
-            self.has_food = True
-        if "lizard corpse" in text:
-            self.has_lizard_corpse = True
-        if "you feel full" in text or "you are beginning to feel hungry" in text:
-            pass  # hunger state tracked via blstats
-        # Track resistance gains
+        NLE places the player's own glyph at the player position, hiding
+        whatever is beneath. We detect tile contents from messages
+        ("You see here ...", "There is ... here", "There are ... here")
+        and from the glyph map as a fallback.
+        """
+        self._on_corpse = False
+        self._corpse_name = ""
+        self._on_item = False
+        self._on_edible_item = False
+
+        # Message-based detection (primary, since glyph is occluded)
+        if s.messages:
+            text = s.last_message.lower()
+            # "You see here a <item>." / "There is a <item> here."
+            # "You see here a <monster> corpse."
+            if "corpse" in text and ("you see here" in text or "there is" in text
+                                     or "there are" in text):
+                self._on_corpse = True
+                # Try to extract the monster name from "a <name> corpse"
+                for pattern in ["you see here a ", "you see here an ",
+                                "there is a ", "there is an ",
+                                "there are ", "you see here "]:
+                    if pattern in text:
+                        after = text.split(pattern, 1)[1]
+                        if "corpse" in after:
+                            name = after.split(" corpse")[0].strip()
+                            # Remove article remnants
+                            for art in ["a ", "an ", "the "]:
+                                if name.startswith(art):
+                                    name = name[len(art):]
+                            self._corpse_name = name
+                            break
+
+            elif "you see here" in text or "there is" in text or "there are" in text:
+                self._on_item = True
+                # Check for food items
+                if any(food in text for food in [
+                    "food ration", "tripe", "meatball", "egg", "melon",
+                    "orange", "apple", "pear", "banana", "cream pie",
+                    "lembas", "cram", "lichen", "kelp",
+                ]):
+                    self._on_edible_item = True
+
+            # "Things that are here:" means multiple items
+            if "things that are here" in text or "things that you feel here" in text:
+                self._on_item = True
+
+        # Glyph-based fallback: only works if player glyph doesn't occlude
+        py, px = s.position
+        if s._glyphs is not None and not self._on_corpse and not self._on_item:
+            has_c, c_name = _tile_has_corpse(s._glyphs, py, px)
+            if has_c:
+                self._on_corpse = True
+                self._corpse_name = c_name
+            elif _tile_has_object(s._glyphs, py, px):
+                self._on_item = True
+
+    def _parse_message_for_state(self, s) -> None:
+        """Extract resistance gains and inventory hints from messages."""
+        if not s.messages:
+            return
+        text = s.last_message.lower()
+
         if "you feel especially healthy" in text:
             self.resistances.add("poison resistance")
         if "you feel a momentary chill" in text:
@@ -937,41 +803,21 @@ class ExpertAgent:
         if "you feel wide awake" in text:
             self.resistances.add("sleep resistance")
 
-
-# ============================================================
-# Stub threat report for when combat.py is unavailable
-# ============================================================
-
-@dataclass
-class _StubThreatReport:
-    """Minimal threat report when ThreatDB is not loaded."""
-    name: str
-    danger_level: int = 5
-    special_attacks: list = field(default_factory=list)
-    required_resistances: list = field(default_factory=list)
-    elbereth_effective: bool = True
-    ranged_preferred: bool = False
-    instakill_risk: bool = False
-    recommended_action: str = "melee"
-
-    def __post_init__(self):
-        # Flag known instakill monsters
-        instakill_names = {
-            "cockatrice", "chickatrice", "Medusa",
-            "green slime", "Death", "Pestilence", "Famine",
-        }
-        if self.name in instakill_names:
-            self.instakill_risk = True
-            self.danger_level = 10
-            self.recommended_action = "flee"
-
-        ranged_names = {
-            "floating eye", "cockatrice", "chickatrice",
-            "rust monster", "acid blob", "brown mold",
-        }
-        if self.name in ranged_names:
-            self.ranged_preferred = True
-            self.recommended_action = "ranged"
+    def _check_inventory(self, s) -> None:
+        """Scan inventory strings for food and lizard corpses."""
+        if not s.inventory:
+            return
+        self.has_food = False
+        self.has_lizard_corpse = False
+        for item_str in s.inventory.values():
+            lower = item_str.lower()
+            if "food ration" in lower or "ration" in lower or "tripe" in lower:
+                self.has_food = True
+            if "lizard corpse" in lower:
+                self.has_lizard_corpse = True
+                self.has_food = True
+            if "corpse" in lower or "meatball" in lower or "egg" in lower:
+                self.has_food = True
 
 
 # ============================================================
@@ -982,63 +828,74 @@ def _make_mock_obs(
     *,
     py: int = 10, px: int = 40,
     hp: int = 30, max_hp: int = 50,
-    depth: int = 1, xl: int = 3,
+    depth: int = 1, xlevel: int = 3,
     hunger: int = 1, turn: int = 500,
     condition: int = 0,
-    alignment: int = 5,
+    alignment: int = 1,
     monsters: Optional[list] = None,
     stairs_down: Optional[tuple] = None,
     corpse_at_player: Optional[int] = None,
     object_at_player: bool = False,
+    message: str = "",
 ) -> dict:
-    """Build a fake NLE observation dict for testing."""
-    # 21x79 glyph grid, filled with floor
-    floor_g = GLYPH_CMAP_OFF + CMAP_FLOOR
-    dark_g = GLYPH_CMAP_OFF + 32
-    glyphs = [[dark_g] * 79 for _ in range(21)]
+    """Build a fake NLE observation dict for testing.
+
+    Uses obs_parser.py's blstats layout (27 elements, BL_TIME=20,
+    BL_HUNGER=21, BL_CONDITION=25, BL_ALIGN=26).
+    """
+    glyphs = np.zeros((MAP_H, MAP_W), dtype=np.int16)
 
     # Carve a room around the player
-    for r in range(max(1, py - 3), min(20, py + 4)):
-        for c in range(max(1, px - 5), min(78, px + 6)):
-            glyphs[r][c] = floor_g
+    room_glyph = GLYPH_CMAP_OFF + 19  # CMAP_ROOM
+    for r in range(max(1, py - 3), min(MAP_H - 1, py + 4)):
+        for c in range(max(1, px - 5), min(MAP_W - 1, px + 6)):
+            glyphs[r, c] = room_glyph
 
-    # Place player's tile
+    # Player's own glyph (valkyrie, mon_id ~100)
+    glyphs[py, px] = GLYPH_MON_OFF + 100
+
+    # Overwrite player tile for special cases
     if corpse_at_player is not None:
-        glyphs[py][px] = GLYPH_BODY_OFF + corpse_at_player
+        glyphs[py, px] = GLYPH_BODY_OFF + corpse_at_player
     elif object_at_player:
-        glyphs[py][px] = GLYPH_OBJ_OFF + 10  # arbitrary object
-    else:
-        glyphs[py][px] = floor_g
+        glyphs[py, px] = GLYPH_OBJ_OFF + 10
 
     # Place monsters
     if monsters:
         for mr, mc, mon_id in monsters:
-            glyphs[mr][mc] = GLYPH_MON_OFF + mon_id
+            glyphs[mr, mc] = GLYPH_MON_OFF + mon_id
 
     # Place stairs
     if stairs_down:
         sr, sc = stairs_down
-        glyphs[sr][sc] = GLYPH_CMAP_OFF + CMAP_STAIRDN
+        glyphs[sr, sc] = S_DNSTAIR
 
-    # Build blstats (26 elements)
-    bl = [0.0] * 26
-    bl[BL_X] = float(px)
-    bl[BL_Y] = float(py)
-    bl[BL_HP] = float(hp)
-    bl[BL_MAXHP] = float(max_hp)
-    bl[BL_DEPTH] = float(depth)
-    bl[BL_XL] = float(xl)
-    bl[BL_HUNGER] = float(hunger)
-    bl[BL_ALIGNMENT] = float(alignment)
-    bl[BL_AC] = 5.0
-    bl[BL_CONDITION] = float(condition)
-    bl[BL_TIME] = float(turn)
-    bl[BL_SCORE] = 100.0
+    # Build blstats (27 elements, obs_parser layout)
+    bl = np.zeros(27, dtype=np.float32)
+    bl[0] = float(px)   # BL_X
+    bl[1] = float(py)   # BL_Y
+    bl[2] = 18.0         # BL_STR25
+    bl[9] = 100.0        # BL_SCORE
+    bl[10] = float(hp)   # BL_HP
+    bl[11] = float(max_hp)  # BL_HPMAX
+    bl[12] = float(depth)   # BL_DEPTH
+    bl[16] = 5.0         # BL_AC
+    bl[18] = float(xlevel)  # BL_XP (experience level)
+    bl[20] = float(turn)    # BL_TIME
+    bl[21] = float(hunger)  # BL_HUNGER
+    bl[25] = float(condition)  # BL_CONDITION
+    bl[26] = float(alignment)  # BL_ALIGN
+
+    # Build message
+    msg = np.zeros(256, dtype=np.uint8)
+    if message:
+        msg_bytes = message.encode("ascii")
+        msg[:len(msg_bytes)] = list(msg_bytes)
 
     return {
         "glyphs": glyphs,
         "blstats": bl,
-        "message": b"",
+        "message": msg,
     }
 
 
@@ -1073,7 +930,6 @@ def _run_tests():
     agent.reset()
     obs = _make_mock_obs(hp=3, max_hp=50, turn=50)
     action = agent.act(obs)
-    # Can't pray, no adjacent monsters, should search/rest
     check("critical HP + prayer unsafe should not pray",
           action != Actions.PRAY,
           f"got action {action}")
@@ -1089,46 +945,48 @@ def _run_tests():
     # --- Test 4: P1 - Adjacent monster, melee ---
     print("\nTest 4: P1 - Adjacent monster (melee)")
     agent.reset()
+    # Place a monster at (9, 40), one tile N of player at (10, 40)
     obs = _make_mock_obs(hp=40, max_hp=50, turn=500,
-                         monsters=[(9, 40, 5)])  # monster at (9, 40), one tile N
+                         monsters=[(9, 40, 5)])
     action = agent.act(obs)
     check("adjacent monster should trigger melee (move toward)",
           action in Actions.MOVE_DELTAS,
           f"got action {action}")
 
     # --- Test 5: P1 - Adjacent instakill monster ---
-    print("\nTest 5: P1 - Adjacent cockatrice (instakill)")
+    print("\nTest 5: P1 - Adjacent instakill monster (flee/Elbereth)")
     agent.reset()
-    # cockatrice mon_id: use a high ID, but we need to know the actual ID.
-    # Without NLE, _StubThreatReport flags "cockatrice" as instakill by name.
-    # But _monster_name won't return "cockatrice" without NLE.
-    # So test with the stub: manually set adjacent_monsters.
     obs = _make_mock_obs(hp=40, max_hp=50, turn=500,
-                         monsters=[(9, 40, 50)])  # some monster
-    # Override the parsed name for testing
+                         monsters=[(9, 40, 50)])
     agent.act(obs)
     s = agent.state
+    # Override the name to "cockatrice" for testing (without NLE, names are from JSON)
     if s.adjacent_monsters:
-        s.adjacent_monsters[0]["name"] = "cockatrice"
-        s.visible_monsters[0]["name"] = "cockatrice"
+        s.adjacent_monsters[0] = MonsterInfo(
+            name="cockatrice", row=9, col=40, mon_id=50, is_pet=False
+        ) if _HAS_OBS_PARSER else s.adjacent_monsters[0]
+        if _HAS_OBS_PARSER:
+            s.visible_monsters = [m for m in s.visible_monsters if m.mon_id != 50]
+            s.visible_monsters.append(s.adjacent_monsters[0])
     action = agent._decide(s)
     check("instakill adjacent should flee or Elbereth",
           action in list(Actions.MOVE_DELTAS.keys()) + [Actions.ENGRAVE],
           f"got action {action}")
 
-    # --- Test 6: P3 - Hungry with food ---
+    # --- Test 6: P3 - Hungry with food in inventory ---
     print("\nTest 6: P3 - Hungry with food")
     agent.reset()
     agent.has_food = True
-    obs = _make_mock_obs(hp=40, max_hp=50, turn=500, hunger=2)  # HUNGRY
+    obs = _make_mock_obs(hp=40, max_hp=50, turn=500, hunger=2)  # hungry
     action = agent.act(obs)
     check("hungry with food should eat", action == Actions.EAT,
           f"got action {action}")
 
-    # --- Test 7: P4 - Item on ground ---
+    # --- Test 7: P4 - Item on ground (message-based detection) ---
     print("\nTest 7: P4 - Item on ground")
     agent.reset()
-    obs = _make_mock_obs(hp=40, max_hp=50, turn=500, object_at_player=True)
+    obs = _make_mock_obs(hp=40, max_hp=50, turn=500,
+                         message="You see here a long sword.")
     action = agent.act(obs)
     check("item on ground should pickup", action == Actions.PICKUP,
           f"got action {action}")
@@ -1136,10 +994,9 @@ def _run_tests():
     # --- Test 8: P6 - Navigate to stairs ---
     print("\nTest 8: P6 - Navigate to stairs when explored")
     agent.reset()
-    obs = _make_mock_obs(hp=40, max_hp=50, turn=500, depth=1, xl=3,
+    obs = _make_mock_obs(hp=40, max_hp=50, turn=500, depth=1, xlevel=3,
                          stairs_down=(12, 42))
     action = agent.act(obs)
-    # Should move toward stairs
     check("should navigate toward stairs",
           action in Actions.MOVE_DELTAS,
           f"got action {action}")
@@ -1147,8 +1004,10 @@ def _run_tests():
     # --- Test 9: P6 - On stairs, descend ---
     print("\nTest 9: P6 - On stairs, should descend")
     agent.reset()
-    obs = _make_mock_obs(hp=40, max_hp=50, turn=500, depth=1, xl=3,
-                         stairs_down=(10, 40))  # player position
+    # Put stairs at player position and set up message so obs_parser detects it
+    obs = _make_mock_obs(hp=40, max_hp=50, turn=500, depth=1, xlevel=3,
+                         stairs_down=(10, 40),
+                         message="There is a staircase down here.")
     action = agent.act(obs)
     check("on stairs with good HP should descend", action == Actions.DOWN,
           f"got action {action}")
@@ -1156,8 +1015,9 @@ def _run_tests():
     # --- Test 10: P6 - On stairs but low HP ---
     print("\nTest 10: P6 - On stairs but low HP, don't descend")
     agent.reset()
-    obs = _make_mock_obs(hp=10, max_hp=50, turn=500, depth=1, xl=3,
-                         stairs_down=(10, 40))
+    obs = _make_mock_obs(hp=10, max_hp=50, turn=500, depth=1, xlevel=3,
+                         stairs_down=(10, 40),
+                         message="There is a staircase down here.")
     action = agent.act(obs)
     check("on stairs with low HP should not descend", action != Actions.DOWN,
           f"got action {action}")
@@ -1166,26 +1026,20 @@ def _run_tests():
     print("\nTest 11: Priority - P0 (critical HP) beats P1 (combat)")
     agent.reset()
     obs = _make_mock_obs(hp=3, max_hp=50, turn=500,
-                         monsters=[(9, 40, 5)])  # adjacent monster
+                         monsters=[(9, 40, 5)])
     action = agent.act(obs)
     check("critical HP should pray even with adjacent monster",
           action == Actions.PRAY,
           f"got action {action}")
 
     # --- Test 12: P5 - Corpse eating for intrinsics ---
-    print("\nTest 12: P5 - Standing on beneficial corpse")
+    print("\nTest 12: P5 - Standing on beneficial corpse (message-based)")
     agent.reset()
-    obs = _make_mock_obs(hp=40, max_hp=50, turn=500, corpse_at_player=0)
-    # Without NLE, corpse name is "corpse_0". The stub won't flag it
-    # as unsafe, so it should eat. We override the name.
-    agent.act(obs)
-    s = agent.state
-    s.on_corpse = True
-    s.corpse_name = "floating eye"
-    action = agent._decide(s)
-    check("beneficial corpse should eat (floating eye)",
-          action == Actions.EAT,
-          f"got action {action}")
+    obs = _make_mock_obs(hp=40, max_hp=50, turn=500,
+                         message="You see here a giant ant corpse.")
+    action = agent.act(obs)
+    check("corpse on tile should eat", action == Actions.EAT,
+          f"got action {action}, corpse_name={agent._corpse_name}")
 
     # --- Test 13: Exploration ---
     print("\nTest 13: P6 - Explore when no other priority")
@@ -1199,8 +1053,8 @@ def _run_tests():
     # --- Test 14: Message parsing ---
     print("\nTest 14: Message parsing for resistances")
     agent.reset()
-    obs = _make_mock_obs(hp=40, max_hp=50, turn=500)
-    obs["message"] = b"You feel especially healthy."
+    obs = _make_mock_obs(hp=40, max_hp=50, turn=500,
+                         message="You feel especially healthy.")
     agent.act(obs)
     check("poison resistance detected from message",
           "poison resistance" in agent.resistances)
@@ -1208,7 +1062,7 @@ def _run_tests():
     # --- Test 15: Hunger fainting triggers prayer ---
     print("\nTest 15: P0 - Fainting from hunger")
     agent.reset()
-    obs = _make_mock_obs(hp=30, max_hp=50, turn=500, hunger=4)  # FAINTING
+    obs = _make_mock_obs(hp=30, max_hp=50, turn=500, hunger=4)  # fainting
     action = agent.act(obs)
     check("fainting should pray", action == Actions.PRAY,
           f"got action {action}")
@@ -1220,6 +1074,30 @@ def _run_tests():
     agent.reset()
     check("resistances cleared", len(agent.resistances) == 0)
     check("has_food cleared", not agent.has_food)
+
+    # --- Test 17: Multiple turn simulation ---
+    print("\nTest 17: Multi-turn simulation (5 turns)")
+    agent.reset()
+    actions_taken = []
+    for t in range(5):
+        obs = _make_mock_obs(hp=40, max_hp=50, turn=500 + t)
+        a = agent.act(obs)
+        actions_taken.append(a)
+    check("5 turns produced actions",
+          len(actions_taken) == 5 and all(isinstance(a, int) for a in actions_taken),
+          f"actions: {actions_taken}")
+
+    # --- Test 18: Flee from multiple hostile adjacent monsters ---
+    print("\nTest 18: P1 - Multiple adjacent monsters (Elbereth if surrounded)")
+    agent.reset()
+    obs = _make_mock_obs(hp=15, max_hp=50, turn=500,
+                         monsters=[(9, 40, 5), (9, 41, 10), (11, 40, 15),
+                                   (10, 41, 20)])
+    action = agent.act(obs)
+    # Low HP + 4 adjacent monsters: should Elbereth or flee
+    check("surrounded should Elbereth or flee",
+          action in list(Actions.MOVE_DELTAS.keys()) + [Actions.ENGRAVE],
+          f"got action {action}")
 
     # --- Summary ---
     print(f"\n=== Results: {passed} passed, {failed} failed ===")
