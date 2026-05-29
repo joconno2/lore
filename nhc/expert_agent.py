@@ -186,6 +186,12 @@ def _direction_away(py: int, px: int, ty: int, tx: int) -> int:
 
 def _find_unexplored(glyphs: np.ndarray, py: int, px: int) -> Optional[tuple]:
     """BFS for nearest reachable tile adjacent to unexplored space.
+
+    Only returns tiles reachable through corridors/doors, not tiles
+    adjacent to walls inside the current room (those are dead ends).
+    A tile is "frontier" if it has unexplored stone adjacent AND the
+    tile itself is a corridor, doorway, or the first tile beyond a door.
+
     Returns (row, col) or None.
     """
     if glyphs is None:
@@ -193,14 +199,20 @@ def _find_unexplored(glyphs: np.ndarray, py: int, px: int) -> Optional[tuple]:
     rows, cols = glyphs.shape
     stone_glyph = GLYPH_CMAP_OFF  # cmap index 0 = stone/unexplored
 
+    from collections import deque
     visited = set()
-    queue = [(py, px)]
+    queue = deque([(py, px)])
     visited.add((py, px))
-    head = 0
 
-    while head < len(queue):
-        r, c = queue[head]
-        head += 1
+    # First pass: find any corridor/door tile adjacent to stone
+    # (corridors lead somewhere, wall-adjacent room tiles don't)
+    while queue:
+        r, c = queue.popleft()
+        g_rc = int(glyphs[r, c])
+        cmap_rc = g_rc - GLYPH_CMAP_OFF if g_rc >= GLYPH_CMAP_OFF else -1
+        is_corridor = cmap_rc in (21, 22)  # corridor, lit corridor
+        is_door = cmap_rc in (12, 13, 14)  # doorway, open doors
+
         for dr in (-1, 0, 1):
             for dc in (-1, 0, 1):
                 if dr == 0 and dc == 0:
@@ -213,9 +225,13 @@ def _find_unexplored(glyphs: np.ndarray, py: int, px: int) -> Optional[tuple]:
                 visited.add((nr, nc))
                 g = int(glyphs[nr, nc])
                 if g == stone_glyph:
-                    # Unexplored stone. Return the explored neighbor as target.
-                    return (r, c) if (r, c) != (py, px) else None
-                # Walkable OR closed door (we can open doors)
+                    # This tile (r,c) borders unexplored space.
+                    # Only return it if it's a corridor/door (real frontier)
+                    # OR if we're standing right here (no choice)
+                    if is_corridor or is_door or (r == py and c == px):
+                        return (r, c) if (r, c) != (py, px) else None
+                    # Otherwise skip: it's probably a wall-adjacent room tile
+                    continue
                 if _is_walkable_glyph(g) or _is_closed_door_glyph(g):
                     queue.append((nr, nc))
 
@@ -767,9 +783,9 @@ class ExpertAgent:
                     self._log("P6", f"heading to closed door at {door_pos}")
                 return step
 
-        # If stairs found and explored enough: path to stairs
-        if stairs_pos is not None and explored > 0.05:
-            if s.hp > s.max_hp * 0.5:
+        # If stairs found: go there (explore through rooms, not walls)
+        if stairs_pos is not None:
+            if s.hp > s.max_hp * 0.4:
                 sr, sc = stairs_pos
                 if (sr, sc) != (py, px):
                     step = self._bfs_step_toward(glyphs, py, px, sr, sc)
