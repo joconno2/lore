@@ -474,8 +474,24 @@ class GameState:
                         is_pet=pet,
                     )
                     self.visible_monsters.append(info)
-                    if abs(r - row) <= 1 and abs(c - col) <= 1:
-                        self.adjacent_monsters.append(info)
+                    dr, dc = r - row, c - col
+                    if abs(dr) <= 1 and abs(dc) <= 1:
+                        # Check diagonal reachability: can't attack through walls
+                        reachable = True
+                        if abs(dr) + abs(dc) > 1:  # diagonal
+                            # Check the two cardinal tiles between player and monster
+                            g1 = int(glyphs[row, col + dc]) if 0 <= col + dc < MAP_W else GLYPH_CMAP_OFF
+                            g2 = int(glyphs[row + dr, col]) if 0 <= row + dr < MAP_H else GLYPH_CMAP_OFF
+                            # Need at least one open path (not wall/stone)
+                            def _is_open(gg):
+                                if gg >= GLYPH_CMAP_OFF:
+                                    cm = gg - GLYPH_CMAP_OFF
+                                    return cm in (12,13,14,15,16,19,20,21,22,23,24,25,26,27,28,29,30,31)
+                                return gg < GLYPH_CMAP_OFF  # monster/object = walkable
+                            if not (_is_open(g1) or _is_open(g2)):
+                                reachable = False
+                        if reachable:
+                            self.adjacent_monsters.append(info)
 
     def _parse_inventory(self, obs: dict) -> None:
         inv_strs = obs.get("inv_strs")
