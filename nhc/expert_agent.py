@@ -444,6 +444,23 @@ class ExpertAgent:
                 if self.verbose:
                     self._log("MENU", f"dismissing: {msg_str[:60]}")
                 return Actions.MORE
+            # Locked door: kick it
+            if "This door is locked" in msg_str:
+                if self.verbose:
+                    self._log("DOOR", "door is locked, kicking")
+                return Actions.KICK
+            # "In what direction?" prompt after kick
+            if "In what direction?" in msg_str:
+                # Kick in the direction we were trying to go
+                if self._cached_path and len(self._cached_path) > 0:
+                    next_tile = self._cached_path[0]
+                    dy = next_tile[0] - s.py
+                    dx = next_tile[1] - s.px
+                    action = Actions.DELTA_TO_MOVE.get((dy, dx))
+                    if action is not None:
+                        return action
+                return Actions.MORE  # cancel if no direction
+
             # "Never mind" means last action failed, clear pending
             if "Never mind" in msg_str or "You cannot eat that" in msg_str:
                 if self._pending_action == "eat":
@@ -741,29 +758,31 @@ class ExpertAgent:
         stairs_pos = _find_stairs_down(glyphs)
         explored = _count_explored(glyphs)
 
-        # BFS to nearest unexplored tile adjacent to stone
-        target = _find_unexplored(glyphs, py, px)
-        if target is not None:
-            step = self._bfs_step_toward(glyphs, py, px, target[0], target[1])
+        # PRIORITY: go to nearest closed door first (exploration through doors)
+        door_pos = self._find_nearest_closed_door(glyphs, py, px)
+        if door_pos is not None:
+            step = self._bfs_step_toward(glyphs, py, px, door_pos[0], door_pos[1])
             if step is not None:
+                if self.verbose and self._step_count % 20 == 0:
+                    self._log("P6", f"heading to closed door at {door_pos}")
                 return step
 
         # If stairs found and explored enough: path to stairs
-        if stairs_pos is not None and explored > 0.3:
+        if stairs_pos is not None and explored > 0.05:
             if s.hp > s.max_hp * 0.5:
                 sr, sc = stairs_pos
                 if (sr, sc) != (py, px):
                     step = self._bfs_step_toward(glyphs, py, px, sr, sc)
                     if step is not None:
+                        if self.verbose:
+                            self._log("P6", f"heading to stairs at ({sr},{sc})")
                         return step
 
-        # Try to find and path to nearest closed door
-        door_pos = self._find_nearest_closed_door(glyphs, py, px)
-        if door_pos is not None:
-            step = self._bfs_step_toward(glyphs, py, px, door_pos[0], door_pos[1])
+        # Explore: BFS to nearest unexplored tile adjacent to stone
+        target = _find_unexplored(glyphs, py, px)
+        if target is not None:
+            step = self._bfs_step_toward(glyphs, py, px, target[0], target[1])
             if step is not None:
-                if self.verbose:
-                    self._log("P6", f"heading to closed door at {door_pos}")
                 return step
 
         # Stuck: search for hidden doors (with random unstick)
