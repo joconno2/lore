@@ -128,36 +128,22 @@ def _try_resolve_actions():
             name = a.name if hasattr(a, "name") else str(a)
             lookup[name] = i
 
-        compass = {
-            "N": "CompassDirection.N", "E": "CompassDirection.E",
-            "S": "CompassDirection.S", "W": "CompassDirection.W",
-            "NE": "CompassDirection.NE", "SE": "CompassDirection.SE",
-            "SW": "CompassDirection.SW", "NW": "CompassDirection.NW",
+        # NLE action names are bare (e.g., "N", "APPLY", "UP", "WAIT")
+        # Map our attribute names to what NLE uses
+        name_map = {
+            "N": "N", "E": "E", "S": "S", "W": "W",
+            "NE": "NE", "SE": "SE", "SW": "SW", "NW": "NW",
+            "UP": "UP", "DOWN": "DOWN", "WAIT": "WAIT",
+            "APPLY": "APPLY", "CLOSE": "CLOSE", "DROP": "DROP",
+            "EAT": "EAT", "ENGRAVE": "ENGRAVE", "FIRE": "FIRE",
+            "KICK": "KICK", "LOOT": "LOOT", "OPEN": "OPEN",
+            "PICKUP": "PICKUP", "PRAY": "PRAY", "PUTON": "PUTON",
+            "QUAFF": "QUAFF", "READ": "READ", "SEARCH": "SEARCH",
+            "TAKEOFF": "TAKEOFF", "THROW": "THROW", "WEAR": "WEAR",
+            "WIELD": "WIELD", "ZAP": "ZAP", "MORE": "MORE",
+            "INV": "INVENTORY", "REMOVE": "REMOVE",
         }
-        for attr, nle_name in compass.items():
-            if nle_name in lookup:
-                setattr(Actions, attr, lookup[nle_name])
-
-        misc = {"UP": "MiscDirection.UP", "DOWN": "MiscDirection.DOWN",
-                "WAIT": "MiscDirection.WAIT"}
-        for attr, nle_name in misc.items():
-            if nle_name in lookup:
-                setattr(Actions, attr, lookup[nle_name])
-
-        cmds = {
-            "APPLY": "Command.APPLY", "CLOSE": "Command.CLOSE",
-            "DROP": "Command.DROP", "EAT": "Command.EAT",
-            "ENGRAVE": "Command.ENGRAVE", "FIRE": "Command.FIRE",
-            "KICK": "Command.KICK", "LOOT": "Command.LOOT",
-            "OPEN": "Command.OPEN", "PICKUP": "Command.PICKUP",
-            "PRAY": "Command.PRAY", "PUTON": "Command.PUTON",
-            "QUAFF": "Command.QUAFF", "READ": "Command.READ",
-            "SEARCH": "Command.SEARCH", "TAKEOFF": "Command.TAKEOFF",
-            "THROW": "Command.THROW", "WEAR": "Command.WEAR",
-            "WIELD": "Command.WIELD", "ZAP": "Command.ZAP",
-            "MORE": "TextCharacters.MORE",
-        }
-        for attr, nle_name in cmds.items():
+        for attr, nle_name in name_map.items():
             if nle_name in lookup:
                 setattr(Actions, attr, lookup[nle_name])
 
