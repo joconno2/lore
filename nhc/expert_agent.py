@@ -505,41 +505,24 @@ class ExpertAgent:
 
     def _decide(self, s) -> int:
         """Priority cascade. Returns action for highest-priority applicable rule."""
-        # P0: Critical emergencies
-        a = self._p0_emergencies(s)
-        if a is not None:
-            return a
+        priorities = [
+            ("P0-emerg", self._p0_emergencies),
+            ("P1-combat", self._p1_adjacent_combat),
+            ("P2-ranged", self._p2_ranged_threats),
+            ("P3-food", self._p3_food),
+            ("P4-items", self._p4_items),
+            ("P5-corpse", self._p5_corpse_intrinsics),
+            ("P6-nav", self._p6_navigation),
+        ]
+        for name, fn in priorities:
+            a = fn(s)
+            if a is not None:
+                if self.verbose and self._step_count % 10 == 0:
+                    self._log(name, f"-> {self._action_name(a)} (idx={a})")
+                return a
 
-        # P1: Adjacent combat
-        a = self._p1_adjacent_combat(s)
-        if a is not None:
-            return a
-
-        # P2: Ranged threats
-        a = self._p2_ranged_threats(s)
-        if a is not None:
-            return a
-
-        # P3: Food management
-        a = self._p3_food(s)
-        if a is not None:
-            return a
-
-        # P4: Item management (pickup)
-        a = self._p4_items(s)
-        if a is not None:
-            return a
-
-        # P5: Corpse eating for intrinsics
-        a = self._p5_corpse_intrinsics(s)
-        if a is not None:
-            return a
-
-        # P6: Navigation
-        a = self._p6_navigation(s)
-        if a is not None:
-            return a
-
+        if self.verbose and self._step_count % 10 == 0:
+            self._log("FALLBACK", "no priority matched, searching")
         return Actions.SEARCH
 
     # ----------------------------------------------------------
@@ -632,7 +615,10 @@ class ExpertAgent:
             return self._flee_from(s, top_mon)
 
         # Melee the highest-priority target
-        return _direction_toward(py, px, top_mon.row, top_mon.col)
+        direction = _direction_toward(py, px, top_mon.row, top_mon.col)
+        if self.verbose:
+            self._log("P1", f"melee {top_mon.name} at ({top_mon.row},{top_mon.col}) from ({py},{px}) -> dir={direction} ({self._action_name(direction)})")
+        return direction
 
     # ----------------------------------------------------------
     # P2: Ranged threats (visible non-adjacent)
