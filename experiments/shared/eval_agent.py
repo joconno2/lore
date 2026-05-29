@@ -80,8 +80,7 @@ def evaluate_episodes(
 
         for step in range(max_steps):
             with torch.no_grad():
-                out = model(obs, state, action_mask=amask.unsqueeze(0),
-                            deterministic=deterministic)
+                out = model(obs, state, action_mask=amask.unsqueeze(0))
             action = out["logits"].argmax(dim=-1).item() if deterministic else \
                 torch.distributions.Categorical(logits=out["logits"]).sample().item()
             state = out["state"]
@@ -153,7 +152,7 @@ def evaluate_episodes_vec(
     total_steps = 0
     while len(scores) < num_episodes and total_steps < max_steps * num_episodes:
         with torch.no_grad():
-            out = model(obs, state, action_mask=amask_batch, deterministic=deterministic)
+            out = model(obs, state, action_mask=amask_batch)
 
         if deterministic:
             actions = out["logits"].argmax(dim=-1).cpu().numpy()
