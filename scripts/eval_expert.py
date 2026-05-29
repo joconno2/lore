@@ -29,6 +29,7 @@ def make_env(seed=None):
             "glyphs", "blstats", "message",
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",
         ),
+        actions=nethack.ACTIONS,
         max_episode_steps=5000,
     )
     return env
