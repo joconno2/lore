@@ -1,0 +1,310 @@
+{
+  "source": "NetHack 3.6.7 src/pray.c",
+  "mechanics": {
+    "prayer_timeout": {
+      "description": "Prayer timeout (ublesscnt) controls when you can safely pray again.",
+      "initial_value": "Set by previous prayer or sacrifice outcomes.",
+      "resets_to": {
+        "after_pleased": "rnz(350) base, plus rnz(1000) per kick_on_butt factor (demigod status, crowned)",
+        "after_angry": "rnz(300)",
+        "after_too_soon": "current + rnz(250)",
+        "after_sacrifice_gift": "rnz(300 + 50*nartifacts)"
+      },
+      "decreases_by": {
+        "sacrifice": "value * (500 for chaotic, 300 for others) / MAXVALUE(24), subtracted from ublesscnt"
+      },
+      "notes": "ublesscnt decrements by 1 each turn naturally."
+    },
+    "prayer_safety_conditions": {
+      "safe_prayer_requires_all": [
+        "ublesscnt <= 0 (or <= 100 for minor trouble, <= 200 for major trouble)",
+        "Luck >= 0",
+        "ugangr == 0 (god not angry)",
+        "alignment record >= 0",
+        "On coaligned altar or no altar",
+        "Not in Gehennom",
+        "Not undead (unless chaotic, or in Gehennom)"
+      ],
+      "p_type_values": {
+        "-1": "Undead praying to lawful/neutral god outside Gehennom. God turns you, deals rnd(20) damage, forces rehumanize.",
+        "0": "Too soon. Timeout not expired. God gets upset, adds rnz(250) to timeout, -3 luck.",
+        "1": "Naughty. Negative luck, god angry, or negative alignment. Triggers angrygods().",
+        "2": "On non-coaligned altar. If water on altar, curses it and god gets upset. Otherwise pleased().",
+        "3": "Safe. Coaligned altar or no altar, all conditions met. Grants invulnerability during prayer, calls pleased()."
+      },
+      "invulnerability": "p_type==3 and not in Gehennom grants invulnerability during the 3-turn prayer."
+    },
+    "major_troubles": {
+      "description": "Checked in priority order. Positive trouble values. Guaranteed fix if Luck >= 0.",
+      "list": [
+        {
+          "id": "TROUBLE_STONED",
+          "value": 14,
+          "condition": "Stoned",
+          "fix": "Cure stoning"
+        },
+        {
+          "id": "TROUBLE_SLIMED",
+          "value": 13,
+          "condition": "Slimed",
+          "fix": "Remove slime"
+        },
+        {
+          "id": "TROUBLE_STRANGLED",
+          "value": 12,
+          "condition": "Strangled",
+          "fix": "Remove strangulation (destroys amulet if worn)"
+        },
+        {
+          "id": "TROUBLE_LAVA",
+          "value": 11,
+          "condition": "Trapped in lava",
+          "fix": "Teleport to safety"
+        },
+        {
+          "id": "TROUBLE_SICK",
+          "value": 10,
+          "condition": "Sick",
+          "fix": "Cure sickness"
+        },
+        {
+          "id": "TROUBLE_STARVING",
+          "value": 9,
+          "condition": "Hunger >= WEAK",
+          "fix": "Set hunger to 900 (not hungry)"
+        },
+        {
+          "id": "TROUBLE_REGION",
+          "value": 8,
+          "condition": "In dangerous region (stinking cloud)",
+          "fix": "Teleport out of region"
+        },
+        {
+          "id": "TROUBLE_HIT",
+          "value": 7,
+          "condition": "Critically low HP (<=5 or HP/maxHP ratio)",
+          "fix": "Full heal, possibly raise maxHP by rnd(5)"
+        },
+        {
+          "id": "TROUBLE_LYCANTHROPE",
+          "value": 6,
+          "condition": "Lycanthropy",
+          "fix": "Cure lycanthropy"
+        },
+        {
+          "id": "TROUBLE_COLLAPSING",
+          "value": 5,
+          "condition": "Extreme encumbrance + STR loss > 3",
+          "fix": "Restore STR to max, uncurse sustain ability ring"
+        },
+        {
+          "id": "TROUBLE_STUCK_IN_WALL",
+          "value": 4,
+          "condition": "Surrounded by impassible rock",
+          "fix": "Teleport out, or grant temporary phasing"
+        },
+        {
+          "id": "TROUBLE_CURSED_LEVITATION",
+          "value": 3,
+          "condition": "Cursed levitation boots/ring",
+          "fix": "Uncurse the item"
+        },
+        {
+          "id": "TROUBLE_UNUSEABLE_HANDS",
+          "value": 2,
+          "condition": "Welded weapon or nohands polyform",
+          "fix": "Uncurse weapon, or rehumanize"
+        },
+        {
+          "id": "TROUBLE_CURSED_BLINDFOLD",
+          "value": 1,
+          "condition": "Cursed blindfold worn",
+          "fix": "Uncurse blindfold"
+        }
+      ]
+    },
+    "minor_troubles": {
+      "description": "Negative trouble values. Fixed only with higher prayer_luck or DEVOUT alignment.",
+      "list": [
+        {
+          "id": "TROUBLE_PUNISHED",
+          "value": -1,
+          "condition": "Punished (ball and chain) or buried ball",
+          "fix": "Remove chain, free from buried ball"
+        },
+        {
+          "id": "TROUBLE_FUMBLING",
+          "value": -2,
+          "condition": "Cursed gauntlets of fumbling or fumble boots",
+          "fix": "Uncurse the item"
+        },
+        {
+          "id": "TROUBLE_CURSED_ITEMS",
+          "value": -3,
+          "condition": "Wearing/carrying cursed items (prioritized list)",
+          "fix": "Uncurse worst cursed item"
+        },
+        {
+          "id": "TROUBLE_SADDLE",
+          "value": -4,
+          "condition": "Cursed saddle on steed",
+          "fix": "Uncurse saddle"
+        },
+        {
+          "id": "TROUBLE_BLIND",
+          "value": -5,
+          "condition": "Blinded > 1 (not from engulfer) or timed deafness",
+          "fix": "Cure blindness and deafness"
+        },
+        {
+          "id": "TROUBLE_POISONED",
+          "value": -6,
+          "condition": "Any attribute below max",
+          "fix": "Restore all attributes to max"
+        },
+        {
+          "id": "TROUBLE_WOUNDED_LEGS",
+          "value": -7,
+          "condition": "Wounded legs (not riding)",
+          "fix": "Heal legs"
+        },
+        {
+          "id": "TROUBLE_HUNGRY",
+          "value": -8,
+          "condition": "Hunger >= HUNGRY (but < WEAK)",
+          "fix": "Set hunger to 900"
+        },
+        {
+          "id": "TROUBLE_STUNNED",
+          "value": -9,
+          "condition": "Timed stun",
+          "fix": "Cure stun"
+        },
+        {
+          "id": "TROUBLE_CONFUSED",
+          "value": -10,
+          "condition": "Timed confusion",
+          "fix": "Cure confusion"
+        },
+        {
+          "id": "TROUBLE_HALLUCINATION",
+          "value": -11,
+          "condition": "Timed hallucination",
+          "fix": "Cure hallucination"
+        }
+      ]
+    },
+    "pleased_action_resolution": {
+      "description": "When god is pleased, action level determines what gets fixed.",
+      "action_formula": "action = rn1(prayer_luck + (on_altar ? 3 + on_shrine : 2), 1); capped at 3 if not on altar",
+      "low_alignment_override": "If alignment < STRIDENT(4): action = 1 if record > 0 or 50% chance, else 0",
+      "action_effects": {
+        "0": "Nothing. God blows you off.",
+        "1": "Fix worst trouble if major (positive value).",
+        "2": "Fix all major troubles (up to 10 iterations).",
+        "3": "Fix worst trouble even if minor.",
+        "4": "Fix ALL troubles (major and minor).",
+        "5": "Fix all troubles + gratuitous favor (pat on head)."
+      }
+    },
+    "gratuitous_favors": {
+      "description": "Pat-on-head effects, chosen by rn2((Luck+6)/2).",
+      "effects": {
+        "0": "Nothing extra.",
+        "1": "Weapon: uncurse, bless, repair erosion.",
+        "2": "Golden glow: restore lost levels (or +5 maxHP), full heal, restore STR, cure hunger, fix luck, cure blindness.",
+        "3": "Castle tune hint (first time) or tune itself (second time). Falls through to 2 if already known.",
+        "4": "Uncurse entire inventory (except helm of opposite alignment).",
+        "5": "Grant intrinsic: telepathy > speed > stealth > protection (in that priority).",
+        "6": "Receive a blessed spellbook.",
+        "7-8": "Crowning (if PIOUS alignment and not already crowned). Otherwise spellbook."
+      }
+    },
+    "crowning": {
+      "description": "Highest prayer reward. Grants title, intrinsics, and possibly an artifact weapon.",
+      "requirements": "alignment record >= PIOUS(20), not already crowned",
+      "intrinsics_granted": [
+        "see_invisible",
+        "fire_resistance",
+        "cold_resistance",
+        "shock_resistance",
+        "sleep_resistance",
+        "poison_resistance"
+      ],
+      "titles": {
+        "lawful": "The Hand of Elbereth",
+        "neutral": "Envoy of Balance",
+        "chaotic": "Chosen (to steal souls / take lives)"
+      },
+      "gifts": {
+        "lawful": "Excalibur (if wielding long sword) or spellbook of Finger of Death (wizard) / Restore Ability (monk)",
+        "neutral": "Vorpal Blade (if no artifact weapon wielded)",
+        "chaotic": "Stormbringer (if no artifact weapon wielded)"
+      },
+      "additional": "Weapon blessed, erodeproofed, spe raised to at least +1. Extra weapon skill slot granted."
+    },
+    "sacrifice_mechanics": {
+      "corpse_value": {
+        "formula": "mons[corpsenm].difficulty + 1",
+        "freshness_required": "monstermoves <= corpse_age + 50 (or acid blob, which never rots for sacrifice purposes)",
+        "eaten_penalty": "If partly eaten, value reduced proportionally via eaten_stat()",
+        "MAXVALUE": 24
+      },
+      "modifiers": {
+        "undead_corpse": "+1 value if you are not chaotic",
+        "pet_corpse": "value = -1, aggravate monster, -3 alignment",
+        "unicorn_same_alignment_as_altar": "Very bad. -1 WIS, value = -5.",
+        "unicorn_your_alignment_on_your_altar": "Very good. +5 alignment, +3 value.",
+        "unicorn_your_alignment_on_cross_altar": "Conversion trigger. alignment record set to -1.",
+        "unicorn_other": "+3 value (ordinary bonus)."
+      },
+      "effects_when_value_positive": {
+        "god_angry": "Reduce ugangr by value * (2 for chaotic, 3 for others) / MAXVALUE",
+        "negative_alignment": "Add value to alignment record (partial absolution)",
+        "timeout_remaining": "Reduce ublesscnt by value * (500 chaotic, 300 others) / MAXVALUE",
+        "good_standing": "Chance of artifact gift: !rn2(10 + 2*ugifts*nartifacts). Otherwise luck boost: value*LUCKMAX/(MAXVALUE*2)."
+      },
+      "human_sacrifice": {
+        "chaotic_on_chaotic_altar": "+5 alignment, +2 luck, may summon demon lord",
+        "non_chaotic": "-5 alignment, +3 god anger, -1 WIS, -5 luck, angers own god",
+        "demon_player": "Finds it satisfying, gains WIS exercise"
+      },
+      "conversion": {
+        "condition": "Sacrificing on cross-aligned altar while your god is angry and you haven't previously converted",
+        "effect": "Change alignment to altar's, -3 luck, +300 to prayer timeout"
+      }
+    },
+    "god_anger": {
+      "ugangr": "Counter for how angry your god is. Incremented by gods_upset(), decremented by sacrifice.",
+      "effects_of_anger": {
+        "maxanger_formula": {
+          "same_god": "3 * ugangr + luck_modifier",
+          "different_god": "alignment_record / 2 + luck_modifier",
+          "range": "1 to 15"
+        },
+        "rn2_maxanger_outcomes": {
+          "0-1": "God is displeased (message only).",
+          "2-3": "Lose 1 WIS, lose experience level.",
+          "4-5": "Random curse on inventory.",
+          "6": "Punished (ball and chain). Falls to 4-5 if already punished.",
+          "7-8": "Summon hostile minion.",
+          "9+": "God zaps you: lightning bolt then wide-angle disintegration beam. Can destroy armor."
+        }
+      },
+      "prayer_too_soon_penalty": "+rnz(250) to ublesscnt, -3 luck, gods_upset()"
+    },
+    "alignment_thresholds": {
+      "PIOUS": 20,
+      "DEVOUT": 14,
+      "FERVENT": 9,
+      "STRIDENT": 4,
+      "description": "Alignment record thresholds that affect prayer outcomes and god messages."
+    },
+    "gehennom": {
+      "description": "Praying in Gehennom always fails. God can't help you. Likely angrygods() if low alignment or unlucky roll."
+    },
+    "water_prayer": {
+      "description": "If praying on an altar with potions of water on the floor, they become holy (coaligned) or unholy (non-coaligned) water."
+    }
+  }
+}

@@ -1,0 +1,317 @@
+{
+  "source": "NetHack 3.6.7 src/eat.c",
+  "mechanics": {
+    "intrinsic_gain_system": {
+      "description": "After eating a corpse, the game picks one possible intrinsic at random from those the monster can convey, then rolls to see if you get it.",
+      "possible_intrinsics": {
+        "FIRE_RES": {
+          "check": "ptr->mconveys & MR_FIRE",
+          "chance_denominator": 15
+        },
+        "COLD_RES": {
+          "check": "ptr->mconveys & MR_COLD",
+          "chance_denominator": 15
+        },
+        "SLEEP_RES": {
+          "check": "ptr->mconveys & MR_SLEEP",
+          "chance_denominator": 15
+        },
+        "DISINT_RES": {
+          "check": "ptr->mconveys & MR_DISINT",
+          "chance_denominator": 15
+        },
+        "SHOCK_RES": {
+          "check": "ptr->mconveys & MR_ELEC",
+          "chance_denominator": 15
+        },
+        "POISON_RES": {
+          "check": "ptr->mconveys & MR_POISON",
+          "chance_denominator": 15,
+          "exception": "Killer bee and scorpion: 75% chance to use chance=1 instead of 15"
+        },
+        "TELEPORT": {
+          "check": "can_teleport(ptr)",
+          "chance_denominator": 10
+        },
+        "TELEPORT_CONTROL": {
+          "check": "control_teleport(ptr)",
+          "chance_denominator": 12
+        },
+        "TELEPAT": {
+          "check": "telepathic(ptr)",
+          "chance_denominator": 1
+        }
+      },
+      "gain_formula": "if (ptr->mlevel <= rn2(chance)) return; // failed. So P(gain) = min(mlevel, chance) / chance for mlevel < chance, else guaranteed.",
+      "selection": "If monster conveys multiple intrinsics, one is chosen uniformly at random (reservoir sampling). Strength from giants counted as an extra candidate.",
+      "strength_from_giants": "Treated as an intrinsic candidate. If it's the only one, 50% chance of being skipped entirely. Uses gainstr()."
+    },
+    "special_corpse_effects": {
+      "cprefx_effects": {
+        "description": "Effects that happen when you START eating the corpse.",
+        "petrifying_corpses": {
+          "monsters": [
+            "cockatrice",
+            "chickatrice",
+            "Medusa"
+          ],
+          "effect": "Instant death by stoning unless Stone_resistance or can polymorph into stone golem."
+        },
+        "dogs_and_cats": {
+          "monsters": [
+            "little dog",
+            "dog",
+            "large dog",
+            "kitten",
+            "housecat",
+            "large cat"
+          ],
+          "effect": "Aggravate monster intrinsic granted (permanent). No penalty for cavemen/orcs."
+        },
+        "lizard": {
+          "effect": "Cures stoning (fix_petrification)."
+        },
+        "riders": {
+          "monsters": [
+            "Death",
+            "Pestilence",
+            "Famine"
+          ],
+          "effect": "Instantly fatal. Corpse revives. Life-saving required to survive."
+        },
+        "green_slime": {
+          "effect": "Sliming begins (10 turns) unless already slimed, unchanging, or slimeproof."
+        },
+        "acidic_monsters": {
+          "effect": "If stoned, cures petrification (like lizard)."
+        },
+        "cannibalism": {
+          "condition": "Eating own race or polymorphed species (not cavemen/orcs).",
+          "effect": "Aggravate monster intrinsic, -2 to -5 luck."
+        }
+      },
+      "cpostfx_effects": {
+        "description": "Effects that happen AFTER completely eating the corpse.",
+        "newt": {
+          "effect": "2/3 chance (or if energy <= 2/3 max): gain rnd(3) energy. 1/3 chance to increase max energy by 1."
+        },
+        "wraith": {
+          "effect": "Gain one experience level."
+        },
+        "human_werebeasts": {
+          "monsters": [
+            "human wererat",
+            "human werejackal",
+            "human werewolf"
+          ],
+          "effect": "Contract lycanthropy of corresponding type."
+        },
+        "nurse": {
+          "effect": "Full HP heal, cure blindness. Also checks for intrinsic conveyance (poison resistance)."
+        },
+        "stalker": {
+          "effect": "If not already invisible: gain temporary invisibility (50-149 turns) and see_invisible. OR permanent invisibility + see_invisible if you have the intrinsic already."
+        },
+        "yellow_light": {
+          "effect": "Stun for 30 additional turns."
+        },
+        "bat_and_giant_bat": {
+          "effect": "Stun for 30 turns (bat) or 60 turns (giant bat, includes yellow_light fallthrough)."
+        },
+        "mimics": {
+          "monsters": [
+            "small mimic (+20 turns)",
+            "large mimic (+40 turns)",
+            "giant mimic (+50 turns)"
+          ],
+          "effect": "Forces you to mimic a pile of gold (or orange if hallucinating) for duration. Cannot ride."
+        },
+        "quantum_mechanic": {
+          "effect": "Toggles intrinsic speed. If fast, become slow. If slow, become fast."
+        },
+        "lizard": {
+          "effect": "Reduce stun to 2 turns max, reduce confusion to 2 turns max."
+        },
+        "shapeshifters": {
+          "monsters": [
+            "chameleon",
+            "doppelganger",
+            "sandestin"
+          ],
+          "effect": "Polymorph self (unless unchanging)."
+        },
+        "disenchanter": {
+          "effect": "Randomly strips one intrinsic (attrcurse)."
+        },
+        "mind_flayer": {
+          "monsters": [
+            "mind flayer",
+            "master mind flayer"
+          ],
+          "effect": "50% chance to gain +1 INT (if below max). If no INT gain, falls through to intrinsic check (telepathy possible)."
+        },
+        "hallucination_inducers": {
+          "condition": "Monster has AD_STUN or AD_HALU attack, or is violet fungus.",
+          "effect": "+200 turns of hallucination."
+        }
+      }
+    },
+    "corpse_freshness": {
+      "formula": "rotted = (monstermoves - corpse_age) / (10 + rn2(20))",
+      "cursed_modifier": "+2 to rotted value",
+      "blessed_modifier": "-2 to rotted value",
+      "nonrotting_corpses": [
+        "lizard",
+        "lichen",
+        "Death",
+        "Pestilence",
+        "Famine"
+      ],
+      "tainted_threshold": "rotted > 5: tainted, causes food poisoning (rn1(10,10) turns) unless Sick_resistance",
+      "mildly_sick": "rotted > 5, or (rotted > 3 and 80% chance): lose rnd(8) HP",
+      "rotten_food_chance": "If not tainted/poisonous/acidic and (orotten flag set or 1/7 chance): rotten food effects (confusion, blindness, or fainting)"
+    },
+    "poisonous_corpses": {
+      "description": "Determined by poisonous() macro on the monster's permonst data. 80% chance of triggering poison effect.",
+      "effect_without_resistance": "Lose rnd(4) STR, lose rnd(15) HP.",
+      "effect_with_resistance": "Message only, no damage.",
+      "common_examples": [
+        "killer bee",
+        "scorpion",
+        "pit viper",
+        "cobra",
+        "water moccasin",
+        "black naga",
+        "golden naga hatchling",
+        "baby purple worm",
+        "purple worm",
+        "quasit",
+        "asp",
+        "giant spider",
+        "green slime"
+      ]
+    },
+    "acidic_corpses": {
+      "description": "Determined by acidic() macro on monster data. Always triggers (no probability roll).",
+      "effect_without_resistance": "Lose rnd(15) HP from stomach acid.",
+      "effect_with_resistance": "No damage.",
+      "cure_stoning": "Acidic corpses also cure stoning if eaten while turning to stone (same as lizard).",
+      "common_examples": [
+        "acid blob",
+        "yellow light",
+        "gelatinous cube",
+        "blue jelly",
+        "ochre jelly"
+      ]
+    },
+    "tin_effects": {
+      "tin_varieties": [
+        {
+          "type": "rotten",
+          "nutrition": -50,
+          "notes": "Causes vomiting (rn1(15,10) turns). Always rotten if cursed."
+        },
+        {
+          "type": "homemade",
+          "nutrition": 50,
+          "notes": "Health food. 1/7 chance of going rotten if not blessed."
+        },
+        {
+          "type": "soup",
+          "nutrition": 20,
+          "notes": "Health food."
+        },
+        {
+          "type": "french fried",
+          "nutrition": 40,
+          "notes": "Greasy. Makes hands slippery (5-15 turns)."
+        },
+        {
+          "type": "pickled",
+          "nutrition": 40,
+          "notes": "Health food."
+        },
+        {
+          "type": "boiled",
+          "nutrition": 50,
+          "notes": "Health food."
+        },
+        {
+          "type": "smoked",
+          "nutrition": 50,
+          "notes": "Health food."
+        },
+        {
+          "type": "dried",
+          "nutrition": 55,
+          "notes": "Health food."
+        },
+        {
+          "type": "deep fried",
+          "nutrition": 60,
+          "notes": "Greasy."
+        },
+        {
+          "type": "szechuan",
+          "nutrition": 70,
+          "notes": "Health food."
+        },
+        {
+          "type": "broiled",
+          "nutrition": 80,
+          "notes": ""
+        },
+        {
+          "type": "stir fried",
+          "nutrition": 80,
+          "notes": "Greasy."
+        },
+        {
+          "type": "sauteed",
+          "nutrition": 95,
+          "notes": ""
+        },
+        {
+          "type": "candied",
+          "nutrition": 100,
+          "notes": "Health food."
+        },
+        {
+          "type": "pureed",
+          "nutrition": 500,
+          "notes": "Health food."
+        }
+      ],
+      "spinach_tin": {
+        "nutrition": {
+          "blessed": 600,
+          "uncursed": "400 + rnd(200)",
+          "cursed": "200 + rnd(400)"
+        },
+        "effect": "Grants strength increase (gainstr). Described as feeling like Popeye."
+      },
+      "booby_trapped": "otrapped flag or (cursed and not homemade and 1/8 chance): explodes.",
+      "corpse_effects_apply": "Eating tinned monster meat applies both cprefx and cpostfx, so intrinsics can be gained.",
+      "nonrotting_tins": "Lizard and lichen tins are always at least homemade quality (never rotten).",
+      "opening_time": {
+        "blessed_tin": "0-1 turns",
+        "tin_opener": "0-2 turns (depends on BUC of opener)",
+        "dagger_or_knife": "3 turns",
+        "pick_axe_or_axe": "6 turns",
+        "bare_hands": "rn1(1 + 500/(DEX+STR), 10) turns"
+      }
+    },
+    "nonrotting_food": {
+      "description": "Lembas wafer and cram ration do not rot. However, if cursed, they behave as rotten.",
+      "lembas_nutrition": {
+        "base": 800,
+        "elf_bonus": "+25% (1000 total)",
+        "orc_penalty": "-25% (600 total)"
+      },
+      "cram_nutrition": {
+        "base": 600,
+        "dwarf_bonus": "+16.7% (700 total)"
+      }
+    }
+  }
+}

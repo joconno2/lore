@@ -1,0 +1,654 @@
+{
+  "source": "NetHack 3.6.7 include/artilist.h",
+  "artifact_count": 33,
+  "artifacts": [
+    {
+      "name": "Excalibur",
+      "base_item": "long sword",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "searching",
+        "has_defense",
+        "auto_searching"
+      ],
+      "attack": {
+        "type": "physical",
+        "damage": "+5d10"
+      },
+      "defense": {
+        "type": "level_drain"
+      },
+      "alignment": "lawful",
+      "role": "Knight",
+      "race": null,
+      "cost": 4000,
+      "quest_artifact": true
+    },
+    {
+      "name": "Stormbringer",
+      "base_item": "runesword",
+      "properties": [
+        "restricted",
+        "intelligent",
+        "has_attack",
+        "has_defense",
+        "drain_life_resistance"
+      ],
+      "attack": {
+        "type": "level_drain",
+        "damage": "+5d2"
+      },
+      "defense": {
+        "type": "level_drain"
+      },
+      "alignment": "chaotic",
+      "role": null,
+      "race": null,
+      "cost": 8000,
+      "quest_artifact": false
+    },
+    {
+      "name": "Mjollnir",
+      "base_item": "war hammer",
+      "properties": [
+        "restricted",
+        "has_attack"
+      ],
+      "attack": {
+        "type": "electricity",
+        "damage": "+5d24"
+      },
+      "alignment": "neutral",
+      "role": "Valkyrie",
+      "race": null,
+      "cost": 4000,
+      "quest_artifact": false
+    },
+    {
+      "name": "Cleaver",
+      "base_item": "battle-axe",
+      "properties": [
+        "restricted"
+      ],
+      "attack": {
+        "type": "physical",
+        "damage": "+3d6"
+      },
+      "alignment": "neutral",
+      "role": "Barbarian",
+      "race": null,
+      "cost": 1500,
+      "quest_artifact": false
+    },
+    {
+      "name": "Grimtooth",
+      "base_item": "orcish dagger",
+      "properties": [
+        "restricted",
+        "warning",
+        "double_damage_vs_flag"
+      ],
+      "effective_against": "elves",
+      "attack": {
+        "type": "physical",
+        "damage": "+2d6"
+      },
+      "alignment": "chaotic",
+      "role": null,
+      "race": "Orc",
+      "cost": 300,
+      "quest_artifact": false
+    },
+    {
+      "name": "Orcrist",
+      "base_item": "elven broadsword",
+      "properties": [
+        "warning",
+        "double_damage_vs_flag"
+      ],
+      "effective_against": "orcs",
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "alignment": "chaotic",
+      "role": null,
+      "race": "Elf",
+      "cost": 2000,
+      "quest_artifact": false
+    },
+    {
+      "name": "Sting",
+      "base_item": "elven dagger",
+      "properties": [
+        "warning",
+        "double_damage_vs_flag"
+      ],
+      "effective_against": "orcs",
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "alignment": "chaotic",
+      "role": null,
+      "race": "Elf",
+      "cost": 800,
+      "quest_artifact": false
+    },
+    {
+      "name": "Magicbane",
+      "base_item": "athame",
+      "properties": [
+        "restricted",
+        "has_attack",
+        "has_defense"
+      ],
+      "attack": {
+        "type": "stun",
+        "damage": "+3d4"
+      },
+      "defense": {
+        "type": "magic_missile"
+      },
+      "alignment": "neutral",
+      "role": "Wizard",
+      "race": null,
+      "cost": 3500,
+      "quest_artifact": false
+    },
+    {
+      "name": "Frost Brand",
+      "base_item": "long sword",
+      "properties": [
+        "restricted",
+        "has_attack",
+        "has_defense"
+      ],
+      "attack": {
+        "type": "cold",
+        "damage": "+5"
+      },
+      "defense": {
+        "type": "cold"
+      },
+      "alignment": "unaligned",
+      "role": null,
+      "race": null,
+      "cost": 3000,
+      "quest_artifact": false
+    },
+    {
+      "name": "Fire Brand",
+      "base_item": "long sword",
+      "properties": [
+        "restricted",
+        "has_attack",
+        "has_defense"
+      ],
+      "attack": {
+        "type": "fire",
+        "damage": "+5"
+      },
+      "defense": {
+        "type": "fire"
+      },
+      "alignment": "unaligned",
+      "role": null,
+      "race": null,
+      "cost": 3000,
+      "quest_artifact": false
+    },
+    {
+      "name": "Dragonbane",
+      "base_item": "broadsword",
+      "properties": [
+        "restricted",
+        "reflection",
+        "double_damage_vs_class"
+      ],
+      "effective_against": "dragons",
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "alignment": "unaligned",
+      "role": null,
+      "race": null,
+      "cost": 500,
+      "quest_artifact": false
+    },
+    {
+      "name": "Demonbane",
+      "base_item": "long sword",
+      "properties": [
+        "restricted",
+        "double_damage_vs_flag"
+      ],
+      "effective_against": "demons",
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "alignment": "lawful",
+      "role": null,
+      "race": null,
+      "cost": 2500,
+      "quest_artifact": false
+    },
+    {
+      "name": "Werebane",
+      "base_item": "silver saber",
+      "properties": [
+        "restricted",
+        "double_damage_vs_flag"
+      ],
+      "effective_against": "werebeasts",
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "defense": {
+        "type": "lycanthropy_resistance"
+      },
+      "alignment": "unaligned",
+      "role": null,
+      "race": null,
+      "cost": 1500,
+      "quest_artifact": false
+    },
+    {
+      "name": "Grayswandir",
+      "base_item": "silver saber",
+      "properties": [
+        "restricted",
+        "hallucination_resistance"
+      ],
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "alignment": "lawful",
+      "role": null,
+      "race": null,
+      "cost": 8000,
+      "quest_artifact": false
+    },
+    {
+      "name": "Giantslayer",
+      "base_item": "long sword",
+      "properties": [
+        "restricted",
+        "double_damage_vs_flag"
+      ],
+      "effective_against": "giants",
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "alignment": "neutral",
+      "role": null,
+      "race": null,
+      "cost": 200,
+      "quest_artifact": false
+    },
+    {
+      "name": "Ogresmasher",
+      "base_item": "war hammer",
+      "properties": [
+        "restricted",
+        "double_damage_vs_class"
+      ],
+      "effective_against": "ogres",
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "alignment": "unaligned",
+      "role": null,
+      "race": null,
+      "cost": 200,
+      "quest_artifact": false
+    },
+    {
+      "name": "Trollsbane",
+      "base_item": "morning star",
+      "properties": [
+        "restricted",
+        "double_damage_vs_class"
+      ],
+      "effective_against": "trolls",
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "alignment": "unaligned",
+      "role": null,
+      "race": null,
+      "cost": 200,
+      "quest_artifact": false
+    },
+    {
+      "name": "Vorpal Blade",
+      "base_item": "long sword",
+      "properties": [
+        "restricted",
+        "beheading"
+      ],
+      "attack": {
+        "type": "physical",
+        "damage": "+5d1"
+      },
+      "alignment": "neutral",
+      "role": null,
+      "race": null,
+      "cost": 4000,
+      "quest_artifact": false
+    },
+    {
+      "name": "Snickersnee",
+      "base_item": "katana",
+      "properties": [
+        "restricted"
+      ],
+      "attack": {
+        "type": "physical",
+        "damage": "+0d8"
+      },
+      "alignment": "lawful",
+      "role": "Samurai",
+      "race": null,
+      "cost": 1200,
+      "quest_artifact": false
+    },
+    {
+      "name": "Sunsword",
+      "base_item": "long sword",
+      "properties": [
+        "restricted",
+        "double_damage_vs_flag"
+      ],
+      "effective_against": "undead",
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "defense": {
+        "type": "blinding"
+      },
+      "alignment": "lawful",
+      "role": null,
+      "race": null,
+      "cost": 1500,
+      "quest_artifact": false
+    },
+    {
+      "name": "The Orb of Detection",
+      "base_item": "crystal ball",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "telepathy",
+        "half_spell_damage"
+      ],
+      "carry_effect": {
+        "type": "magic_missile"
+      },
+      "invoke": "invisibility",
+      "alignment": "lawful",
+      "role": "Archeologist",
+      "race": null,
+      "cost": 2500,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Heart of Ahriman",
+      "base_item": "luckstone",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "stealth"
+      ],
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "invoke": "levitation",
+      "alignment": "neutral",
+      "role": "Barbarian",
+      "race": null,
+      "cost": 2500,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Sceptre of Might",
+      "base_item": "mace",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "damage_vs_cross_aligned"
+      ],
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "defense": {
+        "type": "magic_missile"
+      },
+      "invoke": "conflict",
+      "alignment": "lawful",
+      "role": "Caveman",
+      "race": null,
+      "cost": 2500,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Staff of Aesculapius",
+      "base_item": "quarterstaff",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "has_attack",
+        "drain_life_resistance",
+        "regeneration"
+      ],
+      "attack": {
+        "type": "level_drain"
+      },
+      "defense": {
+        "type": "level_drain"
+      },
+      "invoke": "healing",
+      "alignment": "neutral",
+      "role": "Healer",
+      "race": null,
+      "cost": 5000,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Magic Mirror of Merlin",
+      "base_item": "mirror",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "speaking",
+        "telepathy"
+      ],
+      "carry_effect": {
+        "type": "magic_missile"
+      },
+      "alignment": "lawful",
+      "role": "Knight",
+      "race": null,
+      "cost": 1500,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Eyes of the Overworld",
+      "base_item": "lenses",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "xray_vision"
+      ],
+      "defense": {
+        "type": "magic_missile"
+      },
+      "invoke": "enlightening",
+      "alignment": "neutral",
+      "role": "Monk",
+      "race": null,
+      "cost": 2500,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Mitre of Holiness",
+      "base_item": "helm of brilliance",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "protection",
+        "double_damage_vs_flag"
+      ],
+      "effective_against": "undead",
+      "carry_effect": {
+        "type": "fire"
+      },
+      "invoke": "energy_boost",
+      "alignment": "lawful",
+      "role": "Priest",
+      "race": null,
+      "cost": 2000,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Longbow of Diana",
+      "base_item": "bow",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "reflection",
+        "telepathy"
+      ],
+      "attack": {
+        "type": "physical",
+        "damage": "+5"
+      },
+      "invoke": "create_ammo",
+      "alignment": "chaotic",
+      "role": "Ranger",
+      "race": null,
+      "cost": 4000,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Master Key of Thievery",
+      "base_item": "skeleton key",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "speaking",
+        "warning",
+        "half_physical_damage",
+        "teleport_control"
+      ],
+      "invoke": "untrap",
+      "alignment": "chaotic",
+      "role": "Rogue",
+      "race": null,
+      "cost": 3500,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Tsurugi of Muramasa",
+      "base_item": "tsurugi",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "beheading",
+        "luck",
+        "protection"
+      ],
+      "attack": {
+        "type": "physical",
+        "damage": "+0d8"
+      },
+      "alignment": "lawful",
+      "role": "Samurai",
+      "race": null,
+      "cost": 4500,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Platinum Yendorian Express Card",
+      "base_item": "credit card",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "has_defense",
+        "telepathy",
+        "half_spell_damage"
+      ],
+      "carry_effect": {
+        "type": "magic_missile"
+      },
+      "invoke": "charge_object",
+      "alignment": "neutral",
+      "role": "Tourist",
+      "race": null,
+      "cost": 7000,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Orb of Fate",
+      "base_item": "crystal ball",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "luck",
+        "warning",
+        "half_spell_damage",
+        "half_physical_damage"
+      ],
+      "invoke": "level_teleport",
+      "alignment": "neutral",
+      "role": "Valkyrie",
+      "race": null,
+      "cost": 3500,
+      "quest_artifact": true
+    },
+    {
+      "name": "The Eye of the Aethiopica",
+      "base_item": "amulet of ESP",
+      "properties": [
+        "not_randomly_generated",
+        "restricted",
+        "intelligent",
+        "energy_regeneration",
+        "half_spell_damage"
+      ],
+      "defense": {
+        "type": "magic_missile"
+      },
+      "invoke": "create_portal",
+      "alignment": "neutral",
+      "role": "Wizard",
+      "race": null,
+      "cost": 4000,
+      "quest_artifact": true
+    }
+  ]
+}
