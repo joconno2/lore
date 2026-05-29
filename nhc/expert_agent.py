@@ -375,6 +375,9 @@ class ExpertAgent:
         # Multi-step action state
         self._pending_action: Optional[str] = None  # "eat", "pray", etc.
         self._eat_attempts: int = 0
+        # Path caching
+        self._cached_path: Optional[list] = None
+        self._stuck_moves: int = 0
 
     def reset(self) -> None:
         """Reset state for a new episode."""
@@ -454,9 +457,19 @@ class ExpertAgent:
         pos = s.position
         if pos == self.last_pos:
             self.turns_on_tile += 1
+            # If we tried to move but didn't, clear cached path
+            if self._cached_path and self.last_action in Actions.MOVE_DELTAS:
+                self._cached_path = None
+                self._stuck_moves += 1
         else:
             self.turns_on_tile = 0
             self.search_count = 0
+            self._stuck_moves = 0
+            # Advance cached path if we moved to expected tile
+            if self._cached_path and pos == self._cached_path[0]:
+                self._cached_path.pop(0)
+            elif self._cached_path:
+                self._cached_path = None  # off-path, recompute
         self.last_pos = pos
 
         # Update prayer subsystem from blstats
@@ -806,7 +819,18 @@ class ExpertAgent:
 
     def _bfs_step_toward(self, glyphs, py, px, ty, tx) -> Optional[int]:
         """BFS pathfind from (py,px) to (ty,tx), return first step action.
-        Respects walls, doors (cardinal only through doors), no diagonal squeeze."""
+        Respects walls, doors (cardinal only through doors), no diagonal squeeze.
+        Caches full path for subsequent steps."""
+        # Use cached path if valid
+        if self._cached_path and len(self._cached_path) > 0:
+            next_tile = self._cached_path[0]
+            dy, dx = next_tile[0] - py, next_tile[1] - px
+            action = Actions.DELTA_TO_MOVE.get((dy, dx))
+            if action is not None and abs(dy) <= 1 and abs(dx) <= 1:
+                return action
+            # Cache invalid, recompute
+            self._cached_path = None
+
         rows, cols = glyphs.shape
         parent = {}
         visited = set()
@@ -831,16 +855,13 @@ class ExpertAgent:
                         continue
                     g = int(glyphs[nr, nc])
                     if not _is_walkable_glyph(g):
-                        # Also allow closed doors (we can open them)
                         if not _is_closed_door_glyph(g):
                             continue
                     is_diagonal = abs(dy) + abs(dx) > 1
                     if is_diagonal:
-                        # Can't move diagonally through doors
                         src_g = int(glyphs[r, c])
                         if _is_door_glyph(g) or _is_door_glyph(src_g):
                             continue
-                        # Can't squeeze diagonally between two walls
                         adj1 = int(glyphs[r, c + dx]) if 0 <= c + dx < cols else 0
                         adj2 = int(glyphs[r + dy, c]) if 0 <= r + dy < rows else 0
                         if not (_is_walkable_glyph(adj1) or _is_walkable_glyph(adj2)):
@@ -852,14 +873,43 @@ class ExpertAgent:
         if not found:
             return None
 
-        # Trace path back to first step
+        # Trace full path
+        path = []
         cur = (ty, tx)
-        while parent.get(cur) != (py, px):
+        while cur != (py, px):
+            path.append(cur)
             cur = parent.get(cur)
             if cur is None:
                 return None
-        # cur is now the first step from (py, px)
-        dy, dx = cur[0] - py, cur[1] - px
+        path.reverse()
+        self._cached_path = path
+
+        if not path:
+            return None
+        # First step
+        first = path[0]
+        dy, dx = first[0] - py, first[1] - px
+
+        # If stuck (tried this direction and failed), try alternate adjacent step
+        if self._stuck_moves >= 2:
+            import random
+            # Try all walkable adjacent tiles, prefer ones closer to target
+            candidates = []
+            for ddy in (-1, 0, 1):
+                for ddx in (-1, 0, 1):
+                    if ddy == 0 and ddx == 0:
+                        continue
+                    ar, ac = py + ddy, px + ddx
+                    if 0 <= ar < rows and 0 <= ac < cols:
+                        g = int(glyphs[ar, ac])
+                        if _is_walkable_glyph(g) or _is_closed_door_glyph(g):
+                            action = Actions.DELTA_TO_MOVE.get((ddy, ddx))
+                            if action is not None:
+                                candidates.append(action)
+            if candidates:
+                self._stuck_moves = 0
+                return random.choice(candidates)
+
         return Actions.DELTA_TO_MOVE.get((dy, dx), None)
 
     # ----------------------------------------------------------
