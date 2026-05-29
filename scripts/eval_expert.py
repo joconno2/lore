@@ -75,7 +75,7 @@ def main():
     args = p.parse_args()
 
     env = make_env()
-    agent = ExpertAgent()
+    agent = ExpertAgent(verbose=args.verbose)
 
     results = []
     t0 = time.time()

@@ -343,13 +343,15 @@ class ExpertAgent:
     identification, and navigation.
     """
 
-    def __init__(self):
+    def __init__(self, verbose: bool = False):
+        self.verbose = verbose
         self.state: GameState = GameState() if _HAS_OBS_PARSER else None
         self.threat_db = ThreatDB() if _HAS_COMBAT else None
         self.prayer = PrayerState() if _HAS_PRAYER else None
         self.item_tracker = AppearanceTracker() if _HAS_ITEM_ID else None
 
         # Per-episode state
+        self._step_count: int = 0
         self.resistances: set[str] = set()
         self.has_food: bool = False
         self.has_lizard_corpse: bool = False
@@ -366,6 +368,7 @@ class ExpertAgent:
 
     def reset(self) -> None:
         """Reset state for a new episode."""
+        self._step_count = 0
         self.state = GameState() if _HAS_OBS_PARSER else None
         if _HAS_PRAYER:
             self.prayer = PrayerState()
@@ -383,8 +386,28 @@ class ExpertAgent:
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
+        self._step_count += 1
         s = self.state
         s.update(obs)
+
+        # Check for --More-- prompt. Must clear before anything else works.
+        msg_raw = obs.get("message")
+        if msg_raw is not None:
+            msg_bytes = bytes(msg_raw).rstrip(b'\x00')
+            msg_str = msg_bytes.decode("latin-1", errors="replace").strip()
+            if "--More--" in msg_str or msg_str.endswith("--More--"):
+                if self.verbose:
+                    self._log("MORE", f"clearing prompt: {msg_str[:60]}")
+                return Actions.MORE
+            # Also handle common menu/prompt patterns that block input
+            if msg_str.endswith("[yn]") or msg_str.endswith("[ynq]"):
+                if self.verbose:
+                    self._log("YN", f"answering yes to: {msg_str[:60]}")
+                return Actions.MORE  # CR = yes/default for most prompts
+            if msg_str.endswith("[q]") or msg_str.endswith("(end)"):
+                if self.verbose:
+                    self._log("MENU", f"dismissing: {msg_str[:60]}")
+                return Actions.MORE
 
         # Track stuck detection
         pos = s.position
@@ -410,7 +433,35 @@ class ExpertAgent:
         # Scan inventory for food / lizard
         self._check_inventory(s)
 
-        return self._decide(s)
+        action = self._decide(s)
+        if self.verbose:
+            self._log_decision(s, action)
+        return action
+
+    def _log(self, tag: str, msg: str):
+        """Print a tagged log line."""
+        s = self.state
+        print(f"  [{self._step_count:>5} t{s.turn:>5} dl{s.dlevel} hp{s.hp}/{s.max_hp}] {tag}: {msg}")
+
+    def _log_decision(self, s, action: int):
+        """Log the chosen action every N steps."""
+        if self._step_count % 50 != 0:
+            return
+        action_name = self._action_name(action)
+        monsters = [m.name for m in s.adjacent_monsters if not getattr(m, 'is_pet', False)]
+        msg = s.messages[-1] if s.messages else ""
+        self._log("ACT", f"{action_name} | adj={monsters} hunger={s.hunger_state} "
+                  f"pos={s.position} msg={msg[:40]}")
+
+    @staticmethod
+    def _action_name(action: int) -> str:
+        """Reverse-lookup action index to name."""
+        for name in dir(Actions):
+            if name.startswith('_') or name in ('MOVE_DELTAS', 'DELTA_TO_MOVE', 'NUM_ACTIONS'):
+                continue
+            if getattr(Actions, name) == action:
+                return name
+        return f"action_{action}"
 
     def _decide(self, s) -> int:
         """Priority cascade. Returns action for highest-priority applicable rule."""
