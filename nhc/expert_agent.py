@@ -83,32 +83,37 @@ except ImportError:
 # ============================================================
 
 class Actions:
-    """Static action index mapping for the canonical NLE action space.
+    """NetHackScore-v0 action indices (23 actions).
 
-    Hardcoded defaults from NLE 0.9.x. Overridden at import time if
-    nle is importable.
+    Indices match env.unwrapped.actions:
+      0=MORE(CR), 1=N(k), 2=E(l), 3=S(j), 4=W(h),
+      5=NE(u), 6=SE(n), 7=SW(b), 8=NW(y),
+      9-16=long moves, 17=upstairs(<), 18=downstairs(>),
+      19=wait(.), 20=kick(^D), 21=eat(e), 22=search(s)
     """
-    N = 0; E = 1; S = 2; W = 3
-    NE = 4; SE = 5; SW = 6; NW = 7
-    UP = 8; DOWN = 9; WAIT = 10
-    APPLY = 11; CLOSE = 12; DROP = 13; EAT = 14
-    ENGRAVE = 15; FIRE = 16; INV = 17; KICK = 18
-    LOOT = 19; OPEN = 20; PAY = 21; PICKUP = 22
-    PRAY = 23; PUTON = 24; QUAFF = 25; READ = 26
-    REMOVE = 27; RIDE = 28; SEARCH = 29; TAKEOFF = 30
-    THROW = 31; WEAR = 32; WIELD = 33; ZAP = 34
-    MORE = 35
-    NUM_ACTIONS = 113
+    MORE = 0
+    N = 1; E = 2; S = 3; W = 4
+    NE = 5; SE = 6; SW = 7; NW = 8
+    UP = 17; DOWN = 18; WAIT = 19
+    KICK = 20; EAT = 21; SEARCH = 22
+    # Actions not available in NetHackScore-v0 (mapped to SEARCH as fallback)
+    APPLY = 22; CLOSE = 22; DROP = 22; ENGRAVE = 22
+    FIRE = 22; INV = 22; LOOT = 22; OPEN = 22
+    PAY = 22; PICKUP = 22; PRAY = 22; PUTON = 22
+    QUAFF = 22; READ = 22; REMOVE = 22; RIDE = 22
+    TAKEOFF = 22; THROW = 22; WEAR = 22; WIELD = 22
+    ZAP = 22
+    NUM_ACTIONS = 23
 
     MOVE_DELTAS = {
-        0: (-1, 0),   # N
-        1: (0, 1),    # E
-        2: (1, 0),    # S
-        3: (0, -1),   # W
-        4: (-1, 1),   # NE
-        5: (1, 1),    # SE
-        6: (1, -1),   # SW
-        7: (-1, -1),  # NW
+        1: (-1, 0),   # N
+        2: (0, 1),    # E
+        3: (1, 0),    # S
+        4: (0, -1),   # W
+        5: (-1, 1),   # NE
+        6: (1, 1),    # SE
+        7: (1, -1),   # SW
+        8: (-1, -1),  # NW
     }
     DELTA_TO_MOVE = {v: k for k, v in MOVE_DELTAS.items()}
 
@@ -761,14 +766,19 @@ class ExpertAgent:
                             break
 
             elif "you see here" in text or "there is" in text or "there are" in text:
-                self._on_item = True
-                # Check for food items
-                if any(food in text for food in [
-                    "food ration", "tripe", "meatball", "egg", "melon",
-                    "orange", "apple", "pear", "banana", "cream pie",
-                    "lembas", "cram", "lichen", "kelp",
-                ]):
-                    self._on_edible_item = True
+                # Exclude dungeon features that use similar phrasing
+                feature_words = ["staircase", "ladder", "altar", "fountain",
+                                 "sink", "grave", "trap", "door"]
+                is_feature = any(fw in text for fw in feature_words)
+                if not is_feature:
+                    self._on_item = True
+                    # Check for food items
+                    if any(food in text for food in [
+                        "food ration", "tripe", "meatball", "egg", "melon",
+                        "orange", "apple", "pear", "banana", "cream pie",
+                        "lembas", "cram", "lichen", "kelp",
+                    ]):
+                        self._on_edible_item = True
 
             # "Things that are here:" means multiple items
             if "things that are here" in text or "things that you feel here" in text:
@@ -843,7 +853,8 @@ def _make_mock_obs(
     Uses obs_parser.py's blstats layout (27 elements, BL_TIME=20,
     BL_HUNGER=21, BL_CONDITION=25, BL_ALIGN=26).
     """
-    glyphs = np.zeros((MAP_H, MAP_W), dtype=np.int16)
+    stone_glyph = GLYPH_CMAP_OFF  # cmap index 0 = stone wall
+    glyphs = np.full((MAP_H, MAP_W), stone_glyph, dtype=np.int16)
 
     # Carve a room around the player
     room_glyph = GLYPH_CMAP_OFF + 19  # CMAP_ROOM
@@ -1036,9 +1047,9 @@ def _run_tests():
     print("\nTest 12: P5 - Standing on beneficial corpse (message-based)")
     agent.reset()
     obs = _make_mock_obs(hp=40, max_hp=50, turn=500,
-                         message="You see here a giant ant corpse.")
+                         message="You see here a floating eye corpse.")
     action = agent.act(obs)
-    check("corpse on tile should eat", action == Actions.EAT,
+    check("beneficial corpse should eat (floating eye)", action == Actions.EAT,
           f"got action {action}, corpse_name={agent._corpse_name}")
 
     # --- Test 13: Exploration ---
