@@ -126,7 +126,8 @@ def _try_resolve_actions():
         lookup = {}
         for i, a in enumerate(act_list):
             name = a.name if hasattr(a, "name") else str(a)
-            lookup[name] = i
+            if name not in lookup:  # first occurrence wins (regular compass before long-move)
+                lookup[name] = i
 
         # NLE action names are bare (e.g., "N", "APPLY", "UP", "WAIT")
         # Map our attribute names to what NLE uses
