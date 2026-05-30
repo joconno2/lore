@@ -22,13 +22,12 @@ try:
     from nhc.obs_parser import (
         GameState, MonsterInfo,
         glyph_is_monster, glyph_is_pet, glyph_is_stairs_down,
-        glyph_is_stairs_up, glyph_is_altar, glyph_to_monster_name,
-        glyph_to_mon_id,
+        glyph_is_stairs_up, glyph_to_monster_name, glyph_to_mon_id,
         GLYPH_MON_OFF, GLYPH_PET_OFF, GLYPH_BODY_OFF, GLYPH_OBJ_OFF,
         GLYPH_CMAP_OFF, GLYPH_RIDDEN_OFF,
-        CMAP_UPSTAIR, CMAP_DNSTAIR, CMAP_ALTAR, CMAP_ROOM, CMAP_CORR,
+        CMAP_UPSTAIR, CMAP_DNSTAIR, CMAP_ROOM, CMAP_CORR,
         CMAP_LITCORR, CMAP_DARKROOM,
-        S_DNSTAIR, S_DNLADDER, S_UPSTAIR, S_ALTAR,
+        S_DNSTAIR, S_DNLADDER, S_UPSTAIR,
         MAP_H, MAP_W,
         COND_STONE, COND_SLIME,
         NUMMONS,
@@ -47,11 +46,9 @@ except ImportError:
     GLYPH_RIDDEN_OFF = 1525
     MAP_H = 21
     MAP_W = 79
-    CMAP_ALTAR = 27
     S_DNSTAIR = GLYPH_CMAP_OFF + 24
     S_DNLADDER = GLYPH_CMAP_OFF + 26
     S_UPSTAIR = GLYPH_CMAP_OFF + 23
-    S_ALTAR = GLYPH_CMAP_OFF + CMAP_ALTAR
     COND_STONE = 0x00000001
     COND_SLIME = 0x00000002
 
@@ -103,8 +100,8 @@ class Actions:
     UP = 17; DOWN = 18; WAIT = 19
     KICK = 20; EAT = 21; SEARCH = 22
     # Actions not available in NetHackScore-v0 (mapped to SEARCH as fallback)
-    APPLY = 22; CLOSE = 22; DIP = 22; DROP = 22; ENGRAVE = 22
-    FIRE = 22; INV = 22; LOOT = 22; OFFER = 22; OPEN = 22
+    APPLY = 22; CLOSE = 22; DROP = 22; ENGRAVE = 22
+    FIRE = 22; INV = 22; LOOT = 22; OPEN = 22
     PAY = 22; PICKUP = 22; PRAY = 22; PUTON = 22
     QUAFF = 22; READ = 22; REMOVE = 22; RIDE = 22
     TAKEOFF = 22; THROW = 22; WEAR = 22; WIELD = 22
@@ -141,9 +138,9 @@ def _try_resolve_actions():
             "N": "N", "E": "E", "S": "S", "W": "W",
             "NE": "NE", "SE": "SE", "SW": "SW", "NW": "NW",
             "UP": "UP", "DOWN": "DOWN", "WAIT": "WAIT",
-            "APPLY": "APPLY", "CLOSE": "CLOSE", "DIP": "DIP", "DROP": "DROP",
+            "APPLY": "APPLY", "CLOSE": "CLOSE", "DROP": "DROP",
             "EAT": "EAT", "ENGRAVE": "ENGRAVE", "FIRE": "FIRE",
-            "KICK": "KICK", "LOOT": "LOOT", "OFFER": "OFFER", "OPEN": "OPEN",
+            "KICK": "KICK", "LOOT": "LOOT", "OPEN": "OPEN",
             "PICKUP": "PICKUP", "PRAY": "PRAY", "PUTON": "PUTON",
             "QUAFF": "QUAFF", "READ": "READ", "SEARCH": "SEARCH",
             "TAKEOFF": "TAKEOFF", "THROW": "THROW", "WEAR": "WEAR",
@@ -182,8 +179,6 @@ _CLOSED_DOOR_CMAPS = frozenset({15, 16})
 # Wall cmaps: 1-12 are various wall types (vwall, hwall, corners, etc.)
 _WALL_CMAPS = frozenset(range(1, 12))
 _STONE_CMAP = 0
-# Fountain cmap index
-_FOUNTAIN_CMAP = 31
 # Boulder glyph (GLYPH_OBJ_OFF + 447)
 _BOULDER_GLYPH = GLYPH_OBJ_OFF + 447
 
@@ -195,27 +190,6 @@ def _direction_toward(py: int, px: int, ty: int, tx: int) -> int:
     if dy == 0 and dx == 0:
         return Actions.WAIT
     return Actions.DELTA_TO_MOVE.get((dy, dx), Actions.SEARCH)
-
-
-def _monster_in_line(py: int, px: int, my: int, mx: int) -> Optional[tuple]:
-    """Check if monster at (my,mx) is in a cardinal or diagonal line from (py,px).
-
-    Returns (dy, dx) unit direction if in line, None otherwise.
-    Projectiles and wand beams travel in straight lines only.
-    """
-    dr = my - py
-    dc = mx - px
-    if dr == 0 and dc == 0:
-        return None
-    # Cardinal
-    if dr == 0:
-        return (0, 1 if dc > 0 else -1)
-    if dc == 0:
-        return (1 if dr > 0 else -1, 0)
-    # Diagonal: abs(dr) must equal abs(dc)
-    if abs(dr) == abs(dc):
-        return (1 if dr > 0 else -1, 1 if dc > 0 else -1)
-    return None
 
 
 def _direction_away(py: int, px: int, ty: int, tx: int) -> int:
@@ -450,22 +424,6 @@ class ExpertAgent:
         self._refused_attacks: set = set()  # monster names we refused to attack (peacefuls)
         self._refused_positions: set = set()  # positions we shouldn't walk to (peacefuls there)
         self._eat_cooldown: int = 0  # steps to skip eating after a failed eat
-        # Altar sacrifice state
-        self._altar_positions: list[tuple[int, int]] = []  # known altar positions on current level
-        self._sacrifice_count: int = 0  # total sacrifices this episode
-        self._got_artifact: bool = False  # received an artifact from sacrifice
-        self._sacrifice_corpses: dict = {}  # {letter: corpse_name} in inventory
-        # Ranged combat state
-        self._daggers: dict = {}  # {letter: item_str} for daggers in inventory
-        self._wands: dict = {}    # {letter: (item_str, wand_type)} for wands
-        self._ranged_target_dir: Optional[int] = None  # compass direction for throw/zap
-        self._ranged_target_letter: Optional[str] = None  # item letter for throw/zap
-        # Excalibur dip state
-        self._has_excalibur: bool = False
-        self._long_sword_letter: Optional[str] = None  # inv letter of long sword to dip
-        self._fountain_positions: set = set()  # (row, col) of known fountains on current level
-        self._excalibur_dip_state: Optional[str] = None  # FSM: "dip_sent", "select_item"
-        self._excalibur_dip_attempts: int = 0  # total dip attempts this episode
 
     @staticmethod
     def _make_episode_stats() -> dict:
@@ -479,8 +437,6 @@ class ExpertAgent:
             "prayer_results": [],
             "hp_min": 999,
             "corpses_eaten": 0,
-            "sacrifices": 0,
-            "artifacts_received": 0,
             "turns_per_dlevel": {},
             "cause_of_death": "timeout",
         }
@@ -529,22 +485,6 @@ class ExpertAgent:
         self._refused_attacks = set()
         self._refused_positions = set()
         self._eat_cooldown = 0
-        # Altar sacrifice state
-        self._altar_positions = []
-        self._sacrifice_count = 0
-        self._got_artifact = False
-        self._sacrifice_corpses = {}
-        # Ranged combat state
-        self._daggers = {}
-        self._wands = {}
-        self._ranged_target_dir = None
-        self._ranged_target_letter = None
-        # Excalibur state
-        self._has_excalibur = False
-        self._long_sword_letter = None
-        self._fountain_positions = set()
-        self._excalibur_dip_state = None
-        self._excalibur_dip_attempts = 0
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
@@ -594,40 +534,6 @@ class ExpertAgent:
                 self._pending_action = None
                 self._pending_letter = None
                 return Actions.MORE
-            # Handle dip prompts (Excalibur creation)
-            if "What do you want to dip?" in msg_str or \
-               "What do you want to dip " in msg_str:
-                if self._excalibur_dip_state == "dip_sent" and self._long_sword_letter:
-                    letter = self._long_sword_letter
-                    self._excalibur_dip_state = "select_item"
-                    if self.verbose:
-                        self._log("EXCAL", f"selecting long sword '{letter}' for dip")
-                    return self._letter_to_action(letter)
-                # Unexpected dip prompt, cancel
-                self._excalibur_dip_state = None
-                return Actions.ESC
-            # "Dip it into the fountain?" yn prompt
-            if "Dip" in msg_str and "into the fountain" in msg_str and "[yn]" in msg_str:
-                if self._excalibur_dip_state:
-                    if self.verbose:
-                        self._log("EXCAL", "confirming fountain dip")
-                    return self._letter_to_action('y')
-            # "into?" fallback when no fountain detected
-            if "into?" in msg_str and self._excalibur_dip_state:
-                self._excalibur_dip_state = None
-                return Actions.ESC
-            # Excalibur creation messages
-            if "Your long sword" in msg_str and "glow" in msg_str:
-                self._has_excalibur = True
-                self._excalibur_dip_state = None
-                if self.verbose:
-                    self._log("EXCAL", "created Excalibur")
-            # Fountain dried up: remove from tracked positions
-            if "fountain dries up" in msg_str:
-                if self._excalibur_dip_state:
-                    self._excalibur_dip_state = None
-                py_pos, px_pos = s.position
-                self._fountain_positions.discard((py_pos, px_pos))
             # Handle eat prompts
             if "What do you want to eat?" in msg_str:
                 # Find best food item from our inventory knowledge
@@ -667,19 +573,6 @@ class ExpertAgent:
                     self._log("EAT", f"confirming: {msg_str[:40]}")
                 self._pending_action = None
                 return self._letter_to_action('y')
-            # Handle sacrifice prompts
-            if "What do you want to sacrifice?" in msg_str:
-                letter = self._find_sacrifice_letter(s)
-                if letter is not None:
-                    if self.verbose:
-                        self._log("SACRIFICE", f"offering corpse '{letter}'")
-                    self._pending_action = None
-                    return self._letter_to_action(letter)
-                self._pending_action = None
-                return Actions.ESC
-            if "sacrifice it?" in msg_str or "sacrifice one?" in msg_str:
-                # Asking about items on the altar, not inventory. Decline.
-                return self._letter_to_action('n')
             # Handle yn prompts - catch [yn], [ynq], and default indicators like (n) or (y)
             if "[yn]" in msg_str or "[ynq]" in msg_str:
                 lower_msg = msg_str.lower()
@@ -722,39 +615,8 @@ class ExpertAgent:
                     self._log("DOOR", "door is locked, kicking")
                 # _kick_dir was set when we walked into the door
                 return Actions.KICK
-            # "What do you want to throw?" prompt
-            if "What do you want to throw?" in msg_str:
-                if self._pending_action == "throw" and self._ranged_target_letter:
-                    letter = self._ranged_target_letter
-                    if self.verbose:
-                        self._log("THROW", f"selecting item '{letter}'")
-                    return self._letter_to_action(letter)
-                self._pending_action = None
-                self._ranged_target_letter = None
-                self._ranged_target_dir = None
-                return Actions.ESC
-            # "What do you want to zap?" prompt
-            if "What do you want to zap?" in msg_str:
-                if self._pending_action == "zap" and self._ranged_target_letter:
-                    letter = self._ranged_target_letter
-                    if self.verbose:
-                        self._log("ZAP", f"selecting wand '{letter}'")
-                    return self._letter_to_action(letter)
-                self._pending_action = None
-                self._ranged_target_letter = None
-                self._ranged_target_dir = None
-                return Actions.ESC
-            # "In what direction?" prompt (kick, throw, or zap)
+            # "In what direction?" prompt after kick
             if "In what direction?" in msg_str:
-                # Throw/zap direction takes priority
-                if self._ranged_target_dir is not None:
-                    d = self._ranged_target_dir
-                    self._ranged_target_dir = None
-                    self._ranged_target_letter = None
-                    self._pending_action = None
-                    if self.verbose:
-                        self._log("DIR", f"aiming {self._action_name(d)}")
-                    return d
                 if self._kick_dir is not None:
                     d = self._kick_dir
                     self._kick_dir = None
@@ -768,12 +630,6 @@ class ExpertAgent:
                     if action is not None:
                         return action
                 return Actions.MORE  # cancel if no direction
-            # Throw/zap failure messages: clear pending state
-            if "Nothing to throw" in msg_str or "not carrying anything" in msg_str or \
-               "Nothing happens" in msg_str or "can't zap" in msg_str:
-                self._pending_action = None
-                self._ranged_target_letter = None
-                self._ranged_target_dir = None
 
             # Engrave prompts
             if "What do you want to write in the" in msg_str or \
@@ -986,26 +842,6 @@ class ExpertAgent:
            "you bite into the" in lower:
             stats["corpses_eaten"] += 1
 
-        # Sacrifice results
-        if "sacrifice is consumed in a flash of light" in lower or \
-           "sacrifice is consumed in a burst of flame" in lower:
-            self._sacrifice_count += 1
-            stats["sacrifices"] += 1
-            if self.prayer is not None:
-                self.prayer.update_sacrifice(10)
-            if self.verbose:
-                self._log("SACRIFICE", f"accepted ({stats['sacrifices']} total)")
-        if "use my gift wisely" in lower:
-            self._got_artifact = True
-            stats["artifacts_received"] += 1
-            if self.verbose:
-                self._log("SACRIFICE", "received artifact weapon")
-        if "nothing happens" in lower and self._pending_action == "offer":
-            # Corpse was too old
-            self._pending_action = None
-            if self.verbose:
-                self._log("SACRIFICE", "corpse too old, nothing happened")
-
         # HP tracking: significant drops
         if self._prev_hp > 0 and s.hp < self._prev_hp:
             drop = self._prev_hp - s.hp
@@ -1031,8 +867,6 @@ class ExpertAgent:
             self._cached_path = None
             self._stuck_moves = 0
             self._refused_positions = set()
-            self._fountain_positions = set()
-            self._altar_positions = []
         if s.xlevel != self._prev_xlevel:
             if self.verbose:
                 self._log("XLVL", f"xl{self._prev_xlevel}->xl{s.xlevel}")
@@ -1053,7 +887,6 @@ class ExpertAgent:
               f"items: {stats['items_picked_up']}  corpses eaten: {stats['corpses_eaten']}")
         print(f"  levels visited: {sorted(stats['levels_visited'])}")
         print(f"  prayers: {stats['prayers']}  results: {stats['prayer_results']}")
-        print(f"  sacrifices: {stats['sacrifices']}  artifacts: {stats['artifacts_received']}")
         print(f"  hp min: {stats['hp_min']}  final hp: {s.hp}/{s.max_hp}")
         if stats["turns_per_dlevel"]:
             dl_str = ", ".join(f"{k}:{v}" for k, v in sorted(stats["turns_per_dlevel"].items()))
@@ -1158,10 +991,8 @@ class ExpertAgent:
             ("P3-food", self._p3_food),
             ("P4-items", self._p4_items),
             ("P4b-equip", self._p4b_equipment),
-            ("P4c-excal", self._p4c_excalibur),
             ("P5-corpse", self._p5_corpse_intrinsics),
             ("P5b-rest", self._p5b_rest),
-            ("P5c-sacrifice", self._p5c_sacrifice),
             ("P6-nav", self._p6_navigation),
         ]
         for name, fn in priorities:
@@ -1338,12 +1169,11 @@ class ExpertAgent:
             "shopkeeper", "aligned priest", "high priest",
             "guard", "Oracle", "watchman", "watch captain",
         }
-        _PEACEFUL_IDS = {268, 269, 271, 272, 273}
         non_adjacent = []
         for m in s.visible_monsters:
             if m.is_pet:
                 continue
-            if m.name in _PEACEFUL_NAMES or m.mon_id in _PEACEFUL_IDS:
+            if m.name in _PEACEFUL_NAMES:
                 continue
             if m.name.lower() in self._refused_attacks:
                 continue
@@ -1363,89 +1193,22 @@ class ExpertAgent:
         if self.turns_on_tile > 3:
             return None
 
-        # Assess threats and sort by danger
-        assessed = []
         for mon in non_adjacent:
             if self.threat_db is not None:
                 report = self.threat_db.assess_threat(mon.name, self._player_state(s))
             else:
                 report = _StubThreatReport(mon.name)
-            assessed.append((mon, report))
-        assessed.sort(key=lambda x: -x[1].danger_level)
-
-        # Flee from instakill monsters at range
-        for mon, report in assessed:
             if report.danger_level >= 8 and report.instakill_risk:
                 self._last_action_reason = f"flee ranged {mon.name}"
                 away = _direction_away(py, px, mon.row, mon.col)
+                # Check the target tile is walkable before fleeing
                 dd = Actions.MOVE_DELTAS.get(away)
                 if dd is not None:
                     nr, nc = py + dd[0], px + dd[1]
                     if 0 <= nr < MAP_H and 0 <= nc < MAP_W and self._walkable[nr, nc]:
                         return away
+                # Can't flee in that direction, try to navigate around
                 return None
-
-        # Try ranged attacks on dangerous monsters in line of sight.
-        # Wand priority: death > fire > cold > lightning > magic missile > sleep
-        _WAND_PRIORITY = {
-            "wand of death": 60, "wand of fire": 50, "wand of cold": 40,
-            "wand of lightning": 30, "wand of magic missile": 20, "wand of sleep": 10,
-        }
-        for mon, report in assessed:
-            line_dir = _monster_in_line(py, px, mon.row, mon.col)
-            if line_dir is None:
-                continue
-            dy, dx = line_dir
-            aim_action = Actions.DELTA_TO_MOVE.get((dy, dx))
-            if aim_action is None:
-                continue
-
-            # Zap a wand if we have one and the monster is dangerous enough
-            if self._wands:
-                best_wand_letter = None
-                best_wand_pri = -1
-                best_wand_type = ""
-                for wletter, (wstr, wtype) in self._wands.items():
-                    pri = _WAND_PRIORITY.get(wtype, 0)
-                    if pri > best_wand_pri:
-                        best_wand_pri = pri
-                        best_wand_letter = wletter
-                        best_wand_type = wtype
-                if best_wand_letter is not None:
-                    # Save wand of death for emergencies (danger >= 8)
-                    if best_wand_type == "wand of death" and report.danger_level < 8:
-                        alt_letter = None
-                        alt_pri = -1
-                        alt_type = ""
-                        for wletter, (wstr, wtype) in self._wands.items():
-                            if wtype == "wand of death":
-                                continue
-                            pri = _WAND_PRIORITY.get(wtype, 0)
-                            if pri > alt_pri:
-                                alt_pri = pri
-                                alt_letter = wletter
-                                alt_type = wtype
-                        if alt_letter is not None:
-                            best_wand_letter = alt_letter
-                            best_wand_type = alt_type
-                        elif report.danger_level < 5:
-                            best_wand_letter = None
-
-                    if best_wand_letter is not None and report.danger_level >= 3:
-                        self._pending_action = "zap"
-                        self._ranged_target_letter = best_wand_letter
-                        self._ranged_target_dir = aim_action
-                        self._last_action_reason = f"zap {best_wand_type} at {mon.name}"
-                        return Actions.ZAP
-
-            # Throw daggers at dangerous non-adjacent monsters
-            if self._daggers and report.danger_level >= 3:
-                dagger_letter = next(iter(self._daggers))
-                self._pending_action = "throw"
-                self._ranged_target_letter = dagger_letter
-                self._ranged_target_dir = aim_action
-                self._last_action_reason = f"throw dagger at {mon.name}"
-                return Actions.THROW
 
         # Approach closest killable monster for XP. Be aggressive.
         closest = min(non_adjacent, key=lambda m: max(abs(m.row - py), abs(m.col - px)))
@@ -1580,7 +1343,6 @@ class ExpertAgent:
         current_wielded = None
         current_pri = 0
         wpns = {
-            "excalibur": 20,
             "long sword": 10, "katana": 10, "two-handed sword": 11,
             "broadsword": 9, "battle-axe": 9,
             "short sword": 7, "mace": 7, "war hammer": 7, "morning star": 8,
@@ -1659,9 +1421,6 @@ class ExpertAgent:
             lower = item_str.lower()
             if any(p in lower for p in keep_patterns):
                 continue
-            # Don't drop sacrifice corpses if we have an altar nearby
-            if letter in self._sacrifice_corpses and self._altar_positions:
-                continue
             if "corpse" in lower or "rock" in lower or "stone" in lower:
                 return letter
         # Drop anything non-essential
@@ -1670,67 +1429,6 @@ class ExpertAgent:
             if any(p in lower for p in keep_patterns):
                 continue
             return letter
-        return None
-
-    # ----------------------------------------------------------
-    # P4c: Excalibur creation (dip long sword in fountain)
-    # ----------------------------------------------------------
-
-    def _p4c_excalibur(self, s) -> Optional[int]:
-        """Dip a long sword into a fountain to create Excalibur.
-
-        Conditions: lawful alignment (Valkyrie), XL >= 5, have a long sword,
-        fountain known on current level, don't already have Excalibur.
-        """
-        if self._has_excalibur:
-            return None
-        if self._long_sword_letter is None:
-            return None
-        if s.xlevel < 5:
-            return None
-        if s.has_adjacent_monsters:
-            return None
-        if not self._fountain_positions:
-            return None
-        # Don't dip if HP is low (fountain can summon water demons)
-        if s.hp < s.max_hp * 0.5:
-            return None
-        # Cap total dip attempts to avoid wasting turns
-        if self._excalibur_dip_attempts >= 10:
-            return None
-
-        py, px = s.position
-
-        # Check if we're standing on a fountain
-        obj_here = int(self._objects[py, px])
-        on_fountain = (_glyph_cmap(obj_here) == _FOUNTAIN_CMAP)
-
-        if on_fountain:
-            self._excalibur_dip_state = "dip_sent"
-            self._excalibur_dip_attempts += 1
-            self._last_action_reason = f"dipping long sword '{self._long_sword_letter}' in fountain"
-            if self.verbose:
-                self._log("EXCAL", f"dipping at ({py},{px}), xl={s.xlevel}")
-            return Actions.DIP
-
-        # Path to nearest fountain
-        walkable, walkable_diag = self._build_nav_masks(s._glyphs)
-        dis = _bfs_distances(py, px, walkable, walkable_diag)
-
-        best_fountain = None
-        best_d = 999999
-        for fr, fc in self._fountain_positions:
-            d = dis[fr, fc]
-            if d != -1 and d < best_d:
-                best_d = d
-                best_fountain = (fr, fc)
-
-        if best_fountain is not None:
-            step = self._step_toward(py, px, best_fountain, dis, walkable, walkable_diag)
-            if step is not None:
-                self._last_action_reason = f"pathing to fountain at {best_fountain} (d={best_d})"
-                return step
-
         return None
 
     # ----------------------------------------------------------
@@ -1807,12 +1505,6 @@ class ExpertAgent:
                     self._seen[r, c] = True
                     self._walkable[r, c] = True
                     self._objects[r, c] = g
-                    # Track fountain positions for Excalibur dipping
-                    if cm == _FOUNTAIN_CMAP:
-                        self._fountain_positions.add((r, c))
-                    # Track altar positions for sacrifice
-                    if cm == CMAP_ALTAR and (r, c) not in self._altar_positions:
-                        self._altar_positions.append((r, c))
 
                 # Walls and closed doors: seen but not walkable
                 elif cm in _WALL_CMAPS:
@@ -2217,104 +1909,6 @@ class ExpertAgent:
         return Actions.SEARCH
 
     # ----------------------------------------------------------
-    # P5c: Altar sacrifice
-    # ----------------------------------------------------------
-
-    def _p5c_sacrifice(self, s) -> Optional[int]:
-        """Sacrifice fresh corpses on a coaligned altar for divine favor.
-
-        Only activates when: carrying a sacrificeable corpse, a known
-        altar exists on this level, no adjacent threats, not already
-        received an artifact. Paths to the altar, then issues OFFER.
-        """
-        if self._got_artifact:
-            return None
-        if s.has_adjacent_monsters:
-            return None
-        if not self._sacrifice_corpses:
-            return None
-        if not self._altar_positions:
-            return None
-
-        py, px = s.position
-
-        # Check if we're standing on an altar
-        on_altar = s.on_altar
-        obj_here = int(self._objects[py, px])
-        if obj_here == S_ALTAR:
-            on_altar = True
-
-        if on_altar:
-            self._pending_action = "offer"
-            self._last_action_reason = f"sacrificing on altar ({self._sacrifice_count} prior)"
-            return Actions.OFFER
-
-        # Path to nearest altar
-        glyphs = s._glyphs
-        if glyphs is None:
-            return None
-        walkable, walkable_diag = self._build_nav_masks(glyphs)
-        dis = _bfs_distances(py, px, walkable, walkable_diag)
-
-        best_altar = None
-        best_d = 999999
-        for ay, ax in self._altar_positions:
-            d = dis[ay, ax]
-            if d != -1 and d < best_d:
-                best_d = d
-                best_altar = (ay, ax)
-
-        if best_altar is None:
-            return None
-
-        # Only path if reasonably close (don't cross the whole level)
-        if best_d > 40:
-            return None
-
-        step = self._step_toward(py, px, best_altar, dis, walkable, walkable_diag)
-        if step is not None:
-            self._last_action_reason = f"pathing to altar at {best_altar} (d={best_d})"
-            return step
-
-        return None
-
-    def _find_sacrifice_letter(self, s) -> Optional[str]:
-        """Find the best corpse in inventory to sacrifice."""
-        if not self._sacrifice_corpses:
-            return None
-        for letter in self._sacrifice_corpses:
-            return letter
-        return None
-
-    def _can_sacrifice_corpse(self, name: str) -> bool:
-        """Check if a corpse is valid for sacrifice by a lawful Valkyrie.
-
-        Invalid: own race (human), pets. Old corpses are caught by
-        NLE ("Nothing happens").
-        """
-        # Valkyrie is human. Never sacrifice own race.
-        _HUMAN_MONSTERS = {
-            "human", "soldier", "sergeant", "lieutenant", "captain",
-            "guard", "prisoner", "oracle", "aligned priest", "high priest",
-            "shopkeeper", "wizard of yendor", "medusa",
-            "nurse", "rogue", "warrior", "valkyrie",
-            "tourist", "archeologist", "barbarian", "caveman", "cavewoman",
-            "healer", "knight", "monk", "priest", "priestess",
-            "ranger", "samurai", "wizard",
-        }
-        if name.lower() in _HUMAN_MONSTERS:
-            return False
-        # Don't sacrifice pets
-        _PET_NAMES = {
-            "little dog", "dog", "large dog",
-            "kitten", "housecat", "large cat",
-            "pony",
-        }
-        if name.lower() in _PET_NAMES:
-            return False
-        return True
-
-    # ----------------------------------------------------------
     # Helper methods
     # ----------------------------------------------------------
 
@@ -2541,7 +2135,7 @@ class ExpertAgent:
             self.resistances.add("sleep resistance")
 
     def _check_inventory(self, s) -> None:
-        """Scan inventory strings for food, lizard corpses, daggers, and wands.
+        """Scan inventory strings for food and lizard corpses.
 
         Only set has_food for items that _find_food_letter would
         actually select. This prevents EAT->cancel loops.
@@ -2550,49 +2144,11 @@ class ExpertAgent:
             return
         self.has_lizard_corpse = False
         self.inventory_items = {}
-        self._daggers = {}
-        self._wands = {}
-        self._sacrifice_corpses = {}
-        self._long_sword_letter = None
-        _WAND_TYPES = [
-            "wand of death", "wand of fire", "wand of cold",
-            "wand of lightning", "wand of magic missile", "wand of sleep",
-        ]
-        found_excalibur = False
         for letter, item_str in s.inventory.items():
             lower = item_str.lower()
             self.inventory_items[letter] = item_str
             if "lizard corpse" in lower:
                 self.has_lizard_corpse = True
-            # Track corpses valid for sacrifice (not lizard, not lichen)
-            if "corpse" in lower and "lizard" not in lower and "lichen" not in lower:
-                # Extract monster name from inventory string like "a kobold corpse"
-                corpse_name = ""
-                idx = lower.find("corpse")
-                if idx > 0:
-                    prefix = lower[:idx].strip()
-                    # Strip count and articles
-                    for art in ["a ", "an ", "the ", "2 ", "3 ", "4 ", "5 "]:
-                        if prefix.startswith(art):
-                            prefix = prefix[len(art):]
-                    corpse_name = prefix.strip()
-                if corpse_name and self._can_sacrifice_corpse(corpse_name):
-                    self._sacrifice_corpses[letter] = corpse_name
-            # Track daggers (not wielded, not cursed)
-            if "dagger" in lower and "(weapon in hand)" not in lower \
-               and "(wielded)" not in lower and "cursed" not in lower:
-                self._daggers[letter] = item_str
-            # Track wands
-            for wt in _WAND_TYPES:
-                if wt in lower:
-                    self._wands[letter] = (item_str, wt)
-                    break
-            # Track Excalibur and long sword for dipping
-            if "excalibur" in lower:
-                found_excalibur = True
-            elif "long sword" in lower and "cursed" not in lower:
-                self._long_sword_letter = letter
-        self._has_excalibur = found_excalibur
         # has_food = True only if _find_food_letter would return something
         self.has_food = (self._find_food_letter(s) is not None)
 
