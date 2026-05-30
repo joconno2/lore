@@ -924,8 +924,11 @@ class ExpertAgent:
                 return Actions.EAT
             return self._try_pray(s, "sliming")
 
-        # HP critical: HP <= max(5, maxHP // 7)
-        if s.hp <= max(5, s.max_hp // 7):
+        # HP critical: pray early to survive. Veterans pray at ~25% HP.
+        # NetHack prayer considers HP <= max(5, maxHP/7) as "major trouble"
+        # but we should pray sooner to avoid dying.
+        hp_danger = s.hp <= max(5, s.max_hp // 4)  # 25% threshold
+        if hp_danger:
             self._last_action_reason = f"hp_critical ({s.hp}/{s.max_hp})"
             pray_action = self._try_pray(s, "hp_critical")
             if pray_action is not None:
@@ -1013,15 +1016,18 @@ class ExpertAgent:
             self._last_action_reason = f"elbereth vs {top_mon.name}"
             return Actions.ENGRAVE
 
-        # Ranged preferred: step away (with wall awareness)
-        if top_report.ranged_preferred:
+        # Ranged preferred: step away (but don't oscillate)
+        if top_report.ranged_preferred and self.turns_on_tile < 3:
             self._last_action_reason = f"kite {top_mon.name}"
             return self._flee_from(s, top_mon)
 
-        # Flee recommendation
+        # Flee recommendation (but don't flee forever, fight if healthy)
         if top_report.recommended_action == "flee":
-            self._last_action_reason = f"flee {top_mon.name}"
-            return self._flee_from(s, top_mon)
+            if self.turns_on_tile < 4 and s.hp < s.max_hp * 0.3:
+                self._last_action_reason = f"flee {top_mon.name}"
+                return self._flee_from(s, top_mon)
+            # Been stuck fleeing or HP is ok: stand and fight
+            pass  # fall through to melee
 
         # Melee the highest-priority target
         direction = _direction_toward(py, px, top_mon.row, top_mon.col)
