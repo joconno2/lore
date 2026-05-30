@@ -514,6 +514,14 @@ class ExpertAgent:
                         return action
                 return Actions.MORE  # cancel if no direction
 
+            # Nothing to pick up: clear item flag
+            if "nothing here to pick up" in msg_str:
+                self._on_item = False
+            # Carrying too much: drop something or just stop trying to move that way
+            if "carrying too much" in msg_str:
+                self._cached_path = None  # abandon current path
+                # Try a different direction
+                self._stuck_moves += 3
             # "Never mind" means last action failed, clear pending
             if "Never mind" in msg_str or "You cannot eat that" in msg_str:
                 if self._pending_action == "eat":
@@ -812,7 +820,11 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p4_items(self, s) -> Optional[int]:
-        if self._on_item:
+        # Don't pick up if encumbered (burdened or worse)
+        if s.encumbrance >= 1:
+            return None
+        # Don't pick up if last action was pickup and failed
+        if self._on_item and self.last_action != Actions.PICKUP:
             return Actions.PICKUP
         return None
 
