@@ -606,6 +606,16 @@ class ExpertAgent:
                 # Unexpected dip prompt, cancel
                 self._excalibur_dip_state = None
                 return Actions.ESC
+            # "Dip it into the fountain?" yn prompt
+            if "Dip" in msg_str and "into the fountain" in msg_str and "[yn]" in msg_str:
+                if self._excalibur_dip_state:
+                    if self.verbose:
+                        self._log("EXCAL", "confirming fountain dip")
+                    return self._letter_to_action('y')
+            # "into?" fallback when no fountain detected
+            if "into?" in msg_str and self._excalibur_dip_state:
+                self._excalibur_dip_state = None
+                return Actions.ESC
             # Excalibur creation messages
             if "Your long sword" in msg_str and "glow" in msg_str:
                 self._has_excalibur = True
@@ -1043,6 +1053,7 @@ class ExpertAgent:
               f"items: {stats['items_picked_up']}  corpses eaten: {stats['corpses_eaten']}")
         print(f"  levels visited: {sorted(stats['levels_visited'])}")
         print(f"  prayers: {stats['prayers']}  results: {stats['prayer_results']}")
+        print(f"  sacrifices: {stats['sacrifices']}  artifacts: {stats['artifacts_received']}")
         print(f"  hp min: {stats['hp_min']}  final hp: {s.hp}/{s.max_hp}")
         if stats["turns_per_dlevel"]:
             dl_str = ", ".join(f"{k}:{v}" for k, v in sorted(stats["turns_per_dlevel"].items()))
@@ -1648,6 +1659,9 @@ class ExpertAgent:
             lower = item_str.lower()
             if any(p in lower for p in keep_patterns):
                 continue
+            # Don't drop sacrifice corpses if we have an altar nearby
+            if letter in self._sacrifice_corpses and self._altar_positions:
+                continue
             if "corpse" in lower or "rock" in lower or "stone" in lower:
                 return letter
         # Drop anything non-essential
@@ -1681,6 +1695,9 @@ class ExpertAgent:
         # Don't dip if HP is low (fountain can summon water demons)
         if s.hp < s.max_hp * 0.5:
             return None
+        # Cap total dip attempts to avoid wasting turns
+        if self._excalibur_dip_attempts >= 10:
+            return None
 
         py, px = s.position
 
@@ -1690,6 +1707,7 @@ class ExpertAgent:
 
         if on_fountain:
             self._excalibur_dip_state = "dip_sent"
+            self._excalibur_dip_attempts += 1
             self._last_action_reason = f"dipping long sword '{self._long_sword_letter}' in fountain"
             if self.verbose:
                 self._log("EXCAL", f"dipping at ({py},{px}), xl={s.xlevel}")
@@ -1792,6 +1810,9 @@ class ExpertAgent:
                     # Track fountain positions for Excalibur dipping
                     if cm == _FOUNTAIN_CMAP:
                         self._fountain_positions.add((r, c))
+                    # Track altar positions for sacrifice
+                    if cm == CMAP_ALTAR and (r, c) not in self._altar_positions:
+                        self._altar_positions.append((r, c))
 
                 # Walls and closed doors: seen but not walkable
                 elif cm in _WALL_CMAPS:
@@ -2196,8 +2217,6 @@ class ExpertAgent:
         return Actions.SEARCH
 
     # ----------------------------------------------------------
-
-    # ----------------------------------------------------------
     # P5c: Altar sacrifice
     # ----------------------------------------------------------
 
@@ -2532,6 +2551,7 @@ class ExpertAgent:
         self.inventory_items = {}
         self._daggers = {}
         self._wands = {}
+        self._sacrifice_corpses = {}
         self._long_sword_letter = None
         _WAND_TYPES = [
             "wand of death", "wand of fire", "wand of cold",
@@ -2543,6 +2563,20 @@ class ExpertAgent:
             self.inventory_items[letter] = item_str
             if "lizard corpse" in lower:
                 self.has_lizard_corpse = True
+            # Track corpses valid for sacrifice (not lizard, not lichen)
+            if "corpse" in lower and "lizard" not in lower and "lichen" not in lower:
+                # Extract monster name from inventory string like "a kobold corpse"
+                corpse_name = ""
+                idx = lower.find("corpse")
+                if idx > 0:
+                    prefix = lower[:idx].strip()
+                    # Strip count and articles
+                    for art in ["a ", "an ", "the ", "2 ", "3 ", "4 ", "5 "]:
+                        if prefix.startswith(art):
+                            prefix = prefix[len(art):]
+                    corpse_name = prefix.strip()
+                if corpse_name and self._can_sacrifice_corpse(corpse_name):
+                    self._sacrifice_corpses[letter] = corpse_name
             # Track daggers (not wielded, not cursed)
             if "dagger" in lower and "(weapon in hand)" not in lower \
                and "(wielded)" not in lower and "cursed" not in lower:
