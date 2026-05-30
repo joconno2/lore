@@ -1066,15 +1066,23 @@ class ExpertAgent:
         hostile = []
         glyphs = s._glyphs
         # Peacefuls: shopkeepers, priests, guards, quest leaders
+        # Shopkeepers display personal names (Asidonhopo, etc.) not "shopkeeper"
+        # so we detect by monster ID (268=shopkeeper, 269=guard, 271=Oracle, 272-273=priests)
         _PEACEFUL_NAMES = {
             "shopkeeper", "aligned priest", "high priest",
             "guard", "Oracle", "watchman", "watch captain",
         }
+        _PEACEFUL_IDS = {268, 269, 271, 272, 273}  # shopkeeper, guard, Oracle, priests
         for m in s.adjacent_monsters:
             if m.is_pet:
                 continue
-            # Skip known peaceful monsters
+            # Skip by monster ID (catches shopkeepers with personal names)
+            if m.mon_id in _PEACEFUL_IDS:
+                self._refused_positions.add((m.row, m.col))
+                continue
+            # Skip known peaceful monsters by name
             if m.name in _PEACEFUL_NAMES:
+                self._refused_positions.add((m.row, m.col))
                 continue
             # Skip monsters we were told not to attack (by name or position)
             if m.name.lower() in self._refused_attacks:
@@ -1306,8 +1314,11 @@ class ExpertAgent:
     def _p4b_equipment(self, s) -> Optional[int]:
         if not s.inventory or s.has_adjacent_monsters:
             return None
-        # Check every step right after pickup, otherwise every 10 steps
-        if self.last_action != Actions.PICKUP and self._step_count % 10 != 0:
+        # Only check after pickup or every 50 steps (avoid spam)
+        if self.last_action != Actions.PICKUP and self._step_count % 50 != 0:
+            return None
+        # Don't try if last equip attempt failed
+        if self.last_action in (Actions.WEAR, Actions.WIELD):
             return None
         # Try to wield a better weapon
         wep = self._find_best_weapon(s)
