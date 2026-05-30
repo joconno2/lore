@@ -1439,20 +1439,11 @@ class ExpertAgent:
 
         if self.threat_db is not None:
             report = self.threat_db.corpse_value(self._corpse_name, self.resistances)
-            if report.safe_to_eat and report.priority >= 7:
-                # High priority intrinsic: eat immediately
-                self._last_action_reason = f"eating {self._corpse_name} for {report.beneficial_intrinsic or 'intrinsic'} (pri={report.priority})"
-                return Actions.EAT
-            if report.safe_to_eat and report.priority >= 3 and s.hunger_state != "not_hungry":
-                # Medium priority and we could use the nutrition
-                self._last_action_reason = f"eating {self._corpse_name} for nutrition (pri={report.priority})"
-                return Actions.EAT
-            if report.safe_to_eat and report.priority >= 5:
-                # Decent intrinsic, eat even when not hungry
-                self._last_action_reason = f"eating {self._corpse_name} for {report.beneficial_intrinsic or 'effect'} (pri={report.priority})"
+            if report.safe_to_eat:
+                reason = report.beneficial_intrinsic or "nutrition"
+                self._last_action_reason = f"eating {self._corpse_name} ({reason})"
                 return Actions.EAT
         elif self._corpse_safe_to_eat(self._corpse_name):
-            # Fallback without ThreatDB: eat safe corpses when not satiated
             self._last_action_reason = f"eating {self._corpse_name} corpse"
             return Actions.EAT
 
@@ -1925,8 +1916,8 @@ class ExpertAgent:
         # XL gate: must be at least DL+1
         if s.xlevel < s.dlevel + 1:
             return False
-        # On DL1, reach XL 2 minimum
-        if s.dlevel == 1 and s.xlevel < 2:
+        # On DL1, reach at least XL 3 (fight everything, eat corpses)
+        if s.dlevel == 1 and s.xlevel < 3:
             return False
         # Don't descend if adjacent hostile monsters (finish the fight first)
         if s.has_adjacent_monsters:
