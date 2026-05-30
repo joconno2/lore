@@ -570,9 +570,13 @@ class ExpertAgent:
                 # Say no to dangerous prompts
                 if "die?" in lower_msg or "Really attack" in msg_str or \
                    "suicide" in lower_msg or "overeat" in lower_msg or \
-                   "call is" in lower_msg:
+                   "call is" in lower_msg or "Really quit" in msg_str:
                     if self.verbose:
                         self._log("YN", f"answering NO to: {msg_str[:60]}")
+                    # If "Really attack", clear the path so we don't try again
+                    if "Really attack" in msg_str:
+                        self._cached_path = None
+                        self._stuck_moves += 5  # force repath
                     return self._letter_to_action('n')
                 # Say yes to everything else (pray, eat, etc.)
                 if self.verbose:
@@ -626,6 +630,10 @@ class ExpertAgent:
             if "move the boulder, but in vain" in msg_str:
                 self._cached_path = None
                 self._stuck_moves += 2
+            # Hit a wall: clear path, mark stuck
+            if "It's a wall" in msg_str or "wall." in msg_str.lower():
+                self._cached_path = None
+                self._stuck_moves += 2
             # Nothing to pick up: clear item flag
             if "nothing here to pick up" in msg_str:
                 self._on_item = False
@@ -641,13 +649,11 @@ class ExpertAgent:
                     return Actions.DROP
                 self._stuck_moves += 3
             # "Never mind" means last action failed, clear pending
-            if "Never mind" in msg_str or "You cannot eat that" in msg_str:
-                if self._pending_action == "eat":
-                    self._eat_attempts += 1
-                    if self._eat_attempts >= 3:
-                        self._pending_action = None
-                        self.has_food = False
-                        self._eat_attempts = 0
+            if "Never mind" in msg_str or "You cannot eat that" in msg_str or \
+               "You don't have anything to eat" in msg_str:
+                self._pending_action = None
+                self.has_food = False
+                self._eat_attempts = 0
 
         # Track stuck detection
         pos = s.position
@@ -1002,11 +1008,19 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p1_adjacent_combat(self, s) -> Optional[int]:
-        # Filter out pets and unreachable monsters
+        # Filter out pets, peacefuls, and unreachable monsters
         hostile = []
         glyphs = s._glyphs
+        # Peacefuls: shopkeepers, priests, guards, quest leaders
+        _PEACEFUL_NAMES = {
+            "shopkeeper", "aligned priest", "high priest",
+            "guard", "Oracle", "watchman", "watch captain",
+        }
         for m in s.adjacent_monsters:
             if m.is_pet:
+                continue
+            # Skip known peaceful monsters
+            if m.name in _PEACEFUL_NAMES:
                 continue
             # Check if the tile under the monster is water/lava/stone (can't melee)
             obj = int(self._objects[m.row, m.col])
@@ -1051,12 +1065,13 @@ class ExpertAgent:
 
         top_mon, top_report = threats[0]
 
-        # Elbereth if recommended and high danger
-        if (top_report.recommended_action == "elbereth"
-                and top_report.elbereth_effective
-                and top_report.danger_level >= 6):
-            self._last_action_reason = f"elbereth vs {top_mon.name}"
-            return Actions.ENGRAVE
+        # Elbereth disabled: the multi-step prompt sequence isn't fully
+        # implemented. Skip to combat instead.
+        # if (top_report.recommended_action == "elbereth"
+        #         and top_report.elbereth_effective
+        #         and top_report.danger_level >= 6):
+        #     self._last_action_reason = f"elbereth vs {top_mon.name}"
+        #     return Actions.ENGRAVE
 
         # Ranged preferred: step away (but don't oscillate)
         if top_report.ranged_preferred and self.turns_on_tile < 3:
@@ -1083,9 +1098,15 @@ class ExpertAgent:
 
     def _p2_ranged_threats(self, s) -> Optional[int]:
         py, px = s.position
+        _PEACEFUL_NAMES = {
+            "shopkeeper", "aligned priest", "high priest",
+            "guard", "Oracle", "watchman", "watch captain",
+        }
         non_adjacent = []
         for m in s.visible_monsters:
             if m.is_pet:
+                continue
+            if m.name in _PEACEFUL_NAMES:
                 continue
             if abs(m.row - py) <= 1 and abs(m.col - px) <= 1:
                 continue
@@ -1848,12 +1869,9 @@ class ExpertAgent:
             if flee_action != Actions.ENGRAVE:
                 return flee_action
 
-        # Only Elbereth if genuinely surrounded (3+ hostiles) and HP is low
-        if len(hostile) >= 3 and s.hp < s.max_hp * 0.4:
-            return Actions.ENGRAVE
-
-        # Not enough danger for Elbereth, just search/wait
-        return Actions.SEARCH
+        # Elbereth disabled (prompt sequence not implemented).
+        # Just wait if completely surrounded.
+        return Actions.WAIT
 
     def _flee_from(self, s, monster) -> int:
         py, px = s.position
