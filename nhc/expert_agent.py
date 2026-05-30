@@ -27,15 +27,17 @@ try:
         GLYPH_CMAP_OFF, GLYPH_RIDDEN_OFF,
         CMAP_UPSTAIR, CMAP_DNSTAIR, CMAP_ROOM, CMAP_CORR,
         CMAP_LITCORR, CMAP_DARKROOM,
-        S_DNSTAIR, S_UPSTAIR,
+        S_DNSTAIR, S_DNLADDER, S_UPSTAIR,
         MAP_H, MAP_W,
         COND_STONE, COND_SLIME,
+        NUMMONS,
     )
     _HAS_OBS_PARSER = True
 except ImportError:
     _HAS_OBS_PARSER = False
     GameState = None
     # Fallback constants
+    NUMMONS = 381
     GLYPH_MON_OFF = 0
     GLYPH_PET_OFF = 381
     GLYPH_BODY_OFF = 1144
@@ -45,6 +47,7 @@ except ImportError:
     MAP_H = 21
     MAP_W = 79
     S_DNSTAIR = GLYPH_CMAP_OFF + 24
+    S_DNLADDER = GLYPH_CMAP_OFF + 26
     S_UPSTAIR = GLYPH_CMAP_OFF + 23
     COND_STONE = 0x00000001
     COND_SLIME = 0x00000002
@@ -166,6 +169,20 @@ _try_resolve_actions()
 # Navigation helpers
 # ============================================================
 
+# Walkable cmap indices: doorway(12), open doors(13,14), room(19),
+# darkroom(20), corridor(21), lit corridor(22), stairs(23-26),
+# altar(27), grave(28), throne(29), sink(30), fountain(31)
+_WALKABLE_CMAPS = frozenset({12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31})
+# Door cmaps: doorway(12), open(13,14), closed(15,16)
+_DOOR_CMAPS = frozenset({12, 13, 14, 15, 16})
+_CLOSED_DOOR_CMAPS = frozenset({15, 16})
+# Wall cmaps: 1-12 are various wall types (vwall, hwall, corners, etc.)
+_WALL_CMAPS = frozenset(range(1, 12))
+_STONE_CMAP = 0
+# Boulder glyph (GLYPH_OBJ_OFF + 447)
+_BOULDER_GLYPH = GLYPH_OBJ_OFF + 447
+
+
 def _direction_toward(py: int, px: int, ty: int, tx: int) -> int:
     """Movement action to step from (py,px) toward (ty,tx). Chebyshev step."""
     dy = 0 if ty == py else (1 if ty > py else -1)
@@ -184,116 +201,107 @@ def _direction_away(py: int, px: int, ty: int, tx: int) -> int:
     return Actions.DELTA_TO_MOVE.get((dy, dx), Actions.SEARCH)
 
 
-def _find_unexplored(glyphs: np.ndarray, py: int, px: int) -> Optional[tuple]:
-    """BFS for nearest reachable tile adjacent to unexplored space.
+def _glyph_cmap(g: int) -> int:
+    """Return cmap index if g is a cmap glyph, else -1."""
+    if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87:
+        return g - GLYPH_CMAP_OFF
+    return -1
 
-    Only returns tiles reachable through corridors/doors, not tiles
-    adjacent to walls inside the current room (those are dead ends).
-    A tile is "frontier" if it has unexplored stone adjacent AND the
-    tile itself is a corridor, doorway, or the first tile beyond a door.
 
-    Returns (row, col) or None.
+def _is_walkable_glyph(g: int) -> bool:
+    """Check if a glyph represents a tile the player can walk on."""
+    if g == _BOULDER_GLYPH:
+        return False
+    if GLYPH_MON_OFF <= g < GLYPH_OBJ_OFF:
+        return True  # monsters, pets, bodies, ridden
+    if GLYPH_OBJ_OFF <= g < GLYPH_CMAP_OFF:
+        return True  # objects on floor
+    c = _glyph_cmap(g)
+    return c in _WALKABLE_CMAPS
+
+
+def _is_door_glyph(g: int) -> bool:
+    return _glyph_cmap(g) in _DOOR_CMAPS
+
+
+def _is_closed_door_glyph(g: int) -> bool:
+    return _glyph_cmap(g) in _CLOSED_DOOR_CMAPS
+
+
+def _is_wall_glyph(g: int) -> bool:
+    return _glyph_cmap(g) in _WALL_CMAPS
+
+
+def _is_stone_glyph(g: int) -> bool:
+    return _glyph_cmap(g) == _STONE_CMAP
+
+
+def _bfs_distances(py: int, px: int, walkable: np.ndarray,
+                   walkable_diag: np.ndarray) -> np.ndarray:
+    """BFS from (py, px) respecting walkable masks. Returns distance array (-1 = unreachable).
+
+    walkable_diag should be False for door tiles (no diagonal through doors)
+    and for tiles adjacent to only walls (no diagonal squeeze).
     """
-    if glyphs is None:
-        return None
-    rows, cols = glyphs.shape
-    stone_glyph = GLYPH_CMAP_OFF  # cmap index 0 = stone/unexplored
-
     from collections import deque
-    visited = set()
+    rows, cols = walkable.shape
+    dis = np.full((rows, cols), -1, dtype=np.int32)
+    dis[py, px] = 0
     queue = deque([(py, px)])
-    visited.add((py, px))
 
-    # First pass: find any corridor/door tile adjacent to stone
-    # (corridors lead somewhere, wall-adjacent room tiles don't)
     while queue:
-        r, c = queue.popleft()
-        g_rc = int(glyphs[r, c])
-        cmap_rc = g_rc - GLYPH_CMAP_OFF if g_rc >= GLYPH_CMAP_OFF else -1
-        is_corridor = cmap_rc in (21, 22)  # corridor, lit corridor
-        is_door = cmap_rc in (12, 13, 14)  # doorway, open doors
+        y, x = queue.popleft()
+        d = dis[y, x]
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dy == 0 and dx == 0:
+                    continue
+                ny, nx = y + dy, x + dx
+                if ny < 0 or ny >= rows or nx < 0 or nx >= cols:
+                    continue
+                if dis[ny, nx] != -1:
+                    continue
+                if not walkable[ny, nx]:
+                    continue
+                # Diagonal move checks
+                if abs(dy) + abs(dx) > 1:
+                    # Both source and dest must allow diagonal
+                    if not walkable_diag[ny, nx] or not walkable_diag[y, x]:
+                        continue
+                    # Can't squeeze: at least one of the two adjacent cardinal
+                    # tiles must be walkable
+                    if not walkable[y, nx] and not walkable[ny, x]:
+                        continue
+                dis[ny, nx] = d + 1
+                queue.append((ny, nx))
 
-        for dr in (-1, 0, 1):
-            for dc in (-1, 0, 1):
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
-                    continue
-                if (nr, nc) in visited:
-                    continue
-                visited.add((nr, nc))
-                g = int(glyphs[nr, nc])
-                if g == stone_glyph:
-                    # This tile (r,c) borders unexplored space.
-                    # Only return it if it's a corridor/door (real frontier)
-                    # OR if we're standing right here (no choice)
-                    if is_corridor or is_door or (r == py and c == px):
-                        return (r, c) if (r, c) != (py, px) else None
-                    # Otherwise skip: it's probably a wall-adjacent room tile
-                    continue
-                if _is_walkable_glyph(g) or _is_closed_door_glyph(g):
-                    queue.append((nr, nc))
-
-    return None
+    return dis
 
 
 def _find_stairs_down(glyphs: np.ndarray) -> Optional[tuple]:
-    """Scan the glyph map for downstairs. Returns (row, col) or None."""
+    """Scan the glyph map for downstairs or down ladder."""
     if glyphs is None:
         return None
     rows, cols = glyphs.shape
     for r in range(rows):
         for c in range(cols):
             g = int(glyphs[r, c])
-            if g == S_DNSTAIR or g == S_DNSTAIR + 2:  # stairs or ladder
+            if g == S_DNSTAIR or g == S_DNLADDER:
                 return (r, c)
     return None
 
 
-def _is_walkable_glyph(g: int) -> bool:
-    """Check if a glyph represents a tile the player can walk on."""
-    # Monsters (we can walk toward them to attack)
-    if GLYPH_MON_OFF <= g < GLYPH_OBJ_OFF:
-        return True
-    # Objects on the floor
-    if GLYPH_OBJ_OFF <= g < GLYPH_CMAP_OFF:
-        return True
-    # Dungeon features
-    if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87:
-        cmap_idx = g - GLYPH_CMAP_OFF
-        # 12=doorway, 13=vertical open door, 14=horizontal open door
-        # 19=room, 20=dark room, 21=corridor, 22=lit corridor
-        # 23=upstair, 24=downstair, 25=upladder, 26=downladder
-        # 27=altar, 28=grave, 29=throne, 30=sink, 31=fountain
-        # 32=pool, 33=moat, 34=water, 35=drawbridge, 36=lava (NOT walkable)
-        walkable_cmaps = {12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}
-        return cmap_idx in walkable_cmaps
-    return False
-
-
-def _is_door_glyph(g: int) -> bool:
-    """Check if glyph is any door (open or closed)."""
-    if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87:
-        return (g - GLYPH_CMAP_OFF) in (12, 13, 14, 15, 16)  # doorway, open, closed
-    return False
-
-
-def _is_closed_door_glyph(g: int) -> bool:
-    """Check if glyph is a closed door."""
-    if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87:
-        return (g - GLYPH_CMAP_OFF) in (15, 16)  # vertical/horizontal closed door
-    return False
-
-
-def _count_explored(glyphs: np.ndarray) -> float:
-    """Return fraction of non-stone tiles (rough exploration estimate)."""
-    if glyphs is None:
-        return 0.0
-    total = glyphs.size
-    stone_count = np.sum(glyphs == GLYPH_CMAP_OFF)
-    explored = total - stone_count
-    return explored / max(1, total)
+def _find_stairs_down_from_objects(objects: np.ndarray) -> Optional[tuple]:
+    """Scan remembered terrain for stairs down."""
+    rows, cols = objects.shape
+    dn_stair_cmap = GLYPH_CMAP_OFF + 24  # CMAP_DNSTAIR
+    dn_ladder_cmap = GLYPH_CMAP_OFF + 26  # CMAP_DNLADDER
+    for r in range(rows):
+        for c in range(cols):
+            o = int(objects[r, c])
+            if o == dn_stair_cmap or o == dn_ladder_cmap:
+                return (r, c)
+    return None
 
 
 # ============================================================
@@ -394,6 +402,15 @@ class ExpertAgent:
         # Path caching
         self._cached_path: Optional[list] = None
         self._stuck_moves: int = 0
+        # Navigation state: seen/walkable masks, remembered terrain
+        self._seen = np.zeros((MAP_H, MAP_W), dtype=bool)
+        self._walkable = np.zeros((MAP_H, MAP_W), dtype=bool)
+        self._objects = np.full((MAP_H, MAP_W), -1, dtype=np.int16)
+        self._pet_pos: Optional[tuple] = None
+        self._last_target: Optional[tuple] = None
+        self._search_count_map = np.zeros((MAP_H, MAP_W), dtype=np.int32)
+        self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
+        self._kick_dir: Optional[int] = None  # direction to kick when prompted
 
     def reset(self) -> None:
         """Reset state for a new episode."""
@@ -412,12 +429,26 @@ class ExpertAgent:
         self._corpse_name = ""
         self._on_item = False
         self._on_edible_item = False
+        # Reset navigation masks
+        self._seen = np.zeros((MAP_H, MAP_W), dtype=bool)
+        self._walkable = np.zeros((MAP_H, MAP_W), dtype=bool)
+        self._objects = np.full((MAP_H, MAP_W), -1, dtype=np.int16)
+        self._pet_pos = None
+        self._cached_path = None
+        self._stuck_moves = 0
+        self._last_target = None
+        self._search_count_map = np.zeros((MAP_H, MAP_W), dtype=np.int32)
+        self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
+        self._kick_dir = None
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
         self._step_count += 1
         s = self.state
         s.update(obs)
+
+        # Update seen/walkable masks from current glyphs
+        self._update_seen_and_walkable(s)
 
         # Check for --More-- prompt. Must clear before anything else works.
         msg_raw = obs.get("message")
@@ -460,14 +491,19 @@ class ExpertAgent:
                 if self.verbose:
                     self._log("MENU", f"dismissing: {msg_str[:60]}")
                 return Actions.MORE
-            # Locked door: kick it
+            # Locked door: kick it in the same direction we tried to open
             if "This door is locked" in msg_str:
                 if self.verbose:
                     self._log("DOOR", "door is locked, kicking")
+                # _kick_dir was set when we walked into the door
                 return Actions.KICK
             # "In what direction?" prompt after kick
             if "In what direction?" in msg_str:
-                # Kick in the direction we were trying to go
+                if self._kick_dir is not None:
+                    d = self._kick_dir
+                    self._kick_dir = None
+                    return d
+                # Fallback: kick toward cached path target
                 if self._cached_path and len(self._cached_path) > 0:
                     next_tile = self._cached_path[0]
                     dy = next_tile[0] - s.py
@@ -521,6 +557,7 @@ class ExpertAgent:
         self._check_inventory(s)
 
         action = self._decide(s)
+        self.last_action = action
         if self.verbose:
             self._log_decision(s, action)
         return action
@@ -621,8 +658,29 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p1_adjacent_combat(self, s) -> Optional[int]:
-        # Filter out pets
-        hostile = [m for m in s.adjacent_monsters if not m.is_pet]
+        # Filter out pets and unreachable monsters
+        hostile = []
+        glyphs = s._glyphs
+        for m in s.adjacent_monsters:
+            if m.is_pet:
+                continue
+            # Check if the tile under the monster is water/lava/stone (can't melee)
+            obj = int(self._objects[m.row, m.col])
+            if obj != -1:
+                cm = _glyph_cmap(obj)
+                if cm in (32, 33, 34, 36):  # pool, moat, water, lava
+                    continue
+            # Check current glyph at monster tile: if it's a closed door or wall,
+            # the "monster" might be behind it (NLE renders monsters on non-walkable tiles)
+            if glyphs is not None:
+                # The monster glyph should be at m.row, m.col. But the tile underneath
+                # might be non-walkable. We can check if moving there repeatedly fails.
+                pass
+            # If we've been stuck for multiple steps, skip all combat.
+            # The position hasn't changed, so we're fighting something unreachable.
+            if self.turns_on_tile > 4:
+                continue
+            hostile.append(m)
         if not hostile:
             return None
 
@@ -673,11 +731,22 @@ class ExpertAgent:
 
     def _p2_ranged_threats(self, s) -> Optional[int]:
         py, px = s.position
-        non_adjacent = [
-            m for m in s.visible_monsters
-            if not m.is_pet and (abs(m.row - py) > 1 or abs(m.col - px) > 1)
-        ]
+        non_adjacent = []
+        for m in s.visible_monsters:
+            if m.is_pet:
+                continue
+            if abs(m.row - py) <= 1 and abs(m.col - px) <= 1:
+                continue
+            # Skip monsters in water/lava
+            obj = int(self._objects[m.row, m.col])
+            if obj != -1 and _glyph_cmap(obj) in (32, 33, 34, 36):
+                continue
+            non_adjacent.append(m)
         if not non_adjacent:
+            return None
+
+        # Don't engage with visible monsters if we're stuck (behind wall, etc.)
+        if self.turns_on_tile > 3:
             return None
 
         for mon in non_adjacent:
@@ -686,9 +755,17 @@ class ExpertAgent:
             else:
                 report = _StubThreatReport(mon.name)
             if report.danger_level >= 8 and report.instakill_risk:
-                return _direction_away(py, px, mon.row, mon.col)
+                away = _direction_away(py, px, mon.row, mon.col)
+                # Check the target tile is walkable before fleeing
+                dd = Actions.MOVE_DELTAS.get(away)
+                if dd is not None:
+                    nr, nc = py + dd[0], px + dd[1]
+                    if 0 <= nr < MAP_H and 0 <= nc < MAP_W and self._walkable[nr, nc]:
+                        return away
+                # Can't flee in that direction, try to navigate around
+                return None
 
-        # Approach closest non-critical monster for kills
+        # Approach closest non-critical monster for kills, but only via BFS
         closest = min(non_adjacent, key=lambda m: max(abs(m.row - py), abs(m.col - px)))
         if self.threat_db is not None:
             report = self.threat_db.assess_threat(closest.name, self._player_state(s))
@@ -696,7 +773,14 @@ class ExpertAgent:
             report = _StubThreatReport(closest.name)
 
         if report.danger_level <= 6 and s.hp > s.max_hp * 0.5:
-            return _direction_toward(py, px, closest.row, closest.col)
+            # Use BFS to approach, not blind directional movement
+            walkable, walkable_diag = self._build_nav_masks(s._glyphs)
+            dis = _bfs_distances(py, px, walkable, walkable_diag)
+            if dis[closest.row, closest.col] != -1:
+                step = self._step_toward(py, px, (closest.row, closest.col),
+                                         dis, walkable, walkable_diag)
+                if step is not None:
+                    return step
 
         return None
 
@@ -752,200 +836,377 @@ class ExpertAgent:
     # P6: Navigation
     # ----------------------------------------------------------
 
+    def _update_seen_and_walkable(self, s) -> None:
+        """Update seen/walkable/objects masks from current glyphs.
+
+        This is the key fix: NLE fills unexplored tiles with stone glyph
+        (GLYPH_CMAP_OFF + 0). We distinguish "confirmed wall/stone" from
+        "never observed" by tracking which tiles we have actually seen
+        change from the default stone to something else, OR which tiles
+        are adjacent to the player (we can see them directly).
+
+        Follows AutoAscend's approach: mark tiles as seen when they show
+        floor, monsters, objects, walls, or doors. Stone adjacent to the
+        player is also marked seen (confirmed stone, not unexplored).
+        """
+        glyphs = s._glyphs
+        if glyphs is None:
+            return
+
+        py, px = s.position
+
+        for r in range(MAP_H):
+            for c in range(MAP_W):
+                g = int(glyphs[r, c])
+                cm = _glyph_cmap(g)
+
+                # Floor, stairs, doors (open), traps, altar, fountain
+                if cm in _WALKABLE_CMAPS:
+                    self._seen[r, c] = True
+                    self._walkable[r, c] = True
+                    self._objects[r, c] = g
+
+                # Walls and closed doors: seen but not walkable
+                elif cm in _WALL_CMAPS:
+                    self._seen[r, c] = True
+                    self._walkable[r, c] = False
+                    self._objects[r, c] = g
+
+                elif cm in _CLOSED_DOOR_CMAPS:
+                    self._seen[r, c] = True
+                    self._walkable[r, c] = False  # can't walk through, must open
+                    self._objects[r, c] = g
+
+                # Boulder: seen but not walkable (blocks movement)
+                elif g == _BOULDER_GLYPH:
+                    self._seen[r, c] = True
+                    self._walkable[r, c] = False
+
+                # Monsters, pets, objects, bodies on floor: tile is walkable
+                elif GLYPH_MON_OFF <= g < GLYPH_CMAP_OFF:
+                    self._seen[r, c] = True
+                    # Keep walkable from previous knowledge if we had it,
+                    # otherwise assume walkable (monster standing on something)
+                    if self._objects[r, c] == -1:
+                        self._walkable[r, c] = True
+
+                    # Track pet position
+                    if GLYPH_PET_OFF <= g < GLYPH_PET_OFF + NUMMONS:
+                        self._pet_pos = (r, c)
+
+                # Stone glyph: only mark seen if adjacent to player
+                # (player can see adjacent tiles, so stone there is real stone)
+                elif cm == _STONE_CMAP:
+                    pass  # handled below for adjacency
+
+        # Mark stone tiles adjacent to player as seen (confirmed stone)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                nr, nc = py + dy, px + dx
+                if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
+                    g = int(glyphs[nr, nc])
+                    if _is_stone_glyph(g):
+                        self._seen[nr, nc] = True
+                        self._walkable[nr, nc] = False
+                        self._objects[nr, nc] = g
+
+    def _build_nav_masks(self, glyphs: np.ndarray) -> tuple:
+        """Build walkable and walkable_diag masks for BFS.
+
+        walkable: tiles the agent can step onto (rooms, corridors, open doors,
+                  stairs, monsters we can attack, pets we can swap with).
+        walkable_diag: subset of walkable that allows diagonal movement.
+                       Doors (any kind) block diagonal movement.
+        """
+        walkable = self._walkable.copy()
+        walkable_diag = walkable.copy()
+
+        # Allow walking through monsters (melee) and pets (swap)
+        for r in range(MAP_H):
+            for c in range(MAP_W):
+                g = int(glyphs[r, c])
+                if GLYPH_MON_OFF <= g < GLYPH_CMAP_OFF:
+                    walkable[r, c] = True
+                # Closed doors: walkable for pathfinding (we'll open them)
+                if _is_closed_door_glyph(g):
+                    walkable[r, c] = True
+
+        # No diagonal through any door tile
+        for r in range(MAP_H):
+            for c in range(MAP_W):
+                g = int(glyphs[r, c])
+                if _is_door_glyph(g) or _is_closed_door_glyph(g):
+                    walkable_diag[r, c] = False
+                o = int(self._objects[r, c])
+                if o != -1 and _glyph_cmap(o) in _DOOR_CMAPS:
+                    walkable_diag[r, c] = False
+
+        return walkable, walkable_diag
+
     def _p6_navigation(self, s) -> Optional[int]:
         py, px = s.position
         glyphs = s._glyphs
         if glyphs is None:
             return Actions.SEARCH
 
-        # On downstairs and healthy enough: descend
-        if s.on_stairs_down:
-            if s.hp > s.max_hp * 0.5 and s.depth <= s.xlevel * 2:
+        # 1. On downstairs: descend immediately if healthy enough
+        # Check both obs_parser detection and our remembered terrain
+        on_dn_stairs = s.on_stairs_down
+        obj_here = int(self._objects[py, px])
+        if obj_here in (S_DNSTAIR, S_DNLADDER):
+            on_dn_stairs = True
+        if on_dn_stairs:
+            if s.hp > s.max_hp * 0.4:
                 if self.verbose:
                     self._log("P6", "descending stairs")
                 return Actions.DOWN
 
-        # Check for adjacent closed door (open it cardinally)
+        # 2. Adjacent closed door: walk into it to open (cardinal only)
         door_action = self._try_open_adjacent_door(s, glyphs, py, px)
         if door_action is not None:
             return door_action
 
-        # Find stairs down
-        stairs_pos = _find_stairs_down(glyphs)
-        explored = _count_explored(glyphs)
+        # Build BFS distance map
+        walkable, walkable_diag = self._build_nav_masks(glyphs)
+        dis = _bfs_distances(py, px, walkable, walkable_diag)
 
-        # PRIORITY: go to nearest closed door first (exploration through doors)
-        door_pos = self._find_nearest_closed_door(glyphs, py, px)
-        if door_pos is not None:
-            step = self._bfs_step_toward(glyphs, py, px, door_pos[0], door_pos[1])
+        # 3. Go to nearest reachable closed door
+        best_door = self._find_nearest_closed_door_bfs(glyphs, dis)
+        if best_door is not None:
+            step = self._step_toward(py, px, best_door, dis, walkable, walkable_diag)
             if step is not None:
                 if self.verbose and self._step_count % 20 == 0:
-                    self._log("P6", f"heading to closed door at {door_pos}")
+                    self._log("P6", f"heading to closed door at {best_door}")
                 return step
 
-        # If stairs found: go there (explore through rooms, not walls)
-        if stairs_pos is not None:
-            if s.hp > s.max_hp * 0.4:
-                sr, sc = stairs_pos
-                if (sr, sc) != (py, px):
-                    step = self._bfs_step_toward(glyphs, py, px, sr, sc)
-                    if step is not None:
-                        if self.verbose:
-                            self._log("P6", f"heading to stairs at ({sr},{sc})")
-                        return step
-
-        # Explore: BFS to nearest unexplored tile adjacent to stone
-        target = _find_unexplored(glyphs, py, px)
-        if target is not None:
-            step = self._bfs_step_toward(glyphs, py, px, target[0], target[1])
+        # 4. Go to nearest frontier tile (walkable tile adjacent to unseen space)
+        frontier = self._find_frontier(glyphs, dis)
+        if frontier is not None:
+            step = self._step_toward(py, px, frontier, dis, walkable, walkable_diag)
             if step is not None:
+                if self.verbose and self._step_count % 20 == 0:
+                    self._log("P6", f"exploring frontier at {frontier}")
                 return step
 
-        # Stuck: search for hidden doors (with random unstick)
+        # 5. Go to stairs down (from glyphs or remembered objects)
+        stairs_pos = _find_stairs_down(glyphs)
+        if stairs_pos is None:
+            stairs_pos = _find_stairs_down_from_objects(self._objects)
+        if stairs_pos is not None and stairs_pos != (py, px):
+            if dis[stairs_pos[0], stairs_pos[1]] != -1 and s.hp > s.max_hp * 0.4:
+                step = self._step_toward(py, px, stairs_pos, dis, walkable, walkable_diag)
+                if step is not None:
+                    if self.verbose:
+                        self._log("P6", f"heading to stairs at {stairs_pos}")
+                    return step
+
+        # 6. Search for hidden doors/passages (last resort)
         self.search_count += 1
-        if self.search_count > 15:
+        self._search_count_map[py, px] += 1
+
+        # After enough searching at this spot, try a different spot
+        if self._search_count_map[py, px] > 20:
+            # Move to a different searchable tile (adjacent to unseen or wall)
+            target = self._find_search_target(glyphs, dis, py, px)
+            if target is not None:
+                step = self._step_toward(py, px, target, dis, walkable, walkable_diag)
+                if step is not None:
+                    return step
+
+        # Random walk as final unstick
+        if self.search_count > 30:
             import random
             self.search_count = 0
-            dirs = list(Actions.MOVE_DELTAS.keys())
-            return random.choice(dirs)
-
-        return Actions.SEARCH
-
-    def _find_nearest_closed_door(self, glyphs, py, px):
-        """Find nearest closed door on the map via BFS."""
-        if glyphs is None:
-            return None
-        rows, cols = glyphs.shape
-        from collections import deque
-        visited = set()
-        queue = deque([(py, px)])
-        visited.add((py, px))
-        while queue:
-            r, c = queue.popleft()
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    if dy == 0 and dx == 0:
-                        continue
-                    nr, nc = r + dy, c + dx
-                    if 0 <= nr < rows and 0 <= nc < cols and (nr, nc) not in visited:
-                        visited.add((nr, nc))
-                        g = int(glyphs[nr, nc])
-                        if _is_closed_door_glyph(g):
-                            return (nr, nc)
-                        if _is_walkable_glyph(g):
-                            queue.append((nr, nc))
-        return None
-
-    def _try_open_adjacent_door(self, s, glyphs, py, px) -> Optional[int]:
-        """Try to open a closed door adjacent to the player (cardinal only)."""
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nr, nc = py + dy, px + dx
-            if 0 <= nr < 21 and 0 <= nc < 79:
-                g = int(glyphs[nr, nc])
-                if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87:
-                    cmap_idx = g - GLYPH_CMAP_OFF
-                    # 15 = vertical closed door, 16 = horizontal closed door
-                    if cmap_idx in (15, 16):
-                        if self.verbose:
-                            self._log("P6", f"opening door at ({nr},{nc})")
-                        # Walk into the door to open it (NetHack auto-opens)
-                        return Actions.DELTA_TO_MOVE.get((dy, dx), Actions.SEARCH)
-        return None
-
-    def _bfs_step_toward(self, glyphs, py, px, ty, tx) -> Optional[int]:
-        """BFS pathfind from (py,px) to (ty,tx), return first step action.
-        Respects walls, doors (cardinal only through doors), no diagonal squeeze.
-        Caches full path for subsequent steps."""
-        # Use cached path if valid
-        if self._cached_path and len(self._cached_path) > 0:
-            next_tile = self._cached_path[0]
-            dy, dx = next_tile[0] - py, next_tile[1] - px
-            action = Actions.DELTA_TO_MOVE.get((dy, dx))
-            if action is not None and abs(dy) <= 1 and abs(dx) <= 1:
-                return action
-            # Cache invalid, recompute
-            self._cached_path = None
-
-        rows, cols = glyphs.shape
-        parent = {}
-        visited = set()
-        from collections import deque
-        queue = deque([(py, px)])
-        visited.add((py, px))
-        found = False
-
-        while queue:
-            r, c = queue.popleft()
-            if (r, c) == (ty, tx):
-                found = True
-                break
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    if dy == 0 and dx == 0:
-                        continue
-                    nr, nc = r + dy, c + dx
-                    if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
-                        continue
-                    if (nr, nc) in visited:
-                        continue
-                    g = int(glyphs[nr, nc])
-                    if not _is_walkable_glyph(g):
-                        if not _is_closed_door_glyph(g):
-                            continue
-                    is_diagonal = abs(dy) + abs(dx) > 1
-                    if is_diagonal:
-                        src_g = int(glyphs[r, c])
-                        if _is_door_glyph(g) or _is_door_glyph(src_g):
-                            continue
-                        adj1 = int(glyphs[r, c + dx]) if 0 <= c + dx < cols else 0
-                        adj2 = int(glyphs[r + dy, c]) if 0 <= r + dy < rows else 0
-                        if not (_is_walkable_glyph(adj1) or _is_walkable_glyph(adj2)):
-                            continue
-                    visited.add((nr, nc))
-                    parent[(nr, nc)] = (r, c)
-                    queue.append((nr, nc))
-
-        if not found:
-            return None
-
-        # Trace full path
-        path = []
-        cur = (ty, tx)
-        while cur != (py, px):
-            path.append(cur)
-            cur = parent.get(cur)
-            if cur is None:
-                return None
-        path.reverse()
-        self._cached_path = path
-
-        if not path:
-            return None
-        # First step
-        first = path[0]
-        dy, dx = first[0] - py, first[1] - px
-
-        # If stuck (tried this direction and failed), try alternate adjacent step
-        if self._stuck_moves >= 2:
-            import random
-            # Try all walkable adjacent tiles, prefer ones closer to target
             candidates = []
             for ddy in (-1, 0, 1):
                 for ddx in (-1, 0, 1):
                     if ddy == 0 and ddx == 0:
                         continue
                     ar, ac = py + ddy, px + ddx
-                    if 0 <= ar < rows and 0 <= ac < cols:
-                        g = int(glyphs[ar, ac])
-                        if _is_walkable_glyph(g) or _is_closed_door_glyph(g):
-                            action = Actions.DELTA_TO_MOVE.get((ddy, ddx))
-                            if action is not None:
-                                candidates.append(action)
+                    if 0 <= ar < MAP_H and 0 <= ac < MAP_W and walkable[ar, ac]:
+                        action = Actions.DELTA_TO_MOVE.get((ddy, ddx))
+                        if action is not None:
+                            candidates.append(action)
+            if candidates:
+                return random.choice(candidates)
+
+        return Actions.SEARCH
+
+    def _find_nearest_closed_door_bfs(self, glyphs, dis):
+        """Find the nearest reachable closed door using precomputed BFS distances."""
+        best = None
+        best_d = 999999
+        for r in range(MAP_H):
+            for c in range(MAP_W):
+                if _is_closed_door_glyph(int(glyphs[r, c])):
+                    d = dis[r, c]
+                    if d != -1 and d < best_d:
+                        best_d = d
+                        best = (r, c)
+        return best
+
+    def _find_frontier(self, glyphs, dis):
+        """Find nearest reachable walkable tile adjacent to unseen space.
+
+        A tile is frontier if:
+        - it is walkable and reachable (dis != -1)
+        - at least one of its 8 neighbors is unseen stone
+
+        Unseen stone = glyph is stone AND self._seen is False.
+        """
+        best = None
+        best_d = 999999
+        for r in range(MAP_H):
+            for c in range(MAP_W):
+                d = dis[r, c]
+                if d == -1 or d >= best_d:
+                    continue
+                if not self._walkable[r, c]:
+                    continue
+                # Check if any neighbor is unseen
+                has_unseen = False
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dy == 0 and dx == 0:
+                            continue
+                        nr, nc = r + dy, c + dx
+                        if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
+                            if not self._seen[nr, nc]:
+                                has_unseen = True
+                                break
+                    if has_unseen:
+                        break
+                if has_unseen:
+                    best_d = d
+                    best = (r, c)
+        return best
+
+    def _find_search_target(self, glyphs, dis, py, px):
+        """Find a tile worth searching at (adjacent to walls/stone, reachable,
+        not over-searched). Used when we've exhausted local searching."""
+        best = None
+        best_score = -999999
+        for r in range(MAP_H):
+            for c in range(MAP_W):
+                d = dis[r, c]
+                if d == -1 or d == 0:
+                    continue
+                if not self._walkable[r, c]:
+                    continue
+                # Count adjacent stone/wall (potential hidden doors)
+                adj_stone = 0
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dy == 0 and dx == 0:
+                            continue
+                        nr, nc = r + dy, c + dx
+                        if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
+                            g = int(glyphs[nr, nc])
+                            cm = _glyph_cmap(g)
+                            if cm in _WALL_CMAPS or cm == _STONE_CMAP:
+                                adj_stone += 1
+                if adj_stone == 0:
+                    continue
+                # Prefer tiles with more stone neighbors, fewer prior searches, closer
+                score = adj_stone * 10 - self._search_count_map[r, c] * 3 - d
+                if score > best_score:
+                    best_score = score
+                    best = (r, c)
+        return best
+
+    def _try_open_adjacent_door(self, s, glyphs, py, px) -> Optional[int]:
+        """Walk into an adjacent closed door (cardinal only) to open it."""
+        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nr, nc = py + dy, px + dx
+            if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
+                g = int(glyphs[nr, nc])
+                if _is_closed_door_glyph(g):
+                    if self.verbose:
+                        self._log("P6", f"opening door at ({nr},{nc})")
+                    self._door_open_attempts[nr, nc] += 1
+                    action = Actions.DELTA_TO_MOVE.get((dy, dx), Actions.SEARCH)
+                    # Save direction for kick prompt if door is locked
+                    self._kick_dir = action
+                    return action
+        return None
+
+    def _step_toward(self, py, px, target, dis, walkable, walkable_diag) -> Optional[int]:
+        """Trace BFS path from (py,px) to target, return first step action.
+
+        If the first step is blocked by a pet, try an alternate first step
+        that still leads toward the target.
+        """
+        ty, tx = target
+        if dis[ty, tx] == -1:
+            return None
+
+        # Trace path backward from target to source, respecting diagonal rules
+        path = []
+        cur_y, cur_x = ty, tx
+        while (cur_y, cur_x) != (py, px):
+            path.append((cur_y, cur_x))
+            best_ny, best_nx = -1, -1
+            best_d = dis[cur_y, cur_x]
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dy == 0 and dx == 0:
+                        continue
+                    ny, nx = cur_y + dy, cur_x + dx
+                    if 0 <= ny < MAP_H and 0 <= nx < MAP_W:
+                        if dis[ny, nx] >= 0 and dis[ny, nx] < best_d:
+                            # Validate diagonal moves same as BFS
+                            if abs(dy) + abs(dx) > 1:
+                                if not walkable_diag[cur_y, cur_x] or not walkable_diag[ny, nx]:
+                                    continue
+                                if not walkable[ny, cur_x] and not walkable[cur_y, nx]:
+                                    continue
+                            best_d = dis[ny, nx]
+                            best_ny, best_nx = ny, nx
+            if best_ny == -1:
+                return None  # can't trace back
+            cur_y, cur_x = best_ny, best_nx
+        path.reverse()
+
+        if not path:
+            return None
+
+        self._cached_path = path
+        first_r, first_c = path[0]
+        dy = first_r - py
+        dx = first_c - px
+
+        # Check if pet is blocking the first step
+        glyphs = self.state._glyphs
+        if glyphs is not None:
+            g = int(glyphs[first_r, first_c])
+            is_pet = (GLYPH_PET_OFF <= g < GLYPH_PET_OFF + NUMMONS)
+            if is_pet:
+                # Moving into pet swaps positions. That's fine, do it.
+                action = Actions.DELTA_TO_MOVE.get((dy, dx))
+                if action is not None:
+                    return action
+
+        # If stuck, try alternate first step
+        if self._stuck_moves >= 2:
+            import random
+            candidates = []
+            for ddy in (-1, 0, 1):
+                for ddx in (-1, 0, 1):
+                    if ddy == 0 and ddx == 0:
+                        continue
+                    if (ddy, ddx) == (dy, dx):
+                        continue  # already tried this
+                    ar, ac = py + ddy, px + ddx
+                    if 0 <= ar < MAP_H and 0 <= ac < MAP_W and walkable[ar, ac]:
+                        action = Actions.DELTA_TO_MOVE.get((ddy, ddx))
+                        if action is not None:
+                            candidates.append(action)
             if candidates:
                 self._stuck_moves = 0
                 return random.choice(candidates)
 
-        return Actions.DELTA_TO_MOVE.get((dy, dx), None)
+        action = Actions.DELTA_TO_MOVE.get((dy, dx))
+        return action
 
     # ----------------------------------------------------------
     # Helper methods
