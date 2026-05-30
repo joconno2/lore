@@ -712,9 +712,9 @@ class ExpertAgent:
                 and top_report.danger_level >= 6):
             return Actions.ENGRAVE
 
-        # Ranged preferred: step away
+        # Ranged preferred: step away (with wall awareness)
         if top_report.ranged_preferred:
-            return _direction_away(py, px, top_mon.row, top_mon.col)
+            return self._flee_from(s, top_mon)
 
         # Flee recommendation
         if top_report.recommended_action == "flee":
@@ -1241,7 +1241,32 @@ class ExpertAgent:
 
     def _flee_from(self, s, monster) -> int:
         py, px = s.position
-        return _direction_away(py, px, monster.row, monster.col)
+        my, mx = monster.row, monster.col
+        # Try direction away first
+        away = _direction_away(py, px, my, mx)
+        dd = Actions.MOVE_DELTAS.get(away)
+        if dd is not None:
+            nr, nc = py + dd[0], px + dd[1]
+            if 0 <= nr < MAP_H and 0 <= nc < MAP_W and self._walkable[nr, nc]:
+                return away
+        # Away direction blocked: try all walkable tiles, prefer ones farthest from monster
+        import random
+        candidates = []
+        for ddy in (-1, 0, 1):
+            for ddx in (-1, 0, 1):
+                if ddy == 0 and ddx == 0:
+                    continue
+                ar, ac = py + ddy, px + ddx
+                if 0 <= ar < MAP_H and 0 <= ac < MAP_W and self._walkable[ar, ac]:
+                    dist = max(abs(ar - my), abs(ac - mx))
+                    action = Actions.DELTA_TO_MOVE.get((ddy, ddx))
+                    if action is not None:
+                        candidates.append((dist, action))
+        if candidates:
+            candidates.sort(reverse=True)  # farthest first
+            return candidates[0][1]
+        # Completely trapped: write Elbereth
+        return Actions.ENGRAVE
 
     def _corpse_safe_to_eat(self, name: str) -> bool:
         """Quick safety check without ThreatDB."""
