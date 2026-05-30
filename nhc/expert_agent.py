@@ -924,7 +924,17 @@ class ExpertAgent:
         nr, nc = py + dy, px + dx
         # Block moves into refused positions (peacefuls)
         if (nr, nc) in self._refused_positions:
-            return Actions.WAIT
+            # Try alternate direction that avoids the peaceful
+            for cdy, cdx in [(dy, 0), (0, dx), (-dy, 0), (0, -dx)]:
+                if cdy == 0 and cdx == 0:
+                    continue
+                cr, cc = py + cdy, px + cdx
+                if 0 <= cr < MAP_H and 0 <= cc < MAP_W:
+                    if self._walkable[cr, cc] and (cr, cc) not in self._refused_positions:
+                        alt = Actions.DELTA_TO_MOVE.get((cdy, cdx))
+                        if alt is not None:
+                            return alt
+            return Actions.SEARCH  # rest if no alternative
         if abs(dy) + abs(dx) <= 1:
             return action  # cardinal move, always ok
         # Diagonal move: check for door at source or destination
