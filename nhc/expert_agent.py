@@ -100,7 +100,7 @@ class Actions:
     UP = 17; DOWN = 18; WAIT = 19
     KICK = 20; EAT = 21; SEARCH = 22
     # Actions not available in NetHackScore-v0 (mapped to SEARCH as fallback)
-    APPLY = 22; CLOSE = 22; DROP = 22; ENGRAVE = 22
+    APPLY = 22; CLOSE = 22; DIP = 22; DROP = 22; ENGRAVE = 22
     FIRE = 22; INV = 22; LOOT = 22; OPEN = 22
     PAY = 22; PICKUP = 22; PRAY = 22; PUTON = 22
     QUAFF = 22; READ = 22; REMOVE = 22; RIDE = 22
@@ -138,7 +138,7 @@ def _try_resolve_actions():
             "N": "N", "E": "E", "S": "S", "W": "W",
             "NE": "NE", "SE": "SE", "SW": "SW", "NW": "NW",
             "UP": "UP", "DOWN": "DOWN", "WAIT": "WAIT",
-            "APPLY": "APPLY", "CLOSE": "CLOSE", "DROP": "DROP",
+            "APPLY": "APPLY", "CLOSE": "CLOSE", "DIP": "DIP", "DROP": "DROP",
             "EAT": "EAT", "ENGRAVE": "ENGRAVE", "FIRE": "FIRE",
             "KICK": "KICK", "LOOT": "LOOT", "OPEN": "OPEN",
             "PICKUP": "PICKUP", "PRAY": "PRAY", "PUTON": "PUTON",
@@ -190,6 +190,21 @@ def _direction_toward(py: int, px: int, ty: int, tx: int) -> int:
     if dy == 0 and dx == 0:
         return Actions.WAIT
     return Actions.DELTA_TO_MOVE.get((dy, dx), Actions.SEARCH)
+
+
+def _monster_in_line(py: int, px: int, my: int, mx: int) -> Optional[tuple]:
+    """Check if monster is in a cardinal/diagonal line from player.
+    Returns (dy, dx) unit direction or None."""
+    dr, dc = my - py, mx - px
+    if dr == 0 and dc == 0:
+        return None
+    if dr == 0:
+        return (0, 1 if dc > 0 else -1)
+    if dc == 0:
+        return (1 if dr > 0 else -1, 0)
+    if abs(dr) == abs(dc):
+        return (1 if dr > 0 else -1, 1 if dc > 0 else -1)
+    return None
 
 
 def _direction_away(py: int, px: int, ty: int, tx: int) -> int:
@@ -461,6 +476,12 @@ class ExpertAgent:
         self._corpse_name = ""
         self._on_item = False
         self._on_edible_item = False
+        # Ranged/excalibur reset
+        self._ranged_dir = None
+        self._daggers = {}
+        self._wands = {}
+        self._has_excalibur = False
+        self._fountain_positions = set()
         # Logging state
         self._prev_hp = 0
         self._prev_dlevel = 1
@@ -471,6 +492,13 @@ class ExpertAgent:
         # Equipment state
         self._has_weapon_wielded = False
         self._pending_letter = None
+        # Ranged combat state
+        self._ranged_dir: Optional[int] = None
+        self._daggers: dict = {}
+        self._wands: dict = {}
+        # Excalibur state
+        self._has_excalibur = False
+        self._fountain_positions: set = set()
         # Reset navigation masks
         self._seen = np.zeros((MAP_H, MAP_W), dtype=bool)
         self._walkable = np.zeros((MAP_H, MAP_W), dtype=bool)
@@ -644,6 +672,34 @@ class ExpertAgent:
                 # NLE might need us to type "Elbereth" but in practice
                 # the engrave command handles it. Skip.
                 pass
+            # Throw/zap/dip multi-step prompts
+            if "What do you want to throw?" in msg_str or \
+               "What do you want to zap?" in msg_str or \
+               "What do you want to dip?" in msg_str:
+                if self._pending_letter:
+                    letter = self._pending_letter
+                    self._pending_letter = None
+                    return self._letter_to_action(letter)
+                self._pending_action = None
+                return Actions.MORE  # cancel
+            if "In what direction?" in msg_str:
+                if self._ranged_dir is not None:
+                    d = self._ranged_dir
+                    self._ranged_dir = None
+                    self._pending_action = None
+                    return d
+                if self._kick_dir is not None:
+                    d = self._kick_dir
+                    self._kick_dir = None
+                    return d
+                self._pending_action = None
+                return Actions.MORE
+            # Dip into fountain confirmation
+            if "Dip" in msg_str and "into the fountain?" in msg_str:
+                return self._letter_to_action('y')
+            # Throw/zap failed
+            if "not carrying anything" in msg_str or "You don't have anything" in msg_str:
+                self._pending_action = None
             # Diagonal door failure: clear path
             if "diagonally" in msg_str:
                 self._cached_path = None
@@ -984,6 +1040,10 @@ class ExpertAgent:
 
     def _decide(self, s) -> int:
         """Priority cascade. Returns action for highest-priority applicable rule."""
+        # If a multi-step action is in progress (throw/zap/dip/offer),
+        # don't run the priority cascade. Wait for prompts to resolve.
+        if self._pending_action in ("throw", "zap", "dip", "offer"):
+            return Actions.WAIT  # prompts handled in act() before _decide
         priorities = [
             ("P0-emerg", self._p0_emergencies),
             ("P1-combat", self._p1_adjacent_combat),
@@ -991,6 +1051,7 @@ class ExpertAgent:
             ("P3-food", self._p3_food),
             ("P4-items", self._p4_items),
             ("P4b-equip", self._p4b_equipment),
+            ("P4c-excal", self._p4c_excalibur),
             ("P5-corpse", self._p5_corpse_intrinsics),
             ("P5b-rest", self._p5b_rest),
             ("P6-nav", self._p6_navigation),
@@ -1209,6 +1270,21 @@ class ExpertAgent:
                         return away
                 # Can't flee in that direction, try to navigate around
                 return None
+
+        # Try throwing daggers at monsters in line of fire
+        if self._daggers:
+            for mon in sorted(non_adjacent, key=lambda m: max(abs(m.row-py), abs(m.col-px))):
+                line = _monster_in_line(py, px, mon.row, mon.col)
+                if line is not None:
+                    dagger_letter = next(iter(self._daggers))
+                    dir_action = Actions.DELTA_TO_MOVE.get(line)
+                    if dir_action is not None:
+                        self._pending_action = "throw"
+                        self._pending_letter = dagger_letter
+                        self._ranged_dir = dir_action
+                        self._last_action_reason = f"throw dagger at {mon.name}"
+                        return Actions.THROW
+                    break  # only try first in-line monster
 
         # Approach closest killable monster for XP. Be aggressive.
         closest = min(non_adjacent, key=lambda m: max(abs(m.row - py), abs(m.col - px)))
@@ -1432,6 +1508,55 @@ class ExpertAgent:
         return None
 
     # ----------------------------------------------------------
+    # P4c: Excalibur (dip long sword in fountain)
+    # ----------------------------------------------------------
+
+    def _p4c_excalibur(self, s) -> Optional[int]:
+        """Dip long sword in fountain to create Excalibur.
+        Requires: lawful alignment (Valkyrie), XL >= 5, long sword, fountain."""
+        if self._has_excalibur:
+            return None
+        if s.xlevel < 5:
+            return None
+        if s.hp < s.max_hp * 0.5:
+            return None  # water demon risk
+        # Find long sword in inventory
+        sword_letter = None
+        for letter, item_str in s.inventory.items():
+            lower = item_str.lower()
+            if "long sword" in lower and "(weapon in hand)" in lower:
+                sword_letter = letter
+                break
+        if sword_letter is None:
+            return None
+        # Check if on a fountain
+        py, px = s.position
+        obj_here = int(self._objects[py, px])
+        on_fountain = (_glyph_cmap(obj_here) == 31)  # fountain cmap
+        if on_fountain:
+            self._pending_action = "dip"
+            self._pending_letter = sword_letter
+            self._last_action_reason = "dipping for Excalibur"
+            return Actions.DIP
+        # Path to nearest fountain if one is known
+        if self._fountain_positions:
+            glyphs = s._glyphs
+            if glyphs is not None:
+                walkable, walkable_diag = self._build_nav_masks(glyphs)
+                dis = _bfs_distances(py, px, walkable, walkable_diag)
+                best_f, best_d = None, 999999
+                for fp in self._fountain_positions:
+                    d = dis[fp[0], fp[1]]
+                    if d != -1 and d < best_d:
+                        best_d, best_f = d, fp
+                if best_f is not None and best_d < 30:
+                    step = self._step_toward(py, px, best_f, dis, walkable, walkable_diag)
+                    if step is not None:
+                        self._last_action_reason = f"heading to fountain at {best_f}"
+                        return step
+        return None
+
+    # ----------------------------------------------------------
     # P5: Corpse eating for intrinsics
     # ----------------------------------------------------------
 
@@ -1505,6 +1630,8 @@ class ExpertAgent:
                     self._seen[r, c] = True
                     self._walkable[r, c] = True
                     self._objects[r, c] = g
+                    if cm == 31:  # fountain
+                        self._fountain_positions.add((r, c))
 
                 # Walls and closed doors: seen but not walkable
                 elif cm in _WALL_CMAPS:
@@ -2151,6 +2278,17 @@ class ExpertAgent:
                 self.has_lizard_corpse = True
         # has_food = True only if _find_food_letter would return something
         self.has_food = (self._find_food_letter(s) is not None)
+        # Scan for daggers (throwable ranged ammo)
+        self._daggers = {}
+        for letter, item_str in s.inventory.items():
+            lower = item_str.lower()
+            if "dagger" in lower and "cursed" not in lower and \
+               "(weapon in hand)" not in lower and "(wielded)" not in lower:
+                self._daggers[letter] = item_str
+        # Check for Excalibur
+        for letter, item_str in s.inventory.items():
+            if "Excalibur" in item_str:
+                self._has_excalibur = True
 
     def _find_food_letter(self, s) -> Optional[str]:
         """Find the inventory letter of the best food item to eat."""
