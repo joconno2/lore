@@ -1076,14 +1076,15 @@ class ExpertAgent:
                 # Can't flee in that direction, try to navigate around
                 return None
 
-        # Approach closest non-critical monster for kills, but only via BFS
+        # Approach closest killable monster for XP. Be aggressive.
         closest = min(non_adjacent, key=lambda m: max(abs(m.row - py), abs(m.col - px)))
         if self.threat_db is not None:
             report = self.threat_db.assess_threat(closest.name, self._player_state(s))
         else:
             report = _StubThreatReport(closest.name)
 
-        if report.danger_level <= 6 and s.hp > s.max_hp * 0.5:
+        # Approach if: not instakill risk and HP above 30%
+        if not report.instakill_risk and s.hp > s.max_hp * 0.3:
             # Use BFS to approach, not blind directional movement
             walkable, walkable_diag = self._build_nav_masks(s._glyphs)
             dis = _bfs_distances(py, px, walkable, walkable_diag)
@@ -1121,12 +1122,21 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p4_items(self, s) -> Optional[int]:
-        # Don't pick up if encumbered (burdened or worse)
+        # Don't pick up if encumbered
         if s.encumbrance >= 1:
             return None
-        # Don't pick up if last action was pickup and failed
-        if self._on_item and self.last_action != Actions.PICKUP:
-            self._last_action_reason = "picking up item"
+        # Don't pick up if last pickup failed
+        if self.last_action == Actions.PICKUP:
+            return None
+        # Check if there's an object on our tile (from message or glyph)
+        if self._on_item:
+            self._last_action_reason = "picking up item (message)"
+            return Actions.PICKUP
+        # Also check glyph: if the remembered object at our tile is an item glyph
+        py, px = s.position
+        obj = int(self._objects[py, px])
+        if obj != -1 and GLYPH_OBJ_OFF <= obj < GLYPH_CMAP_OFF:
+            self._last_action_reason = "picking up item (glyph)"
             return Actions.PICKUP
         return None
 
