@@ -544,13 +544,13 @@ class ExpertAgent:
                     self._pending_action = None
                     return self._letter_to_action(food_letter)
                 else:
-                    # No recognized food. Cancel with ESC.
+                    # No recognized food. Cancel with ESC character.
                     if self.verbose:
                         self._log("EAT", "no edible food found, canceling")
                     self._pending_action = None
                     self.has_food = False
                     self._eat_cooldown = 50
-                    return Actions.ESC
+                    return self._letter_to_action('\x1b')  # ESC char
             # "eat it? [yn]" for corpse on ground
             if "eat it?" in msg_str or "eat this?" in msg_str:
                 # Check if we're being asked about something dangerous
@@ -681,13 +681,14 @@ class ExpertAgent:
                         self._log("DROP", f"dropping '{drop_letter}' (encumbered)")
                     return Actions.DROP
                 self._stuck_moves += 3
-            # "Never mind" means last action failed, clear pending
+            # Eat failed: clear pending and set cooldown
             if "Never mind" in msg_str or "You cannot eat that" in msg_str or \
-               "You don't have anything to eat" in msg_str:
+               "You don't have anything to eat" in msg_str or \
+               "You can't eat that" in msg_str:
                 self._pending_action = None
                 self.has_food = False
                 self._eat_attempts = 0
-                self._eat_cooldown = 50  # don't try eating for 50 steps
+                self._eat_cooldown = 100  # don't try eating for 100 steps
 
         # Track stuck detection
         pos = s.position
@@ -1412,6 +1413,9 @@ class ExpertAgent:
 
     def _p5_corpse_intrinsics(self, s) -> Optional[int]:
         if not self._on_corpse or not self._corpse_name:
+            return None
+        # Don't eat during cooldown
+        if self._eat_cooldown > 0:
             return None
         # Don't eat if satiated (risk of choking to death)
         if s.hunger_state == "satiated":
