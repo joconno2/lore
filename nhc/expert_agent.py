@@ -391,6 +391,14 @@ class ExpertAgent:
         self.last_pos: tuple = (0, 0)
         self.search_count: int = 0
 
+        # Logging state
+        self._prev_hp: int = 0
+        self._prev_dlevel: int = 1
+        self._prev_xlevel: int = 1
+        self._last_priority: str = ""
+        self._last_action_reason: str = ""
+        self._episode_stats: dict = self._make_episode_stats()
+
         # Per-turn tile state (detected from messages + glyphs)
         self._on_corpse: bool = False
         self._corpse_name: str = ""
@@ -412,8 +420,26 @@ class ExpertAgent:
         self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
         self._kick_dir: Optional[int] = None  # direction to kick when prompted
 
+    @staticmethod
+    def _make_episode_stats() -> dict:
+        return {
+            "kills": 0,
+            "kill_names": [],
+            "doors_opened": 0,
+            "items_picked_up": 0,
+            "levels_visited": set(),
+            "prayers": 0,
+            "prayer_results": [],
+            "hp_min": 999,
+            "corpses_eaten": 0,
+            "turns_per_dlevel": {},
+            "cause_of_death": "timeout",
+        }
+
     def reset(self) -> None:
         """Reset state for a new episode."""
+        if self.verbose and self._step_count > 0:
+            self.print_episode_summary()
         self._step_count = 0
         self.state = GameState() if _HAS_OBS_PARSER else None
         if _HAS_PRAYER:
@@ -429,6 +455,13 @@ class ExpertAgent:
         self._corpse_name = ""
         self._on_item = False
         self._on_edible_item = False
+        # Logging state
+        self._prev_hp = 0
+        self._prev_dlevel = 1
+        self._prev_xlevel = 1
+        self._last_priority = ""
+        self._last_action_reason = ""
+        self._episode_stats = self._make_episode_stats()
         # Reset navigation masks
         self._seen = np.zeros((MAP_H, MAP_W), dtype=bool)
         self._walkable = np.zeros((MAP_H, MAP_W), dtype=bool)
@@ -580,6 +613,10 @@ class ExpertAgent:
         # Parse messages for resistance gains and inventory clues
         self._parse_message_for_state(s)
 
+        # Parse game events for logging and stats
+        self._last_action_reason = ""
+        self._parse_events(s)
+
         # Detect what's on the player's tile (from messages + glyphs)
         self._detect_tile_contents(s)
 
@@ -589,24 +626,166 @@ class ExpertAgent:
         action = self._decide(s)
         action = self._validate_move(action, s)
         self.last_action = action
+        self._prev_hp = s.hp
         if self.verbose:
             self._log_decision(s, action)
         return action
 
     def _log(self, tag: str, msg: str):
-        """Print a tagged log line."""
+        """Print a compact tagged log line."""
         s = self.state
-        print(f"  [{self._step_count:>5} t{s.turn:>5} dl{s.dlevel} hp{s.hp}/{s.max_hp}] {tag}: {msg}")
+        print(f"t={s.turn:>5} dl{s.dlevel} hp{s.hp:>3}/{s.max_hp:<3} | {tag} {msg}")
 
     def _log_decision(self, s, action: int):
-        """Log the chosen action every N steps."""
-        if self._step_count % 50 != 0:
-            return
+        """Log action with priority tag. One line per step, only when interesting."""
+        prio = self._last_priority
+        reason = self._last_action_reason
         action_name = self._action_name(action)
-        monsters = [m.name for m in s.adjacent_monsters if not getattr(m, 'is_pet', False)]
-        msg = s.messages[-1] if s.messages else ""
-        self._log("ACT", f"{action_name} | adj={monsters} hunger={s.hunger_state} "
-                  f"pos={s.position} msg={msg[:40]}")
+        # Skip boring navigation steps (pure movement with no events)
+        if prio == "P6-nav" and not reason:
+            return
+        self._log(prio or "ACT", f"{action_name} {reason}")
+
+    def _parse_events(self, s) -> None:
+        """Scan messages for game events and update episode stats."""
+        if not s.messages:
+            return
+        text = s.last_message
+        lower = text.lower()
+        stats = self._episode_stats
+
+        # Kills
+        if "you kill " in lower or "you destroy " in lower:
+            # Extract monster name from "You kill the X!" or "You destroy the X!"
+            for prefix in ["you kill the ", "you kill ", "you destroy the ", "you destroy "]:
+                if prefix in lower:
+                    name = lower.split(prefix, 1)[1].rstrip("!. ")
+                    stats["kills"] += 1
+                    stats["kill_names"].append(name)
+                    if self.verbose:
+                        self._log("KILL", f"{name} ({stats['kills']} total)")
+                    break
+
+        # Death
+        if "you die" in lower:
+            stats["cause_of_death"] = text.strip()
+            if self.verbose:
+                self._log("DEATH", text.strip()[:60])
+
+        # Door opens
+        if "the door opens" in lower or "it crashes open" in lower:
+            stats["doors_opened"] += 1
+            if self.verbose:
+                self._log("DOOR", f"opened ({stats['doors_opened']} total)")
+
+        # Items found
+        if "you see here" in lower or "you find" in lower:
+            # Extract item description
+            for prefix in ["you see here ", "you find "]:
+                if prefix in lower:
+                    item = lower.split(prefix, 1)[1].rstrip(". ")
+                    if self.verbose:
+                        self._log("ITEM", item[:50])
+                    break
+
+        # Items picked up
+        if lower.endswith("(weapon in hand)") or lower.endswith("(being worn)") or \
+           ("you pick up" in lower) or (lower.startswith("f - ") or lower.startswith("g - ")):
+            stats["items_picked_up"] += 1
+
+        # Resistance gained
+        resist_msgs = {
+            "you feel especially healthy": "poison",
+            "you feel a momentary chill": "cold",
+            "you feel warm": "fire",
+            "you feel full of energy": "shock",
+            "you feel very firm": "disintegration",
+            "you feel wide awake": "sleep",
+        }
+        for msg_fragment, resist in resist_msgs.items():
+            if msg_fragment in lower:
+                if self.verbose:
+                    self._log("RESIST", f"gained {resist} resistance")
+
+        # Stairs
+        if "you descend" in lower or "you climb down" in lower:
+            if self.verbose:
+                self._log("STAIRS", f"descending to dl{s.dlevel}")
+        if "you ascend" in lower or "you climb up" in lower:
+            if self.verbose:
+                self._log("STAIRS", f"ascending to dl{s.dlevel}")
+
+        # Prayer
+        if "you begin praying" in lower:
+            stats["prayers"] += 1
+            if self.verbose:
+                self._log("PRAY", f"praying ({stats['prayers']} total)")
+        if "you feel much better" in lower or "you are granted" in lower:
+            stats["prayer_results"].append("success")
+            if self.verbose:
+                self._log("PRAY", "answered")
+        if "you finish your prayer" in lower and "angry" in lower:
+            stats["prayer_results"].append("anger")
+            if self.verbose:
+                self._log("PRAY", "angered god")
+
+        # Corpse eating
+        if "this corpse tastes" in lower or "this corpse is" in lower or \
+           "you bite into the" in lower:
+            stats["corpses_eaten"] += 1
+
+        # HP tracking: significant drops
+        if self._prev_hp > 0 and s.hp < self._prev_hp:
+            drop = self._prev_hp - s.hp
+            if drop > self._prev_hp * 0.25:
+                if self.verbose:
+                    self._log("HP", f"took {drop} dmg ({self._prev_hp}->{s.hp})")
+
+        # Track minimum HP
+        if s.hp > 0 and s.hp < stats["hp_min"]:
+            stats["hp_min"] = s.hp
+
+        # Level changes
+        if s.dlevel != self._prev_dlevel:
+            if self.verbose:
+                self._log("DLVL", f"dl{self._prev_dlevel}->dl{s.dlevel}")
+            self._prev_dlevel = s.dlevel
+        if s.xlevel != self._prev_xlevel:
+            if self.verbose:
+                self._log("XLVL", f"xl{self._prev_xlevel}->xl{s.xlevel}")
+            self._prev_xlevel = s.xlevel
+
+        # Track levels visited and time per dlevel
+        stats["levels_visited"].add(s.dlevel)
+        dl_key = f"dl{s.dlevel}"
+        stats["turns_per_dlevel"][dl_key] = stats["turns_per_dlevel"].get(dl_key, 0) + 1
+
+    def print_episode_summary(self) -> None:
+        """Print per-episode statistics."""
+        s = self.state
+        stats = self._episode_stats
+        print("\n--- EPISODE SUMMARY ---")
+        print(f"  turns: {s.turn}  steps: {self._step_count}  score: {s.score}")
+        print(f"  kills: {stats['kills']}  doors: {stats['doors_opened']}  "
+              f"items: {stats['items_picked_up']}  corpses eaten: {stats['corpses_eaten']}")
+        print(f"  levels visited: {sorted(stats['levels_visited'])}")
+        print(f"  prayers: {stats['prayers']}  results: {stats['prayer_results']}")
+        print(f"  hp min: {stats['hp_min']}  final hp: {s.hp}/{s.max_hp}")
+        if stats["turns_per_dlevel"]:
+            dl_str = ", ".join(f"{k}:{v}" for k, v in sorted(stats["turns_per_dlevel"].items()))
+            print(f"  time per level: {dl_str}")
+        if stats["kill_names"]:
+            # Count kills by name
+            from collections import Counter
+            counts = Counter(stats["kill_names"])
+            top = counts.most_common(8)
+            kill_str = ", ".join(f"{n}x{c}" if c > 1 else n for n, c in top)
+            if len(counts) > 8:
+                kill_str += f", +{len(counts)-8} more"
+            print(f"  kills: {kill_str}")
+        inv_size = len(s.inventory) if s.inventory else 0
+        print(f"  inventory: {inv_size} items  cause: {stats['cause_of_death']}")
+        print("--- END SUMMARY ---\n")
 
     @staticmethod
     def _action_name(action: int) -> str:
@@ -682,12 +861,11 @@ class ExpertAgent:
         for name, fn in priorities:
             a = fn(s)
             if a is not None:
-                if self.verbose and self._step_count % 10 == 0:
-                    self._log(name, f"-> {self._action_name(a)} (idx={a})")
+                self._last_priority = name
                 return a
 
-        if self.verbose and self._step_count % 10 == 0:
-            self._log("FALLBACK", "no priority matched, searching")
+        self._last_priority = "FALLBACK"
+        self._last_action_reason = "no priority matched"
         return Actions.SEARCH
 
     # ----------------------------------------------------------
@@ -699,18 +877,21 @@ class ExpertAgent:
 
         # Stoning
         if "stoned" in conds:
+            self._last_action_reason = "stoning"
             if self.has_lizard_corpse:
                 return Actions.EAT
             return self._try_pray(s, "stoning")
 
         # Sliming
         if "slimed" in conds:
+            self._last_action_reason = "sliming"
             if self.has_lizard_corpse:
                 return Actions.EAT
             return self._try_pray(s, "sliming")
 
         # HP critical: HP <= max(5, maxHP // 7)
         if s.hp <= max(5, s.max_hp // 7):
+            self._last_action_reason = f"hp_critical ({s.hp}/{s.max_hp})"
             pray_action = self._try_pray(s, "hp_critical")
             if pray_action is not None:
                 return pray_action
@@ -721,6 +902,7 @@ class ExpertAgent:
 
         # Fainting from hunger
         if s.hunger_state in ("fainting", "fainted", "starved"):
+            self._last_action_reason = f"starving ({s.hunger_state})"
             pray_action = self._try_pray(s, "starving")
             if pray_action is not None:
                 return pray_action
@@ -730,6 +912,7 @@ class ExpertAgent:
 
         # Terminal illness / food poisoning
         if "foodpois" in conds or "termill" in conds:
+            self._last_action_reason = "illness"
             return self._try_pray(s, "illness")
 
         return None
@@ -782,6 +965,8 @@ class ExpertAgent:
         # Instakill risks: flee or Elbereth
         any_instakill = any(r.instakill_risk for _, r in threats)
         if any_instakill:
+            ik_name = next(m.name for m, r in threats if r.instakill_risk)
+            self._last_action_reason = f"flee instakill {ik_name}"
             return self._flee_or_elbereth(s)
 
         top_mon, top_report = threats[0]
@@ -790,20 +975,23 @@ class ExpertAgent:
         if (top_report.recommended_action == "elbereth"
                 and top_report.elbereth_effective
                 and top_report.danger_level >= 6):
+            self._last_action_reason = f"elbereth vs {top_mon.name}"
             return Actions.ENGRAVE
 
         # Ranged preferred: step away (with wall awareness)
         if top_report.ranged_preferred:
+            self._last_action_reason = f"kite {top_mon.name}"
             return self._flee_from(s, top_mon)
 
         # Flee recommendation
         if top_report.recommended_action == "flee":
+            self._last_action_reason = f"flee {top_mon.name}"
             return self._flee_from(s, top_mon)
 
         # Melee the highest-priority target
         direction = _direction_toward(py, px, top_mon.row, top_mon.col)
-        if self.verbose:
-            self._log("P1", f"melee {top_mon.name} at ({top_mon.row},{top_mon.col}) from ({py},{px}) -> dir={direction} ({self._action_name(direction)})")
+        d_name = self._action_name(direction)
+        self._last_action_reason = f"melee {top_mon.name} {d_name}"
         return direction
 
     # ----------------------------------------------------------
@@ -836,6 +1024,7 @@ class ExpertAgent:
             else:
                 report = _StubThreatReport(mon.name)
             if report.danger_level >= 8 and report.instakill_risk:
+                self._last_action_reason = f"flee ranged {mon.name}"
                 away = _direction_away(py, px, mon.row, mon.col)
                 # Check the target tile is walkable before fleeing
                 dd = Actions.MOVE_DELTAS.get(away)
@@ -861,6 +1050,7 @@ class ExpertAgent:
                 step = self._step_toward(py, px, (closest.row, closest.col),
                                          dis, walkable, walkable_diag)
                 if step is not None:
+                    self._last_action_reason = f"approach {closest.name}"
                     return step
 
         return None
@@ -874,15 +1064,13 @@ class ExpertAgent:
             if self.has_food:
                 self._pending_action = "eat"
                 self._eat_attempts = 0
-                if self.verbose:
-                    self._log("P3", "hungry, eating from inventory")
+                self._last_action_reason = f"{s.hunger_state}, eating from inv"
                 return Actions.EAT
             # Check for corpse on our tile
             if self._on_corpse and self._corpse_safe_to_eat(self._corpse_name):
                 self._pending_action = "eat"
                 self._eat_attempts = 0
-                if self.verbose:
-                    self._log("P3", f"hungry, eating corpse: {self._corpse_name}")
+                self._last_action_reason = f"{s.hunger_state}, eating {self._corpse_name} corpse"
                 return Actions.EAT
 
         return None
@@ -897,6 +1085,7 @@ class ExpertAgent:
             return None
         # Don't pick up if last action was pickup and failed
         if self._on_item and self.last_action != Actions.PICKUP:
+            self._last_action_reason = "picking up item"
             return Actions.PICKUP
         return None
 
@@ -911,8 +1100,10 @@ class ExpertAgent:
         if self.threat_db is not None:
             report = self.threat_db.corpse_value(self._corpse_name, self.resistances)
             if report.safe_to_eat and report.priority >= 5:
+                self._last_action_reason = f"eating {self._corpse_name} for intrinsic"
                 return Actions.EAT
         elif self._corpse_safe_to_eat(self._corpse_name):
+            self._last_action_reason = f"eating {self._corpse_name} for intrinsic"
             return Actions.EAT
 
         return None
@@ -1042,8 +1233,7 @@ class ExpertAgent:
             on_dn_stairs = True
         if on_dn_stairs:
             if s.hp > s.max_hp * 0.4:
-                if self.verbose:
-                    self._log("P6", "descending stairs")
+                self._last_action_reason = "descending stairs"
                 return Actions.DOWN
 
         # 2. Adjacent closed door: walk into it to open (cardinal only)
@@ -1060,8 +1250,7 @@ class ExpertAgent:
         if best_door is not None:
             step = self._step_toward(py, px, best_door, dis, walkable, walkable_diag)
             if step is not None:
-                if self.verbose and self._step_count % 20 == 0:
-                    self._log("P6", f"heading to closed door at {best_door}")
+                self._last_action_reason = f"door at {best_door}"
                 return step
 
         # 4. Go to nearest frontier tile (walkable tile adjacent to unseen space)
@@ -1069,8 +1258,7 @@ class ExpertAgent:
         if frontier is not None:
             step = self._step_toward(py, px, frontier, dis, walkable, walkable_diag)
             if step is not None:
-                if self.verbose and self._step_count % 20 == 0:
-                    self._log("P6", f"exploring frontier at {frontier}")
+                self._last_action_reason = f"frontier at {frontier}"
                 return step
 
         # 5. Go to stairs down (from glyphs or remembered objects)
@@ -1082,8 +1270,7 @@ class ExpertAgent:
             if dis[stairs_pos[0], stairs_pos[1]] != -1 and s.hp > s.max_hp * 0.4:
                 step = self._step_toward(py, px, stairs_pos, dis, walkable, walkable_diag)
                 if step is not None:
-                    if self.verbose:
-                        self._log("P6", f"heading to stairs at {stairs_pos}")
+                    self._last_action_reason = f"stairs at {stairs_pos}"
                     return step
 
         # 6. Search for hidden doors/passages (last resort)
@@ -1214,8 +1401,7 @@ class ExpertAgent:
             if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
                 g = int(glyphs[nr, nc])
                 if _is_closed_door_glyph(g):
-                    if self.verbose:
-                        self._log("P6", f"opening door at ({nr},{nc})")
+                    self._last_action_reason = f"opening door at ({nr},{nc})"
                     self._door_open_attempts[nr, nc] += 1
                     action = Actions.DELTA_TO_MOVE.get((dy, dx), Actions.SEARCH)
                     # Save direction for kick prompt if door is locked
