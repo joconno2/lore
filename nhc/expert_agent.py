@@ -1306,8 +1306,13 @@ class ExpertAgent:
         if obj_here in (S_DNSTAIR, S_DNLADDER):
             on_dn_stairs = True
         if on_dn_stairs:
-            if s.hp > s.max_hp * 0.4:
-                self._last_action_reason = "descending stairs"
+            # Don't descend too fast. Gate: DL1 always ok, DL2+ need XL >= DL-1
+            # and at least 60% HP. This lets Valkyrie descend to DL2 at XL1.
+            can_descend = s.hp > s.max_hp * 0.6
+            if s.dlevel >= 2:
+                can_descend = can_descend and s.xlevel >= s.dlevel - 1
+            if can_descend:
+                self._last_action_reason = f"descending (xl={s.xlevel} dl={s.dlevel})"
                 return Actions.DOWN
 
         # 2. Adjacent closed door: walk into it to open (cardinal only)
@@ -1340,8 +1345,11 @@ class ExpertAgent:
         stairs_pos = _find_stairs_down(glyphs)
         if stairs_pos is None:
             stairs_pos = _find_stairs_down_from_objects(self._objects)
+        can_go_down = s.hp > s.max_hp * 0.6
+        if s.dlevel >= 2:
+            can_go_down = can_go_down and s.xlevel >= s.dlevel - 1
         if stairs_pos is not None and stairs_pos != (py, px):
-            if dis[stairs_pos[0], stairs_pos[1]] != -1 and s.hp > s.max_hp * 0.4:
+            if dis[stairs_pos[0], stairs_pos[1]] != -1 and can_go_down:
                 step = self._step_toward(py, px, stairs_pos, dis, walkable, walkable_diag)
                 if step is not None:
                     self._last_action_reason = f"stairs at {stairs_pos}"
