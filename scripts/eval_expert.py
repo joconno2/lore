@@ -23,7 +23,7 @@ import nle.nethack as nethack
 from nhc.expert_agent import ExpertAgent
 
 
-def make_env(seed=None):
+def make_env(seed=None, character="val-hum-fem-neu"):
     env = gym.make(
         "NetHackScore-v0",
         observation_keys=(
@@ -31,6 +31,7 @@ def make_env(seed=None):
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",
         ),
         actions=nethack.ACTIONS,
+        character=character,
         max_episode_steps=5000,
     )
     return env
