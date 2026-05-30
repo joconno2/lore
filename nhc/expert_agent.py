@@ -105,7 +105,7 @@ class Actions:
     PAY = 22; PICKUP = 22; PRAY = 22; PUTON = 22
     QUAFF = 22; READ = 22; REMOVE = 22; RIDE = 22
     TAKEOFF = 22; THROW = 22; WEAR = 22; WIELD = 22
-    ZAP = 22
+    ZAP = 22; ESC = 22
     NUM_ACTIONS = 23
 
     MOVE_DELTAS = {
@@ -145,7 +145,7 @@ def _try_resolve_actions():
             "QUAFF": "QUAFF", "READ": "READ", "SEARCH": "SEARCH",
             "TAKEOFF": "TAKEOFF", "THROW": "THROW", "WEAR": "WEAR",
             "WIELD": "WIELD", "ZAP": "ZAP", "MORE": "MORE",
-            "INV": "INVENTORY", "REMOVE": "REMOVE",
+            "INV": "INVENTORY", "REMOVE": "REMOVE", "ESC": "ESC",
         }
         for attr, nle_name in name_map.items():
             if nle_name in lookup:
@@ -523,7 +523,7 @@ class ExpertAgent:
                     self._pending_action = None
                     return self._letter_to_action(letter)
                 self._pending_action = None
-                return Actions.MORE  # cancel
+                return Actions.ESC  # cancel
             # "You are already wearing that" or similar
             if "already wearing" in msg_str or "already wielding" in msg_str:
                 self._pending_action = None
@@ -544,13 +544,13 @@ class ExpertAgent:
                     self._pending_action = None
                     return self._letter_to_action(food_letter)
                 else:
-                    # No recognized food. Cancel with ESC (space/CR).
+                    # No recognized food. Cancel with ESC.
                     if self.verbose:
                         self._log("EAT", "no edible food found, canceling")
                     self._pending_action = None
                     self.has_food = False
                     self._eat_cooldown = 50
-                    return Actions.MORE  # ESC or space to cancel
+                    return Actions.ESC
             # "eat it? [yn]" for corpse on ground
             if "eat it?" in msg_str or "eat this?" in msg_str:
                 # Check if we're being asked about something dangerous
