@@ -2116,28 +2116,22 @@ class ExpertAgent:
             self.resistances.add("sleep resistance")
 
     def _check_inventory(self, s) -> None:
-        """Scan inventory strings for food and lizard corpses."""
+        """Scan inventory strings for food and lizard corpses.
+
+        Only set has_food for items that _find_food_letter would
+        actually select. This prevents EAT->cancel loops.
+        """
         if not s.inventory:
             return
-        self.has_food = False
         self.has_lizard_corpse = False
         self.inventory_items = {}
-        food_words = ["food ration", "tripe", "meatball", "egg",
-                       "lembas", "cram", "melon", "carrot", "apple",
-                       "pear", "banana", "orange", "kelp", "cream pie",
-                       "candy bar", "fortune cookie", "pancake", "lump of royal jelly"]
         for letter, item_str in s.inventory.items():
             lower = item_str.lower()
             self.inventory_items[letter] = item_str
-            if any(f in lower for f in food_words):
-                self.has_food = True
             if "lizard corpse" in lower:
                 self.has_lizard_corpse = True
-                self.has_food = True
-            if "lichen corpse" in lower:
-                self.has_food = True
-            # Only count other corpses as food if they're safe to eat
-            # (don't mark random corpses as food, they cause eat loops)
+        # has_food = True only if _find_food_letter would return something
+        self.has_food = (self._find_food_letter(s) is not None)
 
     def _find_food_letter(self, s) -> Optional[str]:
         """Find the inventory letter of the best food item to eat."""
