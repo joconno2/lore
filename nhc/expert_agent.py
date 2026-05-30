@@ -422,6 +422,8 @@ class ExpertAgent:
         self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
         self._kick_dir: Optional[int] = None  # direction to kick when prompted
         self._refused_attacks: set = set()  # monster names we refused to attack (peacefuls)
+        self._refused_positions: set = set()  # positions we shouldn't walk to (peacefuls there)
+        self._eat_cooldown: int = 0  # steps to skip eating after a failed eat
 
     @staticmethod
     def _make_episode_stats() -> dict:
@@ -481,6 +483,8 @@ class ExpertAgent:
         self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
         self._kick_dir = None
         self._refused_attacks = set()
+        self._refused_positions = set()
+        self._eat_cooldown = 0
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
@@ -575,18 +579,23 @@ class ExpertAgent:
                    "call is" in lower_msg or "Really quit" in msg_str:
                     if self.verbose:
                         self._log("YN", f"answering NO to: {msg_str[:60]}")
-                    # If "Really attack", mark the monster as peaceful
+                    # If "Really attack", mark the monster as peaceful and block the tile
                     if "Really attack" in msg_str:
                         self._cached_path = None
                         self._stuck_moves += 5  # force repath
                         # Extract monster name from "Really attack the X?"
-                        # or "Really attack X?"
                         attack_lower = msg_str.lower()
                         for prefix in ["really attack the ", "really attack "]:
                             if prefix in attack_lower:
                                 name = attack_lower.split(prefix, 1)[1].split("?")[0].strip()
                                 self._refused_attacks.add(name)
                                 break
+                        # Track the position of the peaceful monster
+                        if self.last_action in Actions.MOVE_DELTAS:
+                            dd = Actions.MOVE_DELTAS[self.last_action]
+                            wr, wc = s.position[0] + dd[0], s.position[1] + dd[1]
+                            if 0 <= wr < MAP_H and 0 <= wc < MAP_W:
+                                self._refused_positions.add((wr, wc))
                     return self._letter_to_action('n')
                 # Say yes to everything else (pray, eat, etc.)
                 if self.verbose:
@@ -677,6 +686,7 @@ class ExpertAgent:
                 self._pending_action = None
                 self.has_food = False
                 self._eat_attempts = 0
+                self._eat_cooldown = 50  # don't try eating for 50 steps
 
         # Track stuck detection
         pos = s.position
@@ -1193,6 +1203,12 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p3_food(self, s) -> Optional[int]:
+        # Decrement eat cooldown
+        if self._eat_cooldown > 0:
+            self._eat_cooldown -= 1
+            # During cooldown, only eat for actual starvation
+            if s.hunger_state not in ("weak", "fainting", "fainted"):
+                return None
         if s.hunger_state in ("hungry", "weak"):
             # Prefer corpse on ground first (free nutrition, saves rations)
             if self._on_corpse and self._corpse_name:
@@ -1437,6 +1453,18 @@ class ExpertAgent:
 
         py, px = s.position
 
+        # Update refused positions: remove positions where the monster has moved away
+        new_refused = set()
+        for rp in self._refused_positions:
+            r, c = rp
+            if 0 <= r < MAP_H and 0 <= c < MAP_W:
+                g = int(glyphs[r, c])
+                # If there's still a monster there, keep it blocked
+                if GLYPH_MON_OFF <= g < GLYPH_PET_OFF:
+                    new_refused.add(rp)
+                # Otherwise the monster moved, unblock
+        self._refused_positions = new_refused
+
         for r in range(MAP_H):
             for c in range(MAP_W):
                 g = int(glyphs[r, c])
@@ -1522,6 +1550,13 @@ class ExpertAgent:
                 o = int(self._objects[r, c])
                 if o != -1 and _glyph_cmap(o) in _DOOR_CMAPS:
                     walkable_diag[r, c] = False
+
+        # Block refused positions (peacefuls we shouldn't walk into)
+        for rp in self._refused_positions:
+            r, c = rp
+            if 0 <= r < MAP_H and 0 <= c < MAP_W:
+                walkable[r, c] = False
+                walkable_diag[r, c] = False
 
         return walkable, walkable_diag
 
@@ -2076,7 +2111,7 @@ class ExpertAgent:
         self.has_food = False
         self.has_lizard_corpse = False
         self.inventory_items = {}
-        food_words = ["food ration", "ration", "tripe", "meatball", "egg",
+        food_words = ["food ration", "tripe", "meatball", "egg",
                        "lembas", "cram", "melon", "carrot", "apple",
                        "pear", "banana", "orange", "kelp", "cream pie",
                        "candy bar", "fortune cookie", "pancake", "lump of royal jelly"]
@@ -2090,8 +2125,8 @@ class ExpertAgent:
                 self.has_food = True
             if "lichen corpse" in lower:
                 self.has_food = True
-            if "corpse" in lower:
-                self.has_food = True
+            # Only count other corpses as food if they're safe to eat
+            # (don't mark random corpses as food, they cause eat loops)
 
     def _find_food_letter(self, s) -> Optional[str]:
         """Find the inventory letter of the best food item to eat."""
