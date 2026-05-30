@@ -446,7 +446,8 @@ class ExpertAgent:
         self.state = GameState() if _HAS_OBS_PARSER else None
         if _HAS_PRAYER:
             self.prayer = PrayerState()
-        self.resistances = set()
+        # Valkyrie starts with cold resistance and stealth
+        self.resistances = {"cold resistance"}
         self.has_food = False
         self.has_lizard_corpse = False
         self.last_action = Actions.SEARCH
@@ -506,18 +507,27 @@ class ExpertAgent:
                     return self._letter_to_action(letter)
                 self._pending_action = None
                 return Actions.MORE
-            # Handle wield/wear prompts
+            # Handle wield/wear/takeoff prompts
             if "What do you want to wield?" in msg_str or \
-               "What do you want to wear?" in msg_str:
+               "What do you want to wear?" in msg_str or \
+               "What do you want to take off?" in msg_str:
                 if self._pending_letter:
                     letter = self._pending_letter
                     self._pending_letter = None
                     self._pending_action = None
-                    if "wield" in msg_str.lower():
-                        self._has_weapon_wielded = True
                     return self._letter_to_action(letter)
                 self._pending_action = None
                 return Actions.MORE  # cancel
+            # "You are already wearing that" or similar
+            if "already wearing" in msg_str or "already wielding" in msg_str:
+                self._pending_action = None
+                self._pending_letter = None
+                return Actions.MORE
+            # "You can't wear that" type messages
+            if "You can't" in msg_str and ("wear" in msg_str or "wield" in msg_str):
+                self._pending_action = None
+                self._pending_letter = None
+                return Actions.MORE
             # Handle eat prompts
             if "What do you want to eat?" in msg_str:
                 # Find first food item letter in inventory
@@ -536,13 +546,35 @@ class ExpertAgent:
                     return Actions.MORE  # ESC or space to cancel
             # "eat it? [yn]" for corpse on ground
             if "eat it?" in msg_str or "eat this?" in msg_str:
+                # Check if we're being asked about something dangerous
+                lower_msg = msg_str.lower()
+                refuse = False
+                # Don't eat if satiated (choking risk)
+                if s.hunger_state == "satiated":
+                    refuse = True
+                # Check for old/tainted food
+                if "old " in lower_msg or "rotten" in lower_msg or "tainted" in lower_msg:
+                    refuse = True
+                if refuse:
+                    if self.verbose:
+                        self._log("EAT", f"refusing: {msg_str[:40]}")
+                    self._pending_action = None
+                    return self._letter_to_action('n')
                 if self.verbose:
                     self._log("EAT", f"confirming: {msg_str[:40]}")
                 self._pending_action = None
                 return self._letter_to_action('y')
             # Handle yn prompts - catch [yn], [ynq], and default indicators like (n) or (y)
             if "[yn]" in msg_str or "[ynq]" in msg_str:
-                # For pray: always confirm. For other yn: confirm.
+                lower_msg = msg_str.lower()
+                # Say no to dangerous prompts
+                if "die?" in lower_msg or "Really attack" in msg_str or \
+                   "suicide" in lower_msg or "overeat" in lower_msg or \
+                   "call is" in lower_msg:
+                    if self.verbose:
+                        self._log("YN", f"answering NO to: {msg_str[:60]}")
+                    return self._letter_to_action('n')
+                # Say yes to everything else (pray, eat, etc.)
                 if self.verbose:
                     self._log("YN", f"answering yes to: {msg_str[:60]}")
                 return self._letter_to_action('y')
@@ -782,6 +814,14 @@ class ExpertAgent:
             if self.verbose:
                 self._log("DLVL", f"dl{self._prev_dlevel}->dl{s.dlevel}")
             self._prev_dlevel = s.dlevel
+            # Reset navigation masks for new level
+            self._seen = np.zeros((MAP_H, MAP_W), dtype=bool)
+            self._walkable = np.zeros((MAP_H, MAP_W), dtype=bool)
+            self._objects = np.full((MAP_H, MAP_W), -1, dtype=np.int16)
+            self._search_count_map = np.zeros((MAP_H, MAP_W), dtype=np.int32)
+            self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
+            self._cached_path = None
+            self._stuck_moves = 0
         if s.xlevel != self._prev_xlevel:
             if self.verbose:
                 self._log("XLVL", f"xl{self._prev_xlevel}->xl{s.xlevel}")
@@ -890,7 +930,9 @@ class ExpertAgent:
             ("P2-ranged", self._p2_ranged_threats),
             ("P3-food", self._p3_food),
             ("P4-items", self._p4_items),
+            ("P4b-equip", self._p4b_equipment),
             ("P5-corpse", self._p5_corpse_intrinsics),
+            ("P5b-rest", self._p5b_rest),
             ("P6-nav", self._p6_navigation),
         ]
         for name, fn in priorities:
@@ -1103,18 +1145,35 @@ class ExpertAgent:
 
     def _p3_food(self, s) -> Optional[int]:
         if s.hunger_state in ("hungry", "weak"):
+            # Prefer corpse on ground first (free nutrition, saves rations)
+            if self._on_corpse and self._corpse_name:
+                safe = False
+                if self.threat_db is not None:
+                    report = self.threat_db.corpse_value(self._corpse_name, self.resistances)
+                    safe = report.safe_to_eat
+                else:
+                    safe = self._corpse_safe_to_eat(self._corpse_name)
+                # Floating eye: skip unless blind
+                if self._corpse_name == "floating eye" and "blind" not in s.conditions:
+                    safe = False
+                if safe:
+                    self._pending_action = "eat"
+                    self._eat_attempts = 0
+                    self._last_action_reason = f"{s.hunger_state}, eating {self._corpse_name} corpse"
+                    return Actions.EAT
+            # Fall back to inventory food
             if self.has_food:
                 self._pending_action = "eat"
                 self._eat_attempts = 0
                 self._last_action_reason = f"{s.hunger_state}, eating from inv"
                 return Actions.EAT
-            # Check for corpse on our tile
-            if self._on_corpse and self._corpse_safe_to_eat(self._corpse_name):
-                self._pending_action = "eat"
-                self._eat_attempts = 0
-                self._last_action_reason = f"{s.hunger_state}, eating {self._corpse_name} corpse"
-                return Actions.EAT
-
+        # Pray for starvation only when Weak or Fainting
+        if s.hunger_state in ("weak", "fainting", "fainted"):
+            if not self.has_food:
+                pray_action = self._try_pray(s, "starving")
+                if pray_action is not None:
+                    self._last_action_reason = f"{s.hunger_state}, praying"
+                    return pray_action
         return None
 
     # ----------------------------------------------------------
@@ -1128,8 +1187,18 @@ class ExpertAgent:
         # Don't pick up if last pickup failed
         if self.last_action == Actions.PICKUP:
             return None
+        # Don't pick up if we have too many items (rough limit)
+        if s.inventory and len(s.inventory) >= 40:
+            return None
         # Check if there's an object on our tile (from message or glyph)
         if self._on_item:
+            # Filter out junk items from messages
+            if s.messages:
+                text = s.last_message.lower()
+                skip_items = ["rock", "statue", "boulder", "chain", "iron ball",
+                              "heavy iron ball", "loadstone"]
+                if any(junk in text for junk in skip_items):
+                    return None
             self._last_action_reason = "picking up item (message)"
             return Actions.PICKUP
         # Also check glyph: if the remembered object at our tile is an item glyph
@@ -1147,37 +1216,57 @@ class ExpertAgent:
     def _p4b_equipment(self, s) -> Optional[int]:
         if not s.inventory or s.has_adjacent_monsters:
             return None
-        if self._step_count % 5 != 0 and self.last_action != Actions.PICKUP:
+        # Check every step right after pickup, otherwise every 10 steps
+        if self.last_action != Actions.PICKUP and self._step_count % 10 != 0:
             return None
-        if not self._has_weapon_wielded:
-            wep = self._find_best_weapon(s)
-            if wep:
-                self._pending_action = "wield"
-                self._pending_letter = wep
-                self._last_action_reason = f"wielding {wep}"
-                return Actions.WIELD
+        # Try to wield a better weapon
+        wep = self._find_best_weapon(s)
+        if wep:
+            self._pending_action = "wield"
+            self._pending_letter = wep
+            self._last_action_reason = f"wielding '{wep}'"
+            return Actions.WIELD
+        # Try to wear unworn armor
         arm = self._find_best_armor(s)
         if arm:
             self._pending_action = "wear"
             self._pending_letter = arm
-            self._last_action_reason = f"wearing {arm}"
+            self._last_action_reason = f"wearing '{arm}'"
             return Actions.WEAR
         return None
 
     def _find_best_weapon(self, s) -> Optional[str]:
         if not s.inventory:
             return None
+        # Check what's currently wielded
+        current_wielded = None
+        current_pri = 0
+        wpns = {
+            "long sword": 10, "katana": 10, "two-handed sword": 11,
+            "broadsword": 9, "battle-axe": 9,
+            "short sword": 7, "mace": 7, "war hammer": 7, "morning star": 8,
+            "spear": 6, "axe": 6, "dagger": 5, "knife": 4, "scimitar": 7,
+            "aklys": 5, "flail": 7, "trident": 7,
+        }
         for letter, item_str in s.inventory.items():
             lower = item_str.lower()
             if "(weapon in hand)" in lower or "(wielded)" in lower:
-                self._has_weapon_wielded = True
-                return None
-        best_letter, best_pri = None, 0
-        wpns = {"long sword": 10, "katana": 10, "broadsword": 9,
-                "short sword": 7, "mace": 7, "war hammer": 7,
-                "spear": 6, "axe": 6, "dagger": 5, "knife": 4}
+                current_wielded = letter
+                for w, p in wpns.items():
+                    if w in lower:
+                        current_pri = p
+                        break
+                # If wielded but not in our table, give it base priority 3
+                if current_pri == 0:
+                    current_pri = 3
+        # If nothing wielded, check for anything to wield
+        best_letter, best_pri = None, current_pri
         for letter, item_str in s.inventory.items():
             lower = item_str.lower()
+            if "(weapon in hand)" in lower or "(wielded)" in lower:
+                continue
+            if "(being worn)" in lower:
+                continue
             if "cursed" in lower:
                 continue
             for w, p in wpns.items():
@@ -1188,13 +1277,35 @@ class ExpertAgent:
     def _find_best_armor(self, s) -> Optional[str]:
         if not s.inventory:
             return None
+        # Track what slots are currently filled
+        worn_slots = set()
+        armor_keywords = {
+            "helm": "head", "helmet": "head", "hat": "head",
+            "shield": "shield", "small shield": "shield",
+            "cloak": "cloak", "robe": "cloak",
+            "gloves": "hands", "gauntlets": "hands",
+            "boots": "feet", "shoes": "feet",
+            "mail": "body", "armor": "body", "jacket": "body",
+            "splint mail": "body", "plate mail": "body",
+            "ring mail": "body", "scale mail": "body",
+            "chain mail": "body", "banded mail": "body",
+            "leather armor": "body", "studded leather armor": "body",
+        }
+        for letter, item_str in s.inventory.items():
+            lower = item_str.lower()
+            if "(being worn)" in lower:
+                for kw, slot in armor_keywords.items():
+                    if kw in lower:
+                        worn_slots.add(slot)
+                        break
+        # Find unworn armor for empty slots
         for letter, item_str in s.inventory.items():
             lower = item_str.lower()
             if "(being worn)" in lower or "cursed" in lower:
                 continue
-            if any(w in lower for w in ["mail", "armor", "helm", "shield",
-                                         "boots", "gloves", "cloak", "robe"]):
-                return letter
+            for kw, slot in armor_keywords.items():
+                if kw in lower and slot not in worn_slots:
+                    return letter
         return None
 
     def _find_droppable_item(self, s) -> Optional[str]:
@@ -1226,14 +1337,30 @@ class ExpertAgent:
     def _p5_corpse_intrinsics(self, s) -> Optional[int]:
         if not self._on_corpse or not self._corpse_name:
             return None
+        # Don't eat if satiated (risk of choking to death)
+        if s.hunger_state == "satiated":
+            return None
+        # Floating eye: only eat when blind (telepathy only works when blind)
+        if self._corpse_name == "floating eye" and "blind" not in s.conditions:
+            return None
 
         if self.threat_db is not None:
             report = self.threat_db.corpse_value(self._corpse_name, self.resistances)
+            if report.safe_to_eat and report.priority >= 7:
+                # High priority intrinsic: eat immediately
+                self._last_action_reason = f"eating {self._corpse_name} for {report.beneficial_intrinsic or 'intrinsic'} (pri={report.priority})"
+                return Actions.EAT
+            if report.safe_to_eat and report.priority >= 3 and s.hunger_state != "not_hungry":
+                # Medium priority and we could use the nutrition
+                self._last_action_reason = f"eating {self._corpse_name} for nutrition (pri={report.priority})"
+                return Actions.EAT
             if report.safe_to_eat and report.priority >= 5:
-                self._last_action_reason = f"eating {self._corpse_name} for intrinsic"
+                # Decent intrinsic, eat even when not hungry
+                self._last_action_reason = f"eating {self._corpse_name} for {report.beneficial_intrinsic or 'effect'} (pri={report.priority})"
                 return Actions.EAT
         elif self._corpse_safe_to_eat(self._corpse_name):
-            self._last_action_reason = f"eating {self._corpse_name} for intrinsic"
+            # Fallback without ThreatDB: eat safe corpses when not satiated
+            self._last_action_reason = f"eating {self._corpse_name} corpse"
             return Actions.EAT
 
         return None
@@ -1355,18 +1482,14 @@ class ExpertAgent:
         if glyphs is None:
             return Actions.SEARCH
 
-        # 1. On downstairs: descend immediately if healthy enough
+        # 1. On downstairs: descend only if strong enough
         # Check both obs_parser detection and our remembered terrain
         on_dn_stairs = s.on_stairs_down
         obj_here = int(self._objects[py, px])
         if obj_here in (S_DNSTAIR, S_DNLADDER):
             on_dn_stairs = True
         if on_dn_stairs:
-            # Don't descend too fast. Gate: DL1 always ok, DL2+ need XL >= DL-1
-            # and at least 60% HP. This lets Valkyrie descend to DL2 at XL1.
-            can_descend = s.hp > s.max_hp * 0.6
-            if s.dlevel >= 2:
-                can_descend = can_descend and s.xlevel >= s.dlevel - 1
+            can_descend = self._should_descend(s)
             if can_descend:
                 self._last_action_reason = f"descending (xl={s.xlevel} dl={s.dlevel})"
                 return Actions.DOWN
@@ -1401,9 +1524,7 @@ class ExpertAgent:
         stairs_pos = _find_stairs_down(glyphs)
         if stairs_pos is None:
             stairs_pos = _find_stairs_down_from_objects(self._objects)
-        can_go_down = s.hp > s.max_hp * 0.6
-        if s.dlevel >= 2:
-            can_go_down = can_go_down and s.xlevel >= s.dlevel - 1
+        can_go_down = self._should_descend(s)
         if stairs_pos is not None and stairs_pos != (py, px):
             if dis[stairs_pos[0], stairs_pos[1]] != -1 and can_go_down:
                 step = self._step_toward(py, px, stairs_pos, dis, walkable, walkable_diag)
@@ -1626,8 +1747,66 @@ class ExpertAgent:
         return action
 
     # ----------------------------------------------------------
+    # P5b: HP resting (search to regen between fights)
+    # ----------------------------------------------------------
+
+    def _p5b_rest(self, s) -> Optional[int]:
+        """Rest (search) when HP is low, no threats around, and not hungry.
+
+        HP regenerates 1 per (20 - XL) turns approximately. Resting is
+        worth it when we have time and safety.
+        """
+        if s.has_adjacent_monsters:
+            return None
+        # Don't rest if there are visible hostile monsters nearby
+        if s.visible_monsters:
+            hostiles = [m for m in s.visible_monsters if not m.is_pet]
+            if hostiles:
+                return None
+        # Only rest when HP below 80%
+        if s.hp >= s.max_hp * 0.8:
+            return None
+        # Don't rest if hungry or worse (wastes nutrition)
+        if s.hunger_state in ("hungry", "weak", "fainting", "fainted"):
+            return None
+        # Don't rest if we've been searching too long at this spot
+        py, px = s.position
+        if self._search_count_map[py, px] > 20:
+            return None
+        self._last_action_reason = f"resting hp={s.hp}/{s.max_hp}"
+        self._search_count_map[py, px] += 1
+        return Actions.SEARCH
+
+    # ----------------------------------------------------------
     # Helper methods
     # ----------------------------------------------------------
+
+    def _should_descend(self, s) -> bool:
+        """Decide whether we're strong enough to descend.
+
+        Key insight from AutoAscend: stay on early levels to build XP.
+        Gate descent on XL >= DL + 1 (at least one level ahead), with
+        HP > 70%, and no visible monsters to kill for XP.
+        On DL1, wait until at least XL 3 before descending.
+        """
+        # HP gate: need 70% HP to descend safely
+        if s.hp < s.max_hp * 0.7:
+            return False
+        # XL gate: must be at least DL+1
+        if s.xlevel < s.dlevel + 1:
+            return False
+        # On DL1, extra strict: reach XL 3 minimum
+        if s.dlevel == 1 and s.xlevel < 3:
+            return False
+        # On DL2, reach XL 4 minimum
+        if s.dlevel == 2 and s.xlevel < 4:
+            return False
+        # Don't descend if there are visible hostile monsters to kill for XP
+        if s.visible_monsters:
+            hostiles = [m for m in s.visible_monsters if not m.is_pet]
+            if hostiles and s.hp > s.max_hp * 0.5:
+                return False
+        return True
 
     def _try_pray(self, s, trouble_type: str) -> Optional[int]:
         """Attempt prayer if safe. Returns PRAY action or None."""
@@ -1696,15 +1875,38 @@ class ExpertAgent:
             "green slime", "cockatrice", "chickatrice", "Medusa",
             "Death", "Pestilence", "Famine",
             "chameleon", "doppelganger", "sandestin",
+            # Aggravate monster (permanent, bad)
+            "little dog", "dog", "large dog",
+            "kitten", "housecat", "large cat",
+            # Stun/hallucination
+            "bat", "giant bat", "yellow mold", "violet fungus",
+            # Mimics (paralysis)
+            "small mimic", "large mimic", "giant mimic",
+            # Polymorph
+            "chameleon", "doppelganger", "sandestin",
+            # Lycanthropy
+            "wererat", "werejackal", "werewolf",
+            # Strips intrinsics
+            "disenchanter",
+            # Speed toggle (bad if already fast)
+            "quantum mechanic",
         }
         if name in unsafe:
             return False
         poisonous = {
             "killer bee", "scorpion", "pit viper", "cobra",
             "water moccasin", "asp", "python", "giant spider",
-            "quasit", "rabid rat",
+            "quasit", "rabid rat", "garter snake",
+            "black naga", "golden naga hatchling",
+            "baby purple worm", "purple worm",
         }
         if name in poisonous and "poison resistance" not in self.resistances:
+            return False
+        acidic = {
+            "acid blob", "yellow light", "gelatinous cube",
+            "blue jelly", "ochre jelly",
+        }
+        if name in acidic and "acid resistance" not in self.resistances:
             return False
         return True
 
@@ -1813,15 +2015,21 @@ class ExpertAgent:
         self.has_food = False
         self.has_lizard_corpse = False
         self.inventory_items = {}
+        food_words = ["food ration", "ration", "tripe", "meatball", "egg",
+                       "lembas", "cram", "melon", "carrot", "apple",
+                       "pear", "banana", "orange", "kelp", "cream pie",
+                       "candy bar", "fortune cookie", "pancake", "lump of royal jelly"]
         for letter, item_str in s.inventory.items():
             lower = item_str.lower()
             self.inventory_items[letter] = item_str
-            if "food ration" in lower or "ration" in lower or "tripe" in lower:
+            if any(f in lower for f in food_words):
                 self.has_food = True
             if "lizard corpse" in lower:
                 self.has_lizard_corpse = True
                 self.has_food = True
-            if "corpse" in lower or "meatball" in lower or "egg" in lower:
+            if "lichen corpse" in lower:
+                self.has_food = True
+            if "corpse" in lower:
                 self.has_food = True
 
     def _find_food_letter(self, s) -> Optional[str]:
