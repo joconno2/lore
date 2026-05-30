@@ -749,6 +749,14 @@ class ExpertAgent:
                 self._eat_attempts = 0
                 self._eat_cooldown = 200  # don't try eating for 200 steps
 
+        # Clear stale pending actions. If we reach here without a prompt
+        # handling the pending action, it means the action completed or failed
+        # silently. Don't let it block _decide forever.
+        if self._pending_action in ("throw", "zap", "dip", "offer"):
+            self._pending_action = None
+            self._pending_letter = None
+            self._ranged_dir = None
+
         # Track stuck detection
         pos = s.position
         if pos == self.last_pos:
