@@ -421,6 +421,7 @@ class ExpertAgent:
         self._search_count_map = np.zeros((MAP_H, MAP_W), dtype=np.int32)
         self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
         self._kick_dir: Optional[int] = None  # direction to kick when prompted
+        self._refused_attacks: set = set()  # monster names we refused to attack (peacefuls)
 
     @staticmethod
     def _make_episode_stats() -> dict:
@@ -479,6 +480,7 @@ class ExpertAgent:
         self._search_count_map = np.zeros((MAP_H, MAP_W), dtype=np.int32)
         self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
         self._kick_dir = None
+        self._refused_attacks = set()
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
@@ -573,10 +575,18 @@ class ExpertAgent:
                    "call is" in lower_msg or "Really quit" in msg_str:
                     if self.verbose:
                         self._log("YN", f"answering NO to: {msg_str[:60]}")
-                    # If "Really attack", clear the path so we don't try again
+                    # If "Really attack", mark the monster as peaceful
                     if "Really attack" in msg_str:
                         self._cached_path = None
                         self._stuck_moves += 5  # force repath
+                        # Extract monster name from "Really attack the X?"
+                        # or "Really attack X?"
+                        attack_lower = msg_str.lower()
+                        for prefix in ["really attack the ", "really attack "]:
+                            if prefix in attack_lower:
+                                name = attack_lower.split(prefix, 1)[1].split("?")[0].strip()
+                                self._refused_attacks.add(name)
+                                break
                     return self._letter_to_action('n')
                 # Say yes to everything else (pray, eat, etc.)
                 if self.verbose:
@@ -630,10 +640,23 @@ class ExpertAgent:
             if "move the boulder, but in vain" in msg_str:
                 self._cached_path = None
                 self._stuck_moves += 2
-            # Hit a wall: clear path, mark stuck
-            if "It's a wall" in msg_str or "wall." in msg_str.lower():
+            # Hit a wall: clear path, mark stuck, fix walkable mask
+            if "It's a wall" in msg_str:
                 self._cached_path = None
                 self._stuck_moves += 2
+                # Mark the tile we tried to walk to as unwalkable
+                if self.last_action in Actions.MOVE_DELTAS:
+                    dd = Actions.MOVE_DELTAS[self.last_action]
+                    wr, wc = s.position[0] + dd[0], s.position[1] + dd[1]
+                    if 0 <= wr < MAP_H and 0 <= wc < MAP_W:
+                        self._walkable[wr, wc] = False
+            # Overburdened: drop something immediately
+            if "You collapse" in msg_str or "can barely move" in msg_str:
+                drop_letter = self._find_droppable_item(s)
+                if drop_letter:
+                    self._pending_action = "drop"
+                    self._pending_letter = drop_letter
+                    return Actions.DROP
             # Nothing to pick up: clear item flag
             if "nothing here to pick up" in msg_str:
                 self._on_item = False
@@ -1022,6 +1045,9 @@ class ExpertAgent:
             # Skip known peaceful monsters
             if m.name in _PEACEFUL_NAMES:
                 continue
+            # Skip monsters we were told not to attack
+            if m.name.lower() in self._refused_attacks:
+                continue
             # Check if the tile under the monster is water/lava/stone (can't melee)
             obj = int(self._objects[m.row, m.col])
             if obj != -1:
@@ -1107,6 +1133,8 @@ class ExpertAgent:
             if m.is_pet:
                 continue
             if m.name in _PEACEFUL_NAMES:
+                continue
+            if m.name.lower() in self._refused_attacks:
                 continue
             if abs(m.row - py) <= 1 and abs(m.col - px) <= 1:
                 continue
