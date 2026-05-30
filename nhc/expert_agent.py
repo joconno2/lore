@@ -1015,6 +1015,7 @@ class ExpertAgent:
                 return step
 
         # 5. Go to stairs down (from glyphs or remembered objects)
+        # Descend BEFORE searching. Searching is only worth it if no stairs known.
         stairs_pos = _find_stairs_down(glyphs)
         if stairs_pos is None:
             stairs_pos = _find_stairs_down_from_objects(self._objects)
@@ -1027,22 +1028,17 @@ class ExpertAgent:
                     return step
 
         # 6. Search for hidden doors/passages (last resort)
-        self.search_count += 1
-        self._search_count_map[py, px] += 1
-
-        # After enough searching at this spot, try a different spot
-        if self._search_count_map[py, px] > 20:
-            # Move to a different searchable tile (adjacent to unseen or wall)
-            target = self._find_search_target(glyphs, dis, py, px)
-            if target is not None:
-                step = self._step_toward(py, px, target, dis, walkable, walkable_diag)
-                if step is not None:
-                    return step
-
-        # Random walk as final unstick
-        if self.search_count > 30:
+        # Cap total searches per level to avoid wasting the whole episode
+        total_searches = int(self._search_count_map.sum())
+        if total_searches > 200:
+            # Exhausted searching. If stairs known, go there regardless.
+            if stairs_pos is not None and stairs_pos != (py, px):
+                if dis[stairs_pos[0], stairs_pos[1]] != -1:
+                    step = self._step_toward(py, px, stairs_pos, dis, walkable, walkable_diag)
+                    if step is not None:
+                        return step
+            # No stairs and exhausted searches: random walk to maybe find something
             import random
-            self.search_count = 0
             candidates = []
             for ddy in (-1, 0, 1):
                 for ddx in (-1, 0, 1):
@@ -1055,6 +1051,18 @@ class ExpertAgent:
                             candidates.append(action)
             if candidates:
                 return random.choice(candidates)
+            return Actions.WAIT
+
+        self.search_count += 1
+        self._search_count_map[py, px] += 1
+
+        # After enough searching at this spot, move to a different spot
+        if self._search_count_map[py, px] > 10:
+            target = self._find_search_target(glyphs, dis, py, px)
+            if target is not None:
+                step = self._step_toward(py, px, target, dis, walkable, walkable_diag)
+                if step is not None:
+                    return step
 
         return Actions.SEARCH
 
