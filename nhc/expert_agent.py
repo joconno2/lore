@@ -1520,28 +1520,45 @@ class ExpertAgent:
                 return step
 
         # 5. Go to stairs down (from glyphs or remembered objects)
-        # Descend BEFORE searching. Searching is only worth it if no stairs known.
         stairs_pos = _find_stairs_down(glyphs)
         if stairs_pos is None:
             stairs_pos = _find_stairs_down_from_objects(self._objects)
+
+        # Determine if level is fully explored (no frontier, no closed doors)
+        level_explored = (frontier is None and best_door is None)
+
+        # Descent decision: strict gate normally, relaxed when level is cleared
         can_go_down = self._should_descend(s)
+        # Relax gate when level is fully explored: just need HP > 50%
+        if not can_go_down and level_explored and s.hp > s.max_hp * 0.5:
+            can_go_down = True
+
         if stairs_pos is not None and stairs_pos != (py, px):
             if dis[stairs_pos[0], stairs_pos[1]] != -1 and can_go_down:
                 step = self._step_toward(py, px, stairs_pos, dis, walkable, walkable_diag)
                 if step is not None:
-                    self._last_action_reason = f"stairs at {stairs_pos}"
+                    self._last_action_reason = f"stairs at {stairs_pos} (explored={level_explored})"
                     return step
+
+        # If on stairs and level is explored, descend even if gate not met
+        if on_dn_stairs and level_explored and s.hp > s.max_hp * 0.5:
+            self._last_action_reason = f"descending (level explored, xl={s.xlevel} dl={s.dlevel})"
+            return Actions.DOWN
 
         # 6. Search for hidden doors/passages (last resort)
         # Cap total searches per level to avoid wasting the whole episode
         total_searches = int(self._search_count_map.sum())
         if total_searches > 200:
-            # Exhausted searching. If stairs known, go there regardless.
+            # Exhausted searching. Go to stairs if known, force descent.
             if stairs_pos is not None and stairs_pos != (py, px):
                 if dis[stairs_pos[0], stairs_pos[1]] != -1:
                     step = self._step_toward(py, px, stairs_pos, dis, walkable, walkable_diag)
                     if step is not None:
                         return step
+            # On stairs after exhausted searching: force descent
+            if on_dn_stairs and s.hp > s.max_hp * 0.3:
+                self._last_action_reason = f"force descend after {total_searches} searches"
+                return Actions.DOWN
             # No stairs and exhausted searches: random walk to maybe find something
             import random
             candidates = []
@@ -1754,7 +1771,8 @@ class ExpertAgent:
         """Rest (search) when HP is low, no threats around, and not hungry.
 
         HP regenerates 1 per (20 - XL) turns approximately. Resting is
-        worth it when we have time and safety.
+        worth it when we have time and safety. But cap it to avoid
+        wasting the episode budget on resting.
         """
         if s.has_adjacent_monsters:
             return None
@@ -1763,18 +1781,17 @@ class ExpertAgent:
             hostiles = [m for m in s.visible_monsters if not m.is_pet]
             if hostiles:
                 return None
-        # Only rest when HP below 80%
-        if s.hp >= s.max_hp * 0.8:
+        # Only rest when HP below 60% (tighter threshold)
+        if s.hp >= s.max_hp * 0.6:
             return None
         # Don't rest if hungry or worse (wastes nutrition)
         if s.hunger_state in ("hungry", "weak", "fainting", "fainted"):
             return None
-        # Don't rest if we've been searching too long at this spot
+        # Cap resting at this tile (don't rest forever)
         py, px = s.position
-        if self._search_count_map[py, px] > 20:
+        if self.turns_on_tile > 15:
             return None
         self._last_action_reason = f"resting hp={s.hp}/{s.max_hp}"
-        self._search_count_map[py, px] += 1
         return Actions.SEARCH
 
     # ----------------------------------------------------------
@@ -1785,26 +1802,24 @@ class ExpertAgent:
         """Decide whether we're strong enough to descend.
 
         Key insight from AutoAscend: stay on early levels to build XP.
-        Gate descent on XL >= DL + 1 (at least one level ahead), with
-        HP > 70%, and no visible monsters to kill for XP.
-        On DL1, wait until at least XL 3 before descending.
+        Gate descent on XL >= DL + 1, with HP > 60%.
+        On DL1, wait until at least XL 2 before descending.
+        Don't wait forever though; if the level is fully explored
+        (high search count) and XL gate is close, just go.
         """
-        # HP gate: need 70% HP to descend safely
-        if s.hp < s.max_hp * 0.7:
+        # HP gate: need 60% HP to descend safely
+        if s.hp < s.max_hp * 0.6:
             return False
         # XL gate: must be at least DL+1
         if s.xlevel < s.dlevel + 1:
             return False
-        # On DL1, extra strict: reach XL 3 minimum
-        if s.dlevel == 1 and s.xlevel < 3:
+        # On DL1, reach XL 2 minimum
+        if s.dlevel == 1 and s.xlevel < 2:
             return False
-        # On DL2, reach XL 4 minimum
-        if s.dlevel == 2 and s.xlevel < 4:
-            return False
-        # Don't descend if there are visible hostile monsters to kill for XP
-        if s.visible_monsters:
-            hostiles = [m for m in s.visible_monsters if not m.is_pet]
-            if hostiles and s.hp > s.max_hp * 0.5:
+        # Don't descend if adjacent hostile monsters (finish the fight first)
+        if s.has_adjacent_monsters:
+            hostiles = [m for m in s.adjacent_monsters if not m.is_pet]
+            if hostiles:
                 return False
         return True
 
