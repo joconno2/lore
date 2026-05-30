@@ -481,8 +481,9 @@ class ExpertAgent:
                     self._log("EAT", f"confirming: {msg_str[:40]}")
                 self._pending_action = None
                 return self._letter_to_action('y')
-            # Handle yn prompts (default yes)
-            if msg_str.endswith("[yn]") or msg_str.endswith("[ynq]"):
+            # Handle yn prompts - catch [yn], [ynq], and default indicators like (n) or (y)
+            if "[yn]" in msg_str or "[ynq]" in msg_str:
+                # For pray: always confirm. For other yn: confirm.
                 if self.verbose:
                     self._log("YN", f"answering yes to: {msg_str[:60]}")
                 return self._letter_to_action('y')
