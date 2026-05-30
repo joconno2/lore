@@ -497,6 +497,15 @@ class ExpertAgent:
                 if self.verbose:
                     self._log("MORE", f"clearing prompt: {msg_str[:60]}")
                 return Actions.MORE
+            # Handle drop prompt
+            if "What do you want to drop?" in msg_str:
+                if self._pending_letter:
+                    letter = self._pending_letter
+                    self._pending_letter = None
+                    self._pending_action = None
+                    return self._letter_to_action(letter)
+                self._pending_action = None
+                return Actions.MORE
             # Handle wield/wear prompts
             if "What do you want to wield?" in msg_str or \
                "What do you want to wear?" in msg_str:
@@ -588,10 +597,16 @@ class ExpertAgent:
             # Nothing to pick up: clear item flag
             if "nothing here to pick up" in msg_str:
                 self._on_item = False
-            # Carrying too much: drop something or just stop trying to move that way
+            # Carrying too much: drop the heaviest non-essential item
             if "carrying too much" in msg_str:
-                self._cached_path = None  # abandon current path
-                # Try a different direction
+                self._cached_path = None
+                drop_letter = self._find_droppable_item(s)
+                if drop_letter:
+                    self._pending_action = "drop"
+                    self._pending_letter = drop_letter
+                    if self.verbose:
+                        self._log("DROP", f"dropping '{drop_letter}' (encumbered)")
+                    return Actions.DROP
                 self._stuck_moves += 3
             # "Never mind" means last action failed, clear pending
             if "Never mind" in msg_str or "You cannot eat that" in msg_str:
@@ -831,8 +846,11 @@ class ExpertAgent:
         if glyphs is not None:
             src_g = int(glyphs[py, px])
             dst_g = int(glyphs[nr, nc])
-            src_door = _is_door_glyph(src_g) or (_glyph_cmap(int(self._objects[py, px])) in _DOOR_CMAPS)
-            dst_door = _is_door_glyph(dst_g) or _is_closed_door_glyph(dst_g)
+            src_obj = int(self._objects[py, px])
+            dst_obj = int(self._objects[nr, nc])
+            src_door = _is_door_glyph(src_g) or (_glyph_cmap(src_obj) in _DOOR_CMAPS if src_obj != -1 else False)
+            dst_door = _is_door_glyph(dst_g) or _is_closed_door_glyph(dst_g) or \
+                       (_glyph_cmap(dst_obj) in _DOOR_CMAPS if dst_obj != -1 else False)
             if src_door or dst_door:
                 # Try the two cardinal components instead
                 for cdy, cdx in [(dy, 0), (0, dx)]:
@@ -1161,6 +1179,28 @@ class ExpertAgent:
             if any(w in lower for w in ["mail", "armor", "helm", "shield",
                                          "boots", "gloves", "cloak", "robe"]):
                 return letter
+        return None
+
+    def _find_droppable_item(self, s) -> Optional[str]:
+        """Find the least valuable item to drop when encumbered."""
+        if not s.inventory:
+            return None
+        # Never drop: wielded weapon, worn armor, food, lizard corpse
+        keep_patterns = ["(weapon in hand)", "(wielded)", "(being worn)",
+                         "food ration", "lizard corpse"]
+        # Low priority to drop: rocks, gems, gold, corpses, junk
+        for letter, item_str in s.inventory.items():
+            lower = item_str.lower()
+            if any(p in lower for p in keep_patterns):
+                continue
+            if "corpse" in lower or "rock" in lower or "stone" in lower:
+                return letter
+        # Drop anything non-essential
+        for letter, item_str in s.inventory.items():
+            lower = item_str.lower()
+            if any(p in lower for p in keep_patterns):
+                continue
+            return letter
         return None
 
     # ----------------------------------------------------------
