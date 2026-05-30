@@ -514,6 +514,19 @@ class ExpertAgent:
                         return action
                 return Actions.MORE  # cancel if no direction
 
+            # Engrave prompts
+            if "What do you want to write in the" in msg_str or \
+               "What do you want to write with?" in msg_str:
+                return self._letter_to_action('-')  # write with finger (dust)
+            if "What do you want to engrave here?" in msg_str or \
+               "Do you want to add to the current engraving?" in msg_str:
+                return self._letter_to_action('y')
+            # Text input for Elbereth
+            if "You write in the dust" in msg_str or \
+               "You engrave in the dust" in msg_str:
+                # NLE might need us to type "Elbereth" but in practice
+                # the engrave command handles it. Skip.
+                pass
             # Nothing to pick up: clear item flag
             if "nothing here to pick up" in msg_str:
                 self._on_item = False
@@ -1243,12 +1256,18 @@ class ExpertAgent:
         hostile = [m for m in s.adjacent_monsters if not m.is_pet]
         py, px = s.position
 
-        if len(hostile) >= 3:
+        # Try to flee first, always
+        if hostile:
+            flee_action = self._flee_from(s, hostile[0])
+            # _flee_from returns ENGRAVE only when completely trapped
+            if flee_action != Actions.ENGRAVE:
+                return flee_action
+
+        # Only Elbereth if genuinely surrounded (3+ hostiles) and HP is low
+        if len(hostile) >= 3 and s.hp < s.max_hp * 0.4:
             return Actions.ENGRAVE
 
-        if hostile:
-            return self._flee_from(s, hostile[0])
-
+        # Not enough danger for Elbereth, just search/wait
         return Actions.SEARCH
 
     def _flee_from(self, s, monster) -> int:
@@ -1277,8 +1296,8 @@ class ExpertAgent:
         if candidates:
             candidates.sort(reverse=True)  # farthest first
             return candidates[0][1]
-        # Completely trapped: write Elbereth
-        return Actions.ENGRAVE
+        # Completely trapped: just wait (Elbereth handled by _flee_or_elbereth)
+        return Actions.WAIT
 
     def _corpse_safe_to_eat(self, name: str) -> bool:
         """Quick safety check without ThreatDB."""
