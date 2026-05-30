@@ -405,8 +405,10 @@ class ExpertAgent:
         self._on_item: bool = False
         self._on_edible_item: bool = False
         # Multi-step action state
-        self._pending_action: Optional[str] = None  # "eat", "pray", etc.
+        self._pending_action: Optional[str] = None  # "eat", "pray", "wield", "wear"
+        self._pending_letter: Optional[str] = None
         self._eat_attempts: int = 0
+        self._has_weapon_wielded: bool = False
         # Path caching
         self._cached_path: Optional[list] = None
         self._stuck_moves: int = 0
@@ -462,6 +464,9 @@ class ExpertAgent:
         self._last_priority = ""
         self._last_action_reason = ""
         self._episode_stats = self._make_episode_stats()
+        # Equipment state
+        self._has_weapon_wielded = False
+        self._pending_letter = None
         # Reset navigation masks
         self._seen = np.zeros((MAP_H, MAP_W), dtype=bool)
         self._walkable = np.zeros((MAP_H, MAP_W), dtype=bool)
@@ -492,6 +497,18 @@ class ExpertAgent:
                 if self.verbose:
                     self._log("MORE", f"clearing prompt: {msg_str[:60]}")
                 return Actions.MORE
+            # Handle wield/wear prompts
+            if "What do you want to wield?" in msg_str or \
+               "What do you want to wear?" in msg_str:
+                if self._pending_letter:
+                    letter = self._pending_letter
+                    self._pending_letter = None
+                    self._pending_action = None
+                    if "wield" in msg_str.lower():
+                        self._has_weapon_wielded = True
+                    return self._letter_to_action(letter)
+                self._pending_action = None
+                return Actions.MORE  # cancel
             # Handle eat prompts
             if "What do you want to eat?" in msg_str:
                 # Find first food item letter in inventory
@@ -1087,6 +1104,63 @@ class ExpertAgent:
         if self._on_item and self.last_action != Actions.PICKUP:
             self._last_action_reason = "picking up item"
             return Actions.PICKUP
+        return None
+
+    # ----------------------------------------------------------
+    # P4b: Equipment management
+    # ----------------------------------------------------------
+
+    def _p4b_equipment(self, s) -> Optional[int]:
+        if not s.inventory or s.has_adjacent_monsters:
+            return None
+        if self._step_count % 20 != 0:
+            return None
+        if not self._has_weapon_wielded:
+            wep = self._find_best_weapon(s)
+            if wep:
+                self._pending_action = "wield"
+                self._pending_letter = wep
+                self._last_action_reason = f"wielding {wep}"
+                return Actions.WIELD
+        arm = self._find_best_armor(s)
+        if arm:
+            self._pending_action = "wear"
+            self._pending_letter = arm
+            self._last_action_reason = f"wearing {arm}"
+            return Actions.WEAR
+        return None
+
+    def _find_best_weapon(self, s) -> Optional[str]:
+        if not s.inventory:
+            return None
+        for letter, item_str in s.inventory.items():
+            lower = item_str.lower()
+            if "(weapon in hand)" in lower or "(wielded)" in lower:
+                self._has_weapon_wielded = True
+                return None
+        best_letter, best_pri = None, 0
+        wpns = {"long sword": 10, "katana": 10, "broadsword": 9,
+                "short sword": 7, "mace": 7, "war hammer": 7,
+                "spear": 6, "axe": 6, "dagger": 5, "knife": 4}
+        for letter, item_str in s.inventory.items():
+            lower = item_str.lower()
+            if "cursed" in lower:
+                continue
+            for w, p in wpns.items():
+                if w in lower and p > best_pri:
+                    best_pri, best_letter = p, letter
+        return best_letter
+
+    def _find_best_armor(self, s) -> Optional[str]:
+        if not s.inventory:
+            return None
+        for letter, item_str in s.inventory.items():
+            lower = item_str.lower()
+            if "(being worn)" in lower or "cursed" in lower:
+                continue
+            if any(w in lower for w in ["mail", "armor", "helm", "shield",
+                                         "boots", "gloves", "cloak", "robe"]):
+                return letter
         return None
 
     # ----------------------------------------------------------
