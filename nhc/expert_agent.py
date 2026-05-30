@@ -536,7 +536,7 @@ class ExpertAgent:
                 return Actions.MORE
             # Handle eat prompts
             if "What do you want to eat?" in msg_str:
-                # Find first food item letter in inventory
+                # Find best food item from our inventory knowledge
                 food_letter = self._find_food_letter(s)
                 if food_letter is not None:
                     if self.verbose:
@@ -544,11 +544,12 @@ class ExpertAgent:
                     self._pending_action = None
                     return self._letter_to_action(food_letter)
                 else:
-                    # No food found, cancel with ESC
+                    # No recognized food. Cancel with ESC (space/CR).
                     if self.verbose:
-                        self._log("EAT", "no food in inventory, canceling")
+                        self._log("EAT", "no edible food found, canceling")
                     self._pending_action = None
                     self.has_food = False
+                    self._eat_cooldown = 50
                     return Actions.MORE  # ESC or space to cancel
             # "eat it? [yn]" for corpse on ground
             if "eat it?" in msg_str or "eat this?" in msg_str:
@@ -861,6 +862,7 @@ class ExpertAgent:
             self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
             self._cached_path = None
             self._stuck_moves = 0
+            self._refused_positions = set()
         if s.xlevel != self._prev_xlevel:
             if self.verbose:
                 self._log("XLVL", f"xl{self._prev_xlevel}->xl{s.xlevel}")
@@ -909,11 +911,16 @@ class ExpertAgent:
         return f"action_{action}"
 
     def _validate_move(self, action: int, s) -> int:
-        """Prevent illegal diagonal moves through doorways and into walls/boulders."""
+        """Prevent illegal moves: diagonal through doorways, into walls, into peacefuls."""
         dd = Actions.MOVE_DELTAS.get(action)
         if dd is None:
             return action  # not a movement action
         dy, dx = dd
+        py, px = s.position
+        nr, nc = py + dy, px + dx
+        # Block moves into refused positions (peacefuls)
+        if (nr, nc) in self._refused_positions:
+            return Actions.WAIT
         if abs(dy) + abs(dx) <= 1:
             return action  # cardinal move, always ok
         # Diagonal move: check for door at source or destination
@@ -1055,8 +1062,10 @@ class ExpertAgent:
             # Skip known peaceful monsters
             if m.name in _PEACEFUL_NAMES:
                 continue
-            # Skip monsters we were told not to attack
+            # Skip monsters we were told not to attack (by name or position)
             if m.name.lower() in self._refused_attacks:
+                continue
+            if (m.row, m.col) in self._refused_positions:
                 continue
             # Check if the tile under the monster is water/lava/stone (can't melee)
             obj = int(self._objects[m.row, m.col])
@@ -1145,6 +1154,8 @@ class ExpertAgent:
             if m.name in _PEACEFUL_NAMES:
                 continue
             if m.name.lower() in self._refused_attacks:
+                continue
+            if (m.row, m.col) in self._refused_positions:
                 continue
             if abs(m.row - py) <= 1 and abs(m.col - px) <= 1:
                 continue
@@ -2132,23 +2143,25 @@ class ExpertAgent:
         """Find the inventory letter of the best food item to eat."""
         if not s.inventory:
             return None
-        # Prefer: food ration > tripe > corpse > other
+        # Food priority: ration > lembas/cram > tripe > safe non-corpse food
+        # Don't select corpses from inventory (they might be unsafe/old)
+        food_items = {
+            "food ration": 10, "lembas wafer": 9, "cram ration": 9,
+            "tripe ration": 7,
+            "apple": 5, "banana": 5, "pear": 5, "orange": 5, "melon": 5,
+            "carrot": 5, "cream pie": 5, "candy bar": 5,
+            "fortune cookie": 5, "pancake": 5, "lump of royal jelly": 5,
+            "kelp frond": 4, "meatball": 4, "egg": 3,
+            "lizard corpse": 6, "lichen corpse": 6,
+        }
         best = None
         best_priority = -1
         for letter, item_str in s.inventory.items():
             lower = item_str.lower()
-            if "food ration" in lower:
-                if best_priority < 3:
-                    best, best_priority = letter, 3
-            elif "tripe" in lower:
-                if best_priority < 2:
-                    best, best_priority = letter, 2
-            elif "corpse" in lower:
-                if best_priority < 1:
-                    best, best_priority = letter, 1
-            elif "meatball" in lower or "egg" in lower or "apple" in lower:
-                if best_priority < 1:
-                    best, best_priority = letter, 1
+            for food_name, pri in food_items.items():
+                if food_name in lower and pri > best_priority:
+                    if "cursed" not in lower:
+                        best, best_priority = letter, pri
         return best
 
     def _letter_to_action(self, letter: str) -> int:
