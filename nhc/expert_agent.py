@@ -544,13 +544,15 @@ class ExpertAgent:
                     self._pending_action = None
                     return self._letter_to_action(food_letter)
                 else:
-                    # No recognized food. Cancel with ESC character.
+                    # No recognized food. Try to cancel.
+                    # Parse offered letters from "[X or ?*]" and avoid selecting
                     if self.verbose:
                         self._log("EAT", "no edible food found, canceling")
                     self._pending_action = None
                     self.has_food = False
-                    self._eat_cooldown = 50
-                    return self._letter_to_action('\x1b')  # ESC char
+                    self._eat_cooldown = 200  # long cooldown
+                    # Try ESC, space, then MORE in order
+                    return Actions.ESC
             # "eat it? [yn]" for corpse on ground
             if "eat it?" in msg_str or "eat this?" in msg_str:
                 # Check if we're being asked about something dangerous
@@ -684,11 +686,12 @@ class ExpertAgent:
             # Eat failed: clear pending and set cooldown
             if "Never mind" in msg_str or "You cannot eat that" in msg_str or \
                "You don't have anything to eat" in msg_str or \
-               "You can't eat that" in msg_str:
+               "You can't eat that" in msg_str or \
+               "That is not edible" in msg_str:
                 self._pending_action = None
                 self.has_food = False
                 self._eat_attempts = 0
-                self._eat_cooldown = 100  # don't try eating for 100 steps
+                self._eat_cooldown = 200  # don't try eating for 200 steps
 
         # Track stuck detection
         pos = s.position
@@ -1628,8 +1631,8 @@ class ExpertAgent:
 
         # Descent decision: strict gate normally, relaxed when level is cleared
         can_go_down = self._should_descend(s)
-        # Relax gate when level is fully explored: just need HP > 50%
-        if not can_go_down and level_explored and s.hp > s.max_hp * 0.5:
+        # Relax gate when level is fully explored: still need XL >= DL and 50% HP
+        if not can_go_down and level_explored and s.hp > s.max_hp * 0.5 and s.xlevel >= s.dlevel:
             can_go_down = True
 
         if stairs_pos is not None and stairs_pos != (py, px):
@@ -1639,8 +1642,8 @@ class ExpertAgent:
                     self._last_action_reason = f"stairs at {stairs_pos} (explored={level_explored})"
                     return step
 
-        # If on stairs and level is explored, descend even if gate not met
-        if on_dn_stairs and level_explored and s.hp > s.max_hp * 0.5:
+        # If on stairs and level is explored, descend with relaxed gate
+        if on_dn_stairs and level_explored and s.hp > s.max_hp * 0.5 and s.xlevel >= s.dlevel:
             self._last_action_reason = f"descending (level explored, xl={s.xlevel} dl={s.dlevel})"
             return Actions.DOWN
 
