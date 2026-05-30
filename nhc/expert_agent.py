@@ -1113,7 +1113,7 @@ class ExpertAgent:
     def _p4b_equipment(self, s) -> Optional[int]:
         if not s.inventory or s.has_adjacent_monsters:
             return None
-        if self._step_count % 20 != 0:
+        if self._step_count % 5 != 0 and self.last_action != Actions.PICKUP:
             return None
         if not self._has_weapon_wielded:
             wep = self._find_best_weapon(s)
