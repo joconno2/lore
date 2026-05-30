@@ -527,6 +527,14 @@ class ExpertAgent:
                 # NLE might need us to type "Elbereth" but in practice
                 # the engrave command handles it. Skip.
                 pass
+            # Diagonal door failure: clear path
+            if "diagonally" in msg_str:
+                self._cached_path = None
+                self._stuck_moves += 2
+            # Boulder: can't push
+            if "move the boulder, but in vain" in msg_str:
+                self._cached_path = None
+                self._stuck_moves += 2
             # Nothing to pick up: clear item flag
             if "nothing here to pick up" in msg_str:
                 self._on_item = False
@@ -579,6 +587,7 @@ class ExpertAgent:
         self._check_inventory(s)
 
         action = self._decide(s)
+        action = self._validate_move(action, s)
         self.last_action = action
         if self.verbose:
             self._log_decision(s, action)
@@ -608,6 +617,56 @@ class ExpertAgent:
             if getattr(Actions, name) == action:
                 return name
         return f"action_{action}"
+
+    def _validate_move(self, action: int, s) -> int:
+        """Prevent illegal diagonal moves through doorways and into walls/boulders."""
+        dd = Actions.MOVE_DELTAS.get(action)
+        if dd is None:
+            return action  # not a movement action
+        dy, dx = dd
+        if abs(dy) + abs(dx) <= 1:
+            return action  # cardinal move, always ok
+        # Diagonal move: check for door at source or destination
+        py, px = s.position
+        nr, nc = py + dy, px + dx
+        if nr < 0 or nr >= MAP_H or nc < 0 or nc >= MAP_W:
+            return Actions.WAIT
+        glyphs = s._glyphs
+        if glyphs is not None:
+            src_g = int(glyphs[py, px])
+            dst_g = int(glyphs[nr, nc])
+            src_door = _is_door_glyph(src_g) or (_glyph_cmap(int(self._objects[py, px])) in _DOOR_CMAPS)
+            dst_door = _is_door_glyph(dst_g) or _is_closed_door_glyph(dst_g)
+            if src_door or dst_door:
+                # Try the two cardinal components instead
+                for cdy, cdx in [(dy, 0), (0, dx)]:
+                    if cdy == 0 and cdx == 0:
+                        continue
+                    cr, cc = py + cdy, px + cdx
+                    if 0 <= cr < MAP_H and 0 <= cc < MAP_W:
+                        cg = int(glyphs[cr, cc])
+                        if _is_walkable_glyph(cg) or _is_closed_door_glyph(cg) or \
+                           (GLYPH_MON_OFF <= cg < GLYPH_CMAP_OFF):
+                            cardinal = Actions.DELTA_TO_MOVE.get((cdy, cdx))
+                            if cardinal is not None:
+                                return cardinal
+                return Actions.WAIT
+            # Also check if destination is a wall/boulder
+            if not _is_walkable_glyph(dst_g) and not _is_closed_door_glyph(dst_g) and \
+               not (GLYPH_MON_OFF <= dst_g < GLYPH_CMAP_OFF):
+                # Try cardinal components
+                for cdy, cdx in [(dy, 0), (0, dx)]:
+                    if cdy == 0 and cdx == 0:
+                        continue
+                    cr, cc = py + cdy, px + cdx
+                    if 0 <= cr < MAP_H and 0 <= cc < MAP_W:
+                        cg = int(glyphs[cr, cc])
+                        if _is_walkable_glyph(cg) or (GLYPH_MON_OFF <= cg < GLYPH_CMAP_OFF):
+                            cardinal = Actions.DELTA_TO_MOVE.get((cdy, cdx))
+                            if cardinal is not None:
+                                return cardinal
+                return Actions.WAIT
+        return action
 
     def _decide(self, s) -> int:
         """Priority cascade. Returns action for highest-priority applicable rule."""
