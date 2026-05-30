@@ -1916,8 +1916,8 @@ class ExpertAgent:
         # XL gate: must be at least DL+1
         if s.xlevel < s.dlevel + 1:
             return False
-        # On DL1, reach at least XL 3 (fight everything, eat corpses)
-        if s.dlevel == 1 and s.xlevel < 3:
+        # On DL1, reach at least XL 2 before descending
+        if s.dlevel == 1 and s.xlevel < 2:
             return False
         # Don't descend if adjacent hostile monsters (finish the fight first)
         if s.has_adjacent_monsters:
