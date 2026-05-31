@@ -1173,11 +1173,11 @@ class ExpertAgent:
             ("P0-emerg", self._p0_emergencies),
             ("P1-combat", self._p1_adjacent_combat),
             ("P2-ranged", self._p2_ranged_threats),
-            ("P2b-excal", self._p4c_excalibur),  # Excalibur is top strategic priority
+            ("P2b-excal", self._p4c_excalibur),
             ("P3-food", self._p3_food),
+            ("P3b-corpse", self._p5_corpse_intrinsics),  # eat corpses before pickup
             ("P4-items", self._p4_items),
             ("P4b-equip", self._p4b_equipment),
-            ("P5-corpse", self._p5_corpse_intrinsics),
             ("P5b-rest", self._p5b_rest),
             ("P6-nav", self._p6_navigation),
         ]
