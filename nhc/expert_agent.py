@@ -1967,14 +1967,17 @@ class ExpertAgent:
                     self._last_action_reason = f"stairs at {stairs_pos} (explored={level_explored})"
                     return step
 
-        # If on stairs and level is explored, use standard descent gate
-        if on_dn_stairs and level_explored and can_go_down:
-            self._last_action_reason = f"descending (level explored, xl={s.xlevel} dl={s.dlevel})"
-            return Actions.DOWN
+        # If on stairs and level is explored, descend (relaxed gate if explored)
+        if on_dn_stairs and level_explored:
+            if can_go_down or (s.hp > s.max_hp * 0.5 and total_searches > 50):
+                self._last_action_reason = f"descending (level explored, xl={s.xlevel} dl={s.dlevel})"
+                return Actions.DOWN
 
         # 6. Search for hidden doors/passages (last resort)
+        # DL1: search longer to farm XP. Deeper: descend faster.
         total_searches = int(self._search_count_map.sum())
-        if total_searches > 300:
+        search_limit = 300 if s.dlevel <= 1 else 100
+        if total_searches > search_limit:
             # Exhausted searching. Descend if possible (relax gate).
             if stairs_pos is not None and stairs_pos != (py, px):
                 if dis[stairs_pos[0], stairs_pos[1]] != -1:
