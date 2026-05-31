@@ -34,7 +34,6 @@ def make_env(seed=None, character="val-hum-fem-neu"):
         character=character,
         max_episode_steps=5000,
         allow_all_yn_questions=True,
-        allow_all_modes=True,
     )
     return env
 
