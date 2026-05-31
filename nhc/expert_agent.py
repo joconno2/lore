@@ -1378,14 +1378,8 @@ class ExpertAgent:
             self._last_action_reason = f"flee weird {top_mon.name}"
             return self._flee_from(s, top_mon)
 
-        # Imminent death: flee if HP critically low
-        # AutoAscend: HP <= 16 for dangerous, HP <= 8 for normal
-        imminent_death = False
-        if top_report.danger_level >= 7 and s.hp <= 16:
-            imminent_death = True
-        elif s.hp <= 8:
-            imminent_death = True
-        if imminent_death and self.turns_on_tile < 4:
+        # Imminent death: flee only at very low HP (< 20% or HP <= 5)
+        if (s.hp <= 5 or s.hp < s.max_hp * 0.2) and self.turns_on_tile < 4:
             self._last_action_reason = f"flee imminent death (hp={s.hp})"
             return self._flee_or_elbereth(s)
 
