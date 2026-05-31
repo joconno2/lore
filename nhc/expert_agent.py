@@ -1238,9 +1238,10 @@ class ExpertAgent:
             pray_action = self._try_pray(s, "starving")
             if pray_action is not None:
                 return pray_action
-            if self.has_food:
+            if self.has_food and self._eat_cooldown == 0:
+                self._pending_action = "eat"
                 return Actions.EAT
-            # No food, can't pray: just wait. Don't fall through to combat.
+            # No food or eat on cooldown: just wait.
             return Actions.SEARCH
 
         # Terminal illness / food poisoning
@@ -2521,8 +2522,11 @@ class ExpertAgent:
             self.inventory_items[letter] = item_str
             if "lizard corpse" in lower:
                 self.has_lizard_corpse = True
-        # has_food = True only if _find_food_letter would return something
-        self.has_food = (self._find_food_letter(s) is not None)
+        # has_food = True only if _find_food_letter returns something AND not on cooldown
+        if self._eat_cooldown == 0:
+            self.has_food = (self._find_food_letter(s) is not None)
+        else:
+            self.has_food = False
         # Scan for daggers (throwable ranged ammo)
         self._daggers = {}
         for letter, item_str in s.inventory.items():
