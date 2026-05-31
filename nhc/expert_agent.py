@@ -902,11 +902,15 @@ class ExpertAgent:
         action = self._decide(s)
         action = self._validate_move(action, s)
 
-        # Inactivity guard: if turn hasn't advanced for many steps,
-        # force SEARCH (always advances a turn). Prevents step-wasting loops.
+        # Inactivity guard: prevent step waste from non-turn-advancing actions
         if s.turn == self._prev_turn:
             self._inactivity_steps += 1
-            if self._inactivity_steps > 5:
+            # If same action as last time and it didn't advance turn, force SEARCH
+            if action == self.last_action and self._inactivity_steps >= 2:
+                action = Actions.SEARCH
+                self._inactivity_steps = 0
+            # Hard cap after 5 inactive steps
+            elif self._inactivity_steps > 5:
                 action = Actions.SEARCH
                 self._inactivity_steps = 0
         else:
