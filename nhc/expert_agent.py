@@ -588,6 +588,7 @@ class ExpertAgent:
                     "What do you want to", "Do you want to add",
                     "Dip", "into the fountain",
                     "This door is locked",
+                    "Are you sure", "pray",
                 ]
                 if not any(p in msg_str for p in handled_prompts):
                     return self._letter_to_action(' ')
@@ -1248,7 +1249,8 @@ class ExpertAgent:
                 return pray_action
             if self.has_food:
                 return Actions.EAT
-            return None
+            # No food, can't pray: just wait. Don't fall through to combat.
+            return Actions.SEARCH
 
         # Terminal illness / food poisoning
         if "foodpois" in conds or "termill" in conds:
