@@ -184,6 +184,22 @@ def _handle_prompts(env, obs, agent, steps, total_reward, done=False):
             done = term or trunc
             continue
 
+        # yn prompt: dismiss with space if not a recognized gameplay prompt
+        if misc[2] and not misc[1]:
+            # These prompts need agent.act() to handle contextually
+            gameplay_prompts = [
+                "[yn]", "[ynq]", "eat", "attack", "direction", "pray",
+                "drink", "quaff", "dip", "Sure", "want to",
+            ]
+            if any(p in msg for p in gameplay_prompts):
+                break  # let agent handle
+            # Unrecognized yn: dismiss
+            obs, r, term, trunc, info = env.step(_SPACE_IDX)
+            total_reward += r
+            steps += 1
+            done = term or trunc
+            continue
+
         # No prompts to handle
         break
 
