@@ -23,76 +23,107 @@ def char_idx(ch):
 def get_msg(obs):
     return bytes(obs["message"]).rstrip(b"\x00").decode("latin-1").strip()
 
-ENGRAVE = 36   # Command.ENGRAVE
-SEARCH = 75    # Command.SEARCH
-LOOK = 51      # Command.LOOK
-EAST = 2       # CompassDirection.E
+ENGRAVE = 36
+SEARCH = 75
+LOOK = 51
+EAST = 2
+SPACE = char_idx(" ")
+CR = char_idx("\r")
 
 obs, info = env.reset(seed=42)
 
 # Move off starting stairs
 for _ in range(5):
     obs, r, term, trunc, info = env.step(EAST)
-
-# Clear messages
 obs, r, term, trunc, info = env.step(SEARCH)
 bl = obs["blstats"]
 print(f"Position: ({int(bl[1])},{int(bl[0])})")
 
-# Try ENGRAVE
+# Step-by-step engrave with full misc tracking
+print(f"\n=== Step 1: ENGRAVE ===")
 obs, r, term, trunc, info = env.step(ENGRAVE)
 msg = get_msg(obs)
 misc = list(obs["misc"])
-print(f"\n1. ENGRAVE: {msg!r}  misc={misc}")
+print(f"  msg: {msg!r}")
+print(f"  misc: {misc}  (wait={misc[0]} getlin={misc[1]} yn={misc[2]})")
 
-if "What do you want to write with" in msg:
-    # Send '-' for fingers
-    obs, r, term, trunc, info = env.step(char_idx("-"))
-    msg = get_msg(obs)
-    misc = list(obs["misc"])
-    print(f"2. Dash: {msg!r}  misc={misc}")
+print(f"\n=== Step 2: Send '-' ===")
+obs, r, term, trunc, info = env.step(char_idx("-"))
+msg = get_msg(obs)
+misc = list(obs["misc"])
+print(f"  msg: {msg!r}")
+print(f"  misc: {misc}")
 
-    # Handle --More-- and misc[0] (xwaitingforspace)
-    while "--More--" in msg or misc[0]:
-        obs, r, term, trunc, info = env.step(char_idx(" "))
+# Now step through ALL intermediate states
+for i in range(20):
+    # If in_yn, answer yes/no based on content
+    if misc[2]:
+        if "add to" in msg.lower():
+            print(f"\n=== Step {i+3}: yn 'add to' -> 'n' ===")
+            obs, r, term, trunc, info = env.step(char_idx("n"))
+        else:
+            print(f"\n=== Step {i+3}: yn prompt -> space ===")
+            obs, r, term, trunc, info = env.step(SPACE)
         msg = get_msg(obs)
         misc = list(obs["misc"])
-        print(f"   More: {msg!r}  misc={misc}")
+        print(f"  msg: {msg!r}")
+        print(f"  misc: {misc}")
+        continue
 
-    # Handle "add to current engraving"
-    if "add to" in msg.lower():
-        obs, r, term, trunc, info = env.step(char_idx("n"))
+    # If xwaitingforspace, press space
+    if misc[0]:
+        print(f"\n=== Step {i+3}: waiting for space -> space ===")
+        obs, r, term, trunc, info = env.step(SPACE)
         msg = get_msg(obs)
         misc = list(obs["misc"])
-        print(f"   Add->n: {msg!r}  misc={misc}")
+        print(f"  msg: {msg!r}")
+        print(f"  misc: {misc}")
+        continue
 
-    print(f"\n   in_getlin={misc[1]}  Ready to type.")
-
+    # If in_getlin, we're ready to type
     if misc[1]:
-        # Type Elbereth character by character
+        print(f"\n=== Step {i+3}: in_getlin, typing Elbereth ===")
         for ch in "Elbereth":
             obs, r, term, trunc, info = env.step(char_idx(ch))
-            misc = list(obs["misc"])
-
-        # Send CR to finish
-        obs, r, term, trunc, info = env.step(19)  # CR/MORE
+            m2 = list(obs["misc"])
+            msg2 = get_msg(obs)
+            if msg2:
+                print(f"  after '{ch}': msg={msg2!r} misc={m2}")
+        # Send CR
+        obs, r, term, trunc, info = env.step(CR)
         msg = get_msg(obs)
         misc = list(obs["misc"])
-        print(f"3. After typing+CR: {msg!r}  misc={misc}")
+        print(f"  after CR: msg={msg!r} misc={misc}")
 
-        # Verify with LOOK
+        # Verify
+        print(f"\n=== Verify: LOOK ===")
         obs, r, term, trunc, info = env.step(LOOK)
         msg = get_msg(obs)
-        print(f"4. LOOK: {msg!r}")
-
-        while "--More--" in msg:
-            obs, r, term, trunc, info = env.step(char_idx(" "))
+        misc = list(obs["misc"])
+        print(f"  msg: {msg!r}")
+        print(f"  misc: {misc}")
+        # Handle --More--
+        while "--More--" in msg or misc[0]:
+            obs, r, term, trunc, info = env.step(SPACE)
             msg = get_msg(obs)
-            print(f"   More: {msg!r}")
-    else:
-        print(f"   NOT in text entry mode. msg={msg!r}")
-else:
-    print(f"\n   ENGRAVE rejected: {msg!r}")
+            misc = list(obs["misc"])
+            print(f"  more: {msg!r} misc={misc}")
+        break
+
+    # No flags set, try pressing space or check message
+    if "--More--" in msg:
+        print(f"\n=== Step {i+3}: --More-- -> space ===")
+        obs, r, term, trunc, info = env.step(SPACE)
+        msg = get_msg(obs)
+        misc = list(obs["misc"])
+        print(f"  msg: {msg!r}")
+        print(f"  misc: {misc}")
+        continue
+
+    print(f"\n=== Step {i+3}: no flags, no --More--. Breaking. ===")
+    print(f"  msg: {msg!r}")
+    print(f"  misc: {misc}")
+    break
 
 env.close()
 print("\nDone.")
