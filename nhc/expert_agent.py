@@ -2147,7 +2147,7 @@ class ExpertAgent:
         # XL gate by depth
         if s.dlevel == 1 and s.xlevel < 3:
             return False
-        if 2 <= s.dlevel <= 4 and s.xlevel < s.dlevel + 2:
+        if 2 <= s.dlevel <= 4 and s.xlevel < s.dlevel + 1:
             return False
         if s.dlevel >= 5 and s.xlevel < s.dlevel + 1:
             return False
