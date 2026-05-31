@@ -348,6 +348,22 @@ def _tile_has_object(glyphs: np.ndarray, row: int, col: int) -> bool:
 # Stub ThreatReport for when combat.py is unavailable
 # ============================================================
 
+# AutoAscend monster categories
+_NEVER_MELEE = {
+    "floating eye",   # paralysis on melee = death
+    "blue jelly",     # passive cold damage
+    "brown mold",     # passive damage
+    "gas spore",      # explodes on death radius 1
+    "acid blob",      # passive acid
+}
+_INSTAKILL = {
+    "cockatrice", "chickatrice", "Medusa",
+    "green slime", "Death", "Pestilence", "Famine",
+    "purple worm",  # engulf
+}
+_WEAK = {"lichen", "newt", "shrieker", "grid bug"}
+_WEIRD = {"leprechaun", "nymph"}  # steal items, avoid melee
+
 @dataclass
 class _StubThreatReport:
     name: str
@@ -356,25 +372,25 @@ class _StubThreatReport:
     required_resistances: list = field(default_factory=list)
     elbereth_effective: bool = True
     ranged_preferred: bool = False
+    never_melee: bool = False
     instakill_risk: bool = False
     recommended_action: str = "melee"
 
     def __post_init__(self):
-        instakill_names = {
-            "cockatrice", "chickatrice", "Medusa",
-            "green slime", "Death", "Pestilence", "Famine",
-        }
-        if self.name in instakill_names:
+        if self.name in _INSTAKILL:
             self.instakill_risk = True
             self.danger_level = 10
             self.recommended_action = "flee"
-        ranged_names = {
-            "floating eye", "cockatrice", "chickatrice",
-            "rust monster", "acid blob", "brown mold",
-        }
-        if self.name in ranged_names:
+        if self.name in _NEVER_MELEE:
+            self.never_melee = True
             self.ranged_preferred = True
-            self.recommended_action = "ranged"
+            self.danger_level = max(self.danger_level, 7)
+            self.recommended_action = "avoid"
+        if self.name in _WEIRD:
+            self.danger_level = max(self.danger_level, 6)
+            self.recommended_action = "avoid"
+        if self.name in _WEAK:
+            self.danger_level = 1
 
 
 # ============================================================
@@ -1352,31 +1368,38 @@ class ExpertAgent:
 
         top_mon, top_report = threats[0]
 
-        # Elbereth disabled: the multi-step prompt sequence isn't fully
-        # implemented. Skip to combat instead.
-        # if (top_report.recommended_action == "elbereth"
-        #         and top_report.elbereth_effective
-        #         and top_report.danger_level >= 6):
-        #     self._last_action_reason = f"elbereth vs {top_mon.name}"
-        #     return Actions.ENGRAVE
-
-        # Ranged preferred: step away (but don't oscillate)
-        if top_report.ranged_preferred and self.turns_on_tile < 3:
-            self._last_action_reason = f"kite {top_mon.name}"
+        # Never-melee monsters (floating eye, gas spore, etc.): flee always
+        if top_report.never_melee:
+            self._last_action_reason = f"flee never-melee {top_mon.name}"
             return self._flee_from(s, top_mon)
 
-        # Flee recommendation (but don't flee forever, fight if healthy)
-        if top_report.recommended_action == "flee":
-            if self.turns_on_tile < 4 and s.hp < s.max_hp * 0.3:
-                self._last_action_reason = f"flee {top_mon.name}"
-                return self._flee_from(s, top_mon)
-            # Been stuck fleeing or HP is ok: stand and fight
-            pass  # fall through to melee
+        # Weird monsters (nymph, leprechaun): avoid if possible
+        if top_mon.name in _WEIRD and self.turns_on_tile < 3:
+            self._last_action_reason = f"flee weird {top_mon.name}"
+            return self._flee_from(s, top_mon)
 
-        # Melee the highest-priority target
-        direction = _direction_toward(py, px, top_mon.row, top_mon.col)
+        # Imminent death: flee if HP critically low
+        # AutoAscend: HP <= 16 for dangerous, HP <= 8 for normal
+        imminent_death = False
+        if top_report.danger_level >= 7 and s.hp <= 16:
+            imminent_death = True
+        elif s.hp <= 8:
+            imminent_death = True
+        if imminent_death and self.turns_on_tile < 4:
+            self._last_action_reason = f"flee imminent death (hp={s.hp})"
+            return self._flee_or_elbereth(s)
+
+        # Filter out never-melee from targets, melee the best remaining
+        meleeable = [(m, r) for m, r in threats if not r.never_melee and m.name not in _WEIRD]
+        if not meleeable:
+            # All adjacent monsters are never-melee/weird, flee
+            self._last_action_reason = "flee all non-meleeable"
+            return self._flee_from(s, top_mon)
+
+        best_mon, best_report = meleeable[0]
+        direction = _direction_toward(py, px, best_mon.row, best_mon.col)
         d_name = self._action_name(direction)
-        self._last_action_reason = f"melee {top_mon.name} {d_name}"
+        self._last_action_reason = f"melee {best_mon.name} {d_name}"
         return direction
 
     # ----------------------------------------------------------
