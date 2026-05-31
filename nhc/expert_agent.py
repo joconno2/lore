@@ -1931,20 +1931,21 @@ class ExpertAgent:
             return Actions.DOWN
 
         # 6. Search for hidden doors/passages (last resort)
-        # Cap total searches per level to avoid wasting the whole episode
         total_searches = int(self._search_count_map.sum())
-        if total_searches > 200:
-            # Exhausted searching. Go to stairs if known, force descent.
+        if total_searches > 100:
+            # Exhausted searching. Descend if possible (relax gate).
             if stairs_pos is not None and stairs_pos != (py, px):
                 if dis[stairs_pos[0], stairs_pos[1]] != -1:
                     step = self._step_toward(py, px, stairs_pos, dis, walkable, walkable_diag)
                     if step is not None:
+                        self._last_action_reason = f"heading to stairs (searched {total_searches})"
                         return step
-            # On stairs after exhausted searching: descend only if gate allows
-            if on_dn_stairs and can_go_down:
-                self._last_action_reason = f"descend after {total_searches} searches"
+            # On stairs after exhausted searching: descend even below XL gate
+            # Being stuck is worse than descending at low XL
+            if on_dn_stairs and s.hp > s.max_hp * 0.5:
+                self._last_action_reason = f"force descend (searched {total_searches})"
                 return Actions.DOWN
-            # No stairs and exhausted searches: random walk to maybe find something
+            # Random walk to find something
             import random
             candidates = []
             for ddy in (-1, 0, 1):
@@ -1964,7 +1965,7 @@ class ExpertAgent:
         self._search_count_map[py, px] += 1
 
         # After enough searching at this spot, move to a different spot
-        if self._search_count_map[py, px] > 10:
+        if self._search_count_map[py, px] > 5:
             target = self._find_search_target(glyphs, dis, py, px)
             if target is not None:
                 step = self._step_toward(py, px, target, dis, walkable, walkable_diag)
