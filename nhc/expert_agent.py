@@ -1879,9 +1879,9 @@ class ExpertAgent:
                     step = self._step_toward(py, px, stairs_pos, dis, walkable, walkable_diag)
                     if step is not None:
                         return step
-            # On stairs after exhausted searching: force descent
-            if on_dn_stairs and s.hp > s.max_hp * 0.3:
-                self._last_action_reason = f"force descend after {total_searches} searches"
+            # On stairs after exhausted searching: descend only if gate allows
+            if on_dn_stairs and can_go_down:
+                self._last_action_reason = f"descend after {total_searches} searches"
                 return Actions.DOWN
             # No stairs and exhausted searches: random walk to maybe find something
             import random
