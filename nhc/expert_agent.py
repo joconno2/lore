@@ -1324,19 +1324,19 @@ class ExpertAgent:
             self._last_action_reason = f"flee instakill {ik_name}"
             return self._flee_or_elbereth(s)
 
-        # AutoAscend-style Elbereth heuristic: weighted monster count + HP check
-        if s.hp < 30 and hostile:
+        # Elbereth when in danger: weighted monster count + HP ratio
+        if hostile:
             adj_weight = 0.0
             for mon, report in threats:
-                hp_mult = min(20.0 / max(s.hp, 1), 1.5)
+                hp_mult = min(20.0 / max(s.hp, 1), 2.0)
                 if report.danger_level <= 2:
-                    adj_weight += 0.1 * hp_mult
+                    adj_weight += 0.2 * hp_mult
                 elif report.danger_level >= 7:
                     adj_weight += 3.0 * hp_mult
                 else:
                     adj_weight += 1.0 * hp_mult
             hp_ratio = (s.hp / max(s.max_hp, 1)) ** 0.5
-            elbereth_priority = -15 + 20 * adj_weight * (1 - hp_ratio)
+            elbereth_priority = -5 + 20 * adj_weight * (1 - hp_ratio)
             if elbereth_priority > 0:
                 elb = self._try_elbereth(s)
                 if elb == Actions.ENGRAVE:
