@@ -13,3 +13,5 @@ results/
 *.db-wal
 .DS_Store
 logs/
+data/
+data/
