@@ -845,7 +845,7 @@ class ExpertAgent:
             if "Never mind" in msg_str and self._pending_action == "eat":
                 self._pending_action = None
                 self.has_food = False
-                self._eat_cooldown = 200
+                self._eat_cooldown = 500  # long cooldown to prevent eat spam
 
         # Clear stale pending actions. If we reach here without a prompt
         # handling the pending action, it means the action completed or failed
