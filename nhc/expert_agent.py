@@ -1956,6 +1956,7 @@ class ExpertAgent:
 
         # Determine if level is fully explored (no frontier, no closed doors)
         level_explored = (frontier is None and best_door is None)
+        total_searches = int(self._search_count_map.sum())
 
         # Descent decision: use the standard gate, no relaxation
         can_go_down = self._should_descend(s)
@@ -1974,8 +1975,6 @@ class ExpertAgent:
                 return Actions.DOWN
 
         # 6. Search for hidden doors/passages (last resort)
-        # DL1: search longer to farm XP. Deeper: descend faster.
-        total_searches = int(self._search_count_map.sum())
         search_limit = 300 if s.dlevel <= 1 else 100
         if total_searches > search_limit:
             # Exhausted searching. Descend if possible (relax gate).
