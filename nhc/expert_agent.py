@@ -819,14 +819,19 @@ class ExpertAgent:
                     return Actions.DROP
                 self._stuck_moves += 3
             # Eat failed: clear pending and set cooldown
-            if "Never mind" in msg_str or "You cannot eat that" in msg_str or \
+            if "You cannot eat that" in msg_str or \
                "You don't have anything to eat" in msg_str or \
                "You can't eat that" in msg_str or \
                "That is not edible" in msg_str:
                 self._pending_action = None
                 self.has_food = False
                 self._eat_attempts = 0
-                self._eat_cooldown = 200  # don't try eating for 200 steps
+                self._eat_cooldown = 200
+            # "Never mind" from eat specifically
+            if "Never mind" in msg_str and self._pending_action == "eat":
+                self._pending_action = None
+                self.has_food = False
+                self._eat_cooldown = 200
 
         # Clear stale pending actions. If we reach here without a prompt
         # handling the pending action, it means the action completed or failed
@@ -1743,9 +1748,11 @@ class ExpertAgent:
             report = self.threat_db.corpse_value(self._corpse_name, self.resistances)
             if report.safe_to_eat:
                 reason = report.beneficial_intrinsic or "nutrition"
+                self._pending_action = "eat"
                 self._last_action_reason = f"eating {self._corpse_name} ({reason})"
                 return Actions.EAT
         elif self._corpse_safe_to_eat(self._corpse_name):
+            self._pending_action = "eat"
             self._last_action_reason = f"eating {self._corpse_name} corpse"
             return Actions.EAT
 
