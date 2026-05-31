@@ -111,6 +111,87 @@ class EpisodeTracker:
         }
 
 
+def _get_msg(obs):
+    raw = obs.get("message")
+    if raw is None:
+        return ""
+    return bytes(raw).rstrip(b'\x00').decode("latin-1", errors="replace").strip()
+
+
+# Actions for prompt handling (resolved at module load)
+_SPACE_IDX = None
+_ESC_IDX = None
+
+def _resolve_prompt_actions():
+    global _SPACE_IDX, _ESC_IDX
+    for i, a in enumerate(nethack.ACTIONS):
+        if int(a) == 32:  # space
+            _SPACE_IDX = i
+        if int(a) == 27:  # ESC
+            _ESC_IDX = i
+
+_resolve_prompt_actions()
+
+
+def _handle_prompts(env, obs, agent, steps, total_reward):
+    """Handle non-gameplay prompts in a tight loop.
+
+    Clears xwaitforspace, unhandled getlin, and --More-- prompts
+    before returning control to agent.act(). This prevents the
+    agent from wasting gameplay decisions on prompt handling.
+
+    Returns (obs, steps, total_reward, done).
+    """
+    done = False
+    max_prompt_steps = 50  # safety cap
+
+    for _ in range(max_prompt_steps):
+        if done:
+            break
+        misc = obs.get("misc", [0, 0, 0])
+        msg = _get_msg(obs)
+
+        # xwaitforspace: always send space (AutoAscend pattern)
+        if misc[0] and not misc[1] and not misc[2]:
+            obs, r, term, trunc, info = env.step(_SPACE_IDX)
+            total_reward += r
+            steps += 1
+            done = term or trunc
+            continue
+
+        # --More-- in message: clear it
+        if "--More--" in msg and not misc[1] and not misc[2]:
+            obs, r, term, trunc, info = env.step(_SPACE_IDX)
+            total_reward += r
+            steps += 1
+            done = term or trunc
+            continue
+
+        # getlin (text entry) without pending sequence: ESC out
+        if misc[1] and not agent._pending_sequence:
+            if agent._pending_action != "elbereth":
+                obs, r, term, trunc, info = env.step(_ESC_IDX)
+                total_reward += r
+                steps += 1
+                done = term or trunc
+                continue
+            break  # elbereth sequence - let agent handle
+
+        # getlin with pending sequence: send next char
+        if misc[1] and agent._pending_sequence:
+            a = agent._pending_sequence.pop(0)
+            obs, r, term, trunc, info = env.step(a)
+            total_reward += r
+            steps += 1
+            done = term or trunc
+            continue
+
+        # No prompts to handle
+        break
+
+    return obs, steps, total_reward, done
+
+
 def run_episode(env, agent, seed=None, verbose=False, analyze=False):
     obs, info = env.reset(seed=seed)
     agent.reset()
@@ -121,6 +202,13 @@ def run_episode(env, agent, seed=None, verbose=False, analyze=False):
     death_msg = ""
 
     while not done:
+        # Clear any pending prompts before gameplay decision
+        obs, steps, total_reward, done = _handle_prompts(
+            env, obs, agent, steps, total_reward)
+        if done:
+            break
+
+        # Agent makes a gameplay decision
         action = agent.act(obs)
         if tracker:
             tracker.record_step(obs, action, agent)
@@ -129,7 +217,11 @@ def run_episode(env, agent, seed=None, verbose=False, analyze=False):
         steps += 1
         done = terminated or truncated
 
-        if terminated:
+        # Handle any prompts triggered by the action
+        obs, steps, total_reward, done = _handle_prompts(
+            env, obs, agent, steps, total_reward)
+
+        if terminated or done:
             msg_raw = obs.get("message")
             if msg_raw is not None:
                 death_msg = bytes(msg_raw).rstrip(b'\x00').decode("latin-1", errors="replace").strip()

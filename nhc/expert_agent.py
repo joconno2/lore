@@ -559,39 +559,9 @@ class ExpertAgent:
             self.last_action = action
             return action
 
-        # AutoAscend-style prompt handling: clear misc flags before priority cascade.
-        # NetHackChallenge-v0 passes all prompts through.
-        misc = obs.get("misc")
-        if misc is not None:
-            msg_raw = obs.get("message")
-            msg_str = ""
-            if msg_raw is not None:
-                msg_str = bytes(msg_raw).rstrip(b'\x00').decode("latin-1", errors="replace").strip()
-
-            # xwaitingforspace: always send SPACE (AutoAscend does this)
-            if misc[0] and not misc[1]:
-                return self._letter_to_action(' ')
-
-            # Text entry mode (getlin): ESC unless it's our engrave sequence
-            if misc[1] and not self._pending_sequence:
-                if self._pending_action == "elbereth":
-                    pass  # fall through to message handlers below
-                else:
-                    return Actions.ESC
-
-            # yn prompt without text entry: auto-dismiss unrecognized prompts
-            # IMPORTANT: don't dismiss prompts that our message parser handles
-            if misc[2] and not misc[1]:
-                handled_prompts = [
-                    "[yn]", "[ynq]", "eat it?", "eat this?",
-                    "Really attack", "direction?", "In what direction",
-                    "What do you want to", "Do you want to add",
-                    "Dip", "into the fountain",
-                    "This door is locked",
-                    "Are you sure", "pray", "drink", "quaff",
-                ]
-                if not any(p in msg_str for p in handled_prompts):
-                    return self._letter_to_action(' ')
+        # Prompt handling: xwaitforspace, getlin, --More-- are now cleared
+        # by _handle_prompts() in the eval loop before act() is called.
+        # Only yn prompts reach here, handled by message parser below.
 
         # Update seen/walkable masks from current glyphs
         self._update_seen_and_walkable(s)
