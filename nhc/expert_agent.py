@@ -440,6 +440,10 @@ class ExpertAgent:
         self._refused_positions: set = set()  # positions we shouldn't walk to (peacefuls there)
         self._eat_cooldown: int = 0  # steps to skip eating after a failed eat
         self._throw_cooldown: int = 0  # steps to skip throwing after an attempt
+        # Elbereth state
+        self._pending_sequence: list = []  # queued action indices for multi-step commands
+        self._on_elbereth: bool = False
+        self._elbereth_cooldown: int = 0  # steps before trying Elbereth again after failure
 
     @staticmethod
     def _make_episode_stats() -> dict:
@@ -515,6 +519,9 @@ class ExpertAgent:
         self._refused_positions = set()
         self._eat_cooldown = 0
         self._throw_cooldown = 0
+        self._pending_sequence = []
+        self._on_elbereth = False
+        self._elbereth_cooldown = 0
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
@@ -522,8 +529,29 @@ class ExpertAgent:
         s = self.state
         s.update(obs)
 
+        # If we're in text-entry mode (typing Elbereth), send queued chars
+        if s.in_getlin and self._pending_sequence:
+            action = self._pending_sequence.pop(0)
+            self.last_action = action
+            return action
+
+        # If we have queued actions (multi-step command), send next one
+        if self._pending_sequence:
+            action = self._pending_sequence.pop(0)
+            self.last_action = action
+            return action
+
         # Update seen/walkable masks from current glyphs
         self._update_seen_and_walkable(s)
+
+        # Decrement Elbereth cooldown
+        if self._elbereth_cooldown > 0:
+            self._elbereth_cooldown -= 1
+
+        # Track Elbereth status: reset when we move
+        pos = s.position
+        if pos != self.last_pos and self._on_elbereth:
+            self._on_elbereth = False
 
         # Check for --More-- prompt. Must clear before anything else works.
         msg_raw = obs.get("message")
@@ -662,18 +690,28 @@ class ExpertAgent:
                 return Actions.MORE  # cancel if no direction
 
             # Engrave prompts
-            if "What do you want to write in the" in msg_str or \
-               "What do you want to write with?" in msg_str:
+            if "What do you want to write with?" in msg_str:
                 return self._letter_to_action('-')  # write with finger (dust)
-            if "What do you want to engrave here?" in msg_str or \
-               "Do you want to add to the current engraving?" in msg_str:
-                return self._letter_to_action('y')
-            # Text input for Elbereth
+            if "Do you want to add to the current engraving?" in msg_str:
+                return self._letter_to_action('n')  # overwrite, fresh Elbereth
+            if "What do you want to write in the dust here?" in msg_str or \
+               "What do you want to engrave in the dust here?" in msg_str:
+                # Queue "Elbereth" + CR as pending sequence
+                self._pending_sequence = [self._letter_to_action(ch) for ch in "lbereth"]
+                self._pending_sequence.append(Actions.MORE)  # CR to finish
+                if self.verbose:
+                    self._log("ELBERETH", "typing Elbereth")
+                return self._letter_to_action('E')  # first char
             if "You write in the dust" in msg_str or \
                "You engrave in the dust" in msg_str:
-                # NLE might need us to type "Elbereth" but in practice
-                # the engrave command handles it. Skip.
-                pass
+                pass  # info message, handled by --More-- above
+            # Engrave failed
+            if "Never mind" in msg_str and self._pending_action == "elbereth":
+                self._pending_action = None
+                self._pending_sequence = []
+                self._elbereth_cooldown = 100
+                if self.verbose:
+                    self._log("ELBERETH", "engrave rejected")
             # Throw/zap/dip multi-step prompts
             if "What do you want to throw?" in msg_str or \
                "What do you want to zap?" in msg_str or \
@@ -758,6 +796,12 @@ class ExpertAgent:
             self._pending_action = None
             self._pending_letter = None
             self._ranged_dir = None
+        if self._pending_action == "elbereth" and not self._pending_sequence:
+            # Elbereth sequence completed (all chars sent)
+            self._pending_action = None
+            self._on_elbereth = True
+            if self.verbose:
+                self._log("ELBERETH", "written successfully")
 
         # Track stuck detection
         pos = s.position
@@ -1133,6 +1177,9 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p1_adjacent_combat(self, s) -> Optional[int]:
+        # Don't melee while on Elbereth (erases it, -5 alignment)
+        if self._on_elbereth:
+            return Actions.SEARCH
         # Filter out pets, peacefuls, and unreachable monsters
         hostile = []
         glyphs = s._glyphs
@@ -2033,9 +2080,8 @@ class ExpertAgent:
     def _p5b_rest(self, s) -> Optional[int]:
         """Rest (search) when HP is low, no threats around, and not hungry.
 
-        HP regenerates 1 per (20 - XL) turns approximately. Resting is
-        worth it when we have time and safety. But cap it to avoid
-        wasting the episode budget on resting.
+        Write Elbereth before resting for safety. HP regenerates
+        1 per (20 - XL) turns approximately.
         """
         if s.has_adjacent_monsters:
             return None
@@ -2050,6 +2096,12 @@ class ExpertAgent:
         # Don't rest if hungry or worse (wastes nutrition)
         if s.hunger_state in ("hungry", "weak", "fainting", "fainted"):
             return None
+        # Write Elbereth before resting (safety net)
+        if not self._on_elbereth and self._elbereth_cooldown == 0:
+            elb = self._try_elbereth(s)
+            if elb == Actions.ENGRAVE:
+                self._last_action_reason = "writing Elbereth before resting"
+                return elb
         # Cap resting at this tile (don't rest forever)
         py, px = s.position
         if self.turns_on_tile > 15:
@@ -2064,20 +2116,19 @@ class ExpertAgent:
     def _should_descend(self, s) -> bool:
         """Decide whether we're strong enough to descend.
 
-        Key insight from AutoAscend: stay on early levels to build XP.
-        Gate descent on XL >= DL + 1, with HP > 60%.
-        On DL1, wait until at least XL 2 before descending.
-        Don't wait forever though; if the level is fully explored
-        (high search count) and XL gate is close, just go.
+        Milestone 1: farm DL1 to XL 4.
+        Milestone 2-4: XL >= DL + 2 (stay strong relative to depth).
+        DL5+: XL >= DL + 1 (looser gate once established).
         """
-        # HP gate: need 60% HP to descend safely
+        # HP gate
         if s.hp < s.max_hp * 0.6:
             return False
-        # XL gate: must be at least DL+1
-        if s.xlevel < s.dlevel + 1:
+        # XL gate by depth
+        if s.dlevel == 1 and s.xlevel < 4:
             return False
-        # On DL1, reach at least XL 2 before descending
-        if s.dlevel == 1 and s.xlevel < 2:
+        if 2 <= s.dlevel <= 4 and s.xlevel < s.dlevel + 2:
+            return False
+        if s.dlevel >= 5 and s.xlevel < s.dlevel + 1:
             return False
         # Don't descend if adjacent hostile monsters (finish the fight first)
         if s.has_adjacent_monsters:
@@ -2104,16 +2155,37 @@ class ExpertAgent:
         hostile = [m for m in s.adjacent_monsters if not m.is_pet]
         py, px = s.position
 
-        # Try to flee first, always
+        # If already on Elbereth, just wait (monsters should flee)
+        if self._on_elbereth:
+            return Actions.SEARCH
+
+        # Try to flee first
         if hostile:
             flee_action = self._flee_from(s, hostile[0])
-            # _flee_from returns ENGRAVE only when completely trapped
-            if flee_action != Actions.ENGRAVE:
+            if flee_action not in (Actions.ENGRAVE, Actions.WAIT):
                 return flee_action
 
-        # Elbereth disabled (prompt sequence not implemented).
-        # Just wait if completely surrounded.
-        return Actions.WAIT
+        # Can't flee: write Elbereth
+        return self._try_elbereth(s)
+
+    def _try_elbereth(self, s) -> int:
+        """Attempt to write Elbereth. Returns ENGRAVE to start the sequence,
+        or WAIT if Elbereth is on cooldown or unavailable."""
+        if self._on_elbereth:
+            return Actions.SEARCH  # already on one, just wait
+        if self._elbereth_cooldown > 0:
+            return Actions.WAIT
+        # Don't engrave on special tiles (stairs, altars, fountains)
+        py, px = s.position
+        obj_here = int(self._objects[py, px])
+        if obj_here != -1:
+            cm = _glyph_cmap(obj_here)
+            if cm in (23, 24, 25, 26, 27, 28, 29, 30, 31):  # stairs, altar, grave, throne, sink, fountain
+                return Actions.WAIT
+        self._pending_action = "elbereth"
+        if self.verbose:
+            self._log("ELBERETH", "starting engrave")
+        return Actions.ENGRAVE
 
     def _flee_from(self, s, monster) -> int:
         py, px = s.position
@@ -2282,6 +2354,12 @@ class ExpertAgent:
             self.resistances.add("disintegration resistance")
         if "you feel wide awake" in text:
             self.resistances.add("sleep resistance")
+        # Excalibur creation
+        if "the fountain dries up" in text or "your long sword" in text:
+            pass  # tracked via inventory check
+        # Elbereth confirmation
+        if "elbereth" in text and "you read" in text:
+            self._on_elbereth = True
 
     def _check_inventory(self, s) -> None:
         """Scan inventory strings for food and lizard corpses.

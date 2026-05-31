@@ -312,6 +312,10 @@ class GameState:
     inventory: dict = field(default_factory=dict)
     inventory_oclasses: dict = field(default_factory=dict)
 
+    # NLE misc flags (text entry mode, yn prompts)
+    in_getlin: bool = False   # misc[1]: text entry mode (actions become ASCII)
+    in_yn: bool = False       # misc[2]: yes/no prompt active
+
     # Raw observation cache (for downstream modules that need it)
     _glyphs: Optional[np.ndarray] = field(default=None, repr=False)
     _blstats: Optional[np.ndarray] = field(default=None, repr=False)
@@ -327,6 +331,14 @@ class GameState:
         self._parse_message(obs)
         self._parse_glyphs(obs)
         self._parse_inventory(obs)
+        self._parse_misc(obs)
+
+    def _parse_misc(self, obs: dict) -> None:
+        misc = obs.get("misc")
+        if misc is None:
+            return
+        self.in_getlin = bool(misc[1])
+        self.in_yn = bool(misc[2])
 
     def _parse_blstats(self, obs: dict) -> None:
         bl = obs.get("blstats")
