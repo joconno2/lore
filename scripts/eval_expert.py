@@ -32,7 +32,7 @@ def make_env(seed=None, character="val-hum-fem-neu"):
         ),
         character=character,
         max_episode_steps=5000,
-        no_progress_timeout=5000,
+        no_progress_timeout=150000,
     )
     return env
 
