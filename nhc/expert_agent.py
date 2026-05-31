@@ -351,10 +351,7 @@ def _tile_has_object(glyphs: np.ndarray, row: int, col: int) -> bool:
 # AutoAscend monster categories
 _NEVER_MELEE = {
     "floating eye",   # paralysis on melee = death
-    "blue jelly",     # passive cold damage
-    "brown mold",     # passive damage
-    "gas spore",      # explodes on death radius 1
-    "acid blob",      # passive acid
+    "gas spore",      # explodes on death dealing 4d6
 }
 _INSTAKILL = {
     "cockatrice", "chickatrice", "Medusa",
