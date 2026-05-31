@@ -95,6 +95,5 @@ class NetHackScoreEngrave(NetHackScore):
 
     @staticmethod
     def _skip_exceptions():
-        """Get the SKIP_EXCEPTIONS from parent module."""
-        from nle.env.tasks import SKIP_EXCEPTIONS
+        from nle.env.base import SKIP_EXCEPTIONS
         return SKIP_EXCEPTIONS
