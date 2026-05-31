@@ -184,11 +184,26 @@ def _handle_prompts(env, obs, agent, steps, total_reward, done=False):
             done = term or trunc
             continue
 
-        # yn prompt: dismiss with space if not a recognized gameplay prompt
+        # yn prompt: handle common cases, break for gameplay prompts
         if misc[2] and not misc[1]:
+            # "Really attack" -> always NO (peacefuls, pets)
+            if "Really attack" in msg:
+                # Answer no
+                n_idx = None
+                for i, a in enumerate(nethack.ACTIONS):
+                    if int(a) == ord('n'):
+                        n_idx = i
+                        break
+                if n_idx is not None:
+                    obs, r, term, trunc, info = env.step(n_idx)
+                    total_reward += r
+                    steps += 1
+                    done = term or trunc
+                    continue
+
             # These prompts need agent.act() to handle contextually
             gameplay_prompts = [
-                "[yn]", "[ynq]", "eat", "attack", "direction", "pray",
+                "[yn]", "[ynq]", "eat", "direction", "pray",
                 "drink", "quaff", "dip", "Sure", "want to",
             ]
             if any(p in msg for p in gameplay_prompts):
