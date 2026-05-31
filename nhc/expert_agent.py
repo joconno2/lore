@@ -1837,11 +1837,8 @@ class ExpertAgent:
         # Determine if level is fully explored (no frontier, no closed doors)
         level_explored = (frontier is None and best_door is None)
 
-        # Descent decision: strict gate normally, relaxed when level is cleared
+        # Descent decision: use the standard gate, no relaxation
         can_go_down = self._should_descend(s)
-        # Relax gate when level is fully explored: still need XL >= DL and 50% HP
-        if not can_go_down and level_explored and s.hp > s.max_hp * 0.5 and s.xlevel >= s.dlevel:
-            can_go_down = True
 
         if stairs_pos is not None and stairs_pos != (py, px):
             if dis[stairs_pos[0], stairs_pos[1]] != -1 and can_go_down:
@@ -1850,8 +1847,8 @@ class ExpertAgent:
                     self._last_action_reason = f"stairs at {stairs_pos} (explored={level_explored})"
                     return step
 
-        # If on stairs and level is explored, descend with relaxed gate
-        if on_dn_stairs and level_explored and s.hp > s.max_hp * 0.5 and s.xlevel >= s.dlevel:
+        # If on stairs and level is explored, use standard descent gate
+        if on_dn_stairs and level_explored and can_go_down:
             self._last_action_reason = f"descending (level explored, xl={s.xlevel} dl={s.dlevel})"
             return Actions.DOWN
 
