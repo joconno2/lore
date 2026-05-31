@@ -133,16 +133,14 @@ def _resolve_prompt_actions():
 _resolve_prompt_actions()
 
 
-def _handle_prompts(env, obs, agent, steps, total_reward):
+def _handle_prompts(env, obs, agent, steps, total_reward, done=False):
     """Handle non-gameplay prompts in a tight loop.
 
     Clears xwaitforspace, unhandled getlin, and --More-- prompts
-    before returning control to agent.act(). This prevents the
-    agent from wasting gameplay decisions on prompt handling.
+    before returning control to agent.act().
 
     Returns (obs, steps, total_reward, done).
     """
-    done = False
     max_prompt_steps = 50  # safety cap
 
     for _ in range(max_prompt_steps):
@@ -218,8 +216,9 @@ def run_episode(env, agent, seed=None, verbose=False, analyze=False):
         done = terminated or truncated
 
         # Handle any prompts triggered by the action
-        obs, steps, total_reward, done = _handle_prompts(
-            env, obs, agent, steps, total_reward)
+        if not done:
+            obs, steps, total_reward, done = _handle_prompts(
+                env, obs, agent, steps, total_reward)
 
         if terminated or done:
             msg_raw = obs.get("message")
