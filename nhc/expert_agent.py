@@ -588,7 +588,7 @@ class ExpertAgent:
                     "What do you want to", "Do you want to add",
                     "Dip", "into the fountain",
                     "This door is locked",
-                    "Are you sure", "pray",
+                    "Are you sure", "pray", "drink", "quaff",
                 ]
                 if not any(p in msg_str for p in handled_prompts):
                     return self._letter_to_action(' ')
@@ -741,6 +741,17 @@ class ExpertAgent:
                         return action
                 return Actions.MORE  # cancel if no direction
 
+            # Quaff prompt
+            if "What do you want to drink?" in msg_str or \
+               "What do you want to quaff?" in msg_str:
+                if self._pending_letter:
+                    letter = self._pending_letter
+                    self._pending_letter = None
+                    self._pending_action = None
+                    return self._letter_to_action(letter)
+                self._pending_action = None
+                return Actions.ESC
+
             # Engrave prompts
             if "What do you want to write with?" in msg_str:
                 return self._letter_to_action('-')  # write with finger (dust)
@@ -850,7 +861,7 @@ class ExpertAgent:
         # Clear stale pending actions. If we reach here without a prompt
         # handling the pending action, it means the action completed or failed
         # silently. Don't let it block _decide forever.
-        if self._pending_action in ("throw", "zap", "dip", "offer"):
+        if self._pending_action in ("throw", "zap", "dip", "offer", "quaff"):
             self._pending_action = None
             self._pending_letter = None
             self._ranged_dir = None
@@ -1186,7 +1197,7 @@ class ExpertAgent:
         """Priority cascade. Returns action for highest-priority applicable rule."""
         # If a multi-step action is in progress (throw/zap/dip/offer),
         # don't run the priority cascade. Wait for prompts to resolve.
-        if self._pending_action in ("throw", "zap", "dip", "offer"):
+        if self._pending_action in ("throw", "zap", "dip", "offer", "quaff"):
             return Actions.WAIT  # prompts handled in act() before _decide
         priorities = [
             ("P0-emerg", self._p0_emergencies),
@@ -1231,16 +1242,22 @@ class ExpertAgent:
                 return Actions.EAT
             return self._try_pray(s, "sliming")
 
-        # HP critical: pray early to survive. Veterans pray at ~25% HP.
-        # NetHack prayer considers HP <= max(5, maxHP/7) as "major trouble"
-        # but we should pray sooner to avoid dying.
-        hp_danger = s.hp <= max(5, s.max_hp // 4)  # 25% threshold
+        # HP critical: pray, quaff potion, or flee
+        hp_danger = s.hp <= max(5, s.max_hp // 3)  # 33% threshold (AutoAscend)
         if hp_danger:
             self._last_action_reason = f"hp_critical ({s.hp}/{s.max_hp})"
+            # Try prayer first
             pray_action = self._try_pray(s, "hp_critical")
             if pray_action is not None:
                 return pray_action
-            # Can't pray: flee or Elbereth
+            # Try healing potion
+            potion = self._find_healing_potion(s)
+            if potion is not None:
+                self._pending_action = "quaff"
+                self._pending_letter = potion
+                self._last_action_reason = f"quaffing healing potion"
+                return Actions.QUAFF
+            # Can't pray or heal: flee or Elbereth
             if s.has_adjacent_monsters:
                 return self._flee_or_elbereth(s)
             return Actions.SEARCH  # rest
@@ -2283,6 +2300,21 @@ class ExpertAgent:
         # No prayer subsystem: heuristic check
         if s.turn >= 300:
             return Actions.PRAY
+        return None
+
+    def _find_healing_potion(self, s) -> Optional[str]:
+        """Find a healing potion in inventory."""
+        if not s.inventory:
+            return None
+        POTION_CLASS = 8
+        oclasses = getattr(s, 'inventory_oclasses', {})
+        healing_names = ["healing", "extra healing", "full healing"]
+        for letter, item_str in s.inventory.items():
+            if oclasses and oclasses.get(letter) != POTION_CLASS:
+                continue
+            lower = item_str.lower()
+            if any(h in lower for h in healing_names) and "cursed" not in lower:
+                return letter
         return None
 
     def _flee_or_elbereth(self, s) -> int:
