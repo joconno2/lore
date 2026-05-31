@@ -31,7 +31,7 @@ def make_env(seed=None, character="val-hum-fem-law"):
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",
         ),
         character=character,
-        max_episode_steps=5000,
+        max_episode_steps=10000,
         no_progress_timeout=10000,
     )
     return env
