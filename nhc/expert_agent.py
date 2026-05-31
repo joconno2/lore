@@ -567,12 +567,14 @@ class ExpertAgent:
                     return Actions.ESC
 
             # yn prompt without text entry: auto-dismiss unrecognized prompts
+            # IMPORTANT: don't dismiss prompts that our message parser handles
             if misc[2] and not misc[1]:
                 handled_prompts = [
                     "[yn]", "[ynq]", "eat it?", "eat this?",
-                    "Really attack", "direction?",
+                    "Really attack", "direction?", "In what direction",
                     "What do you want to", "Do you want to add",
                     "Dip", "into the fountain",
+                    "This door is locked",
                 ]
                 if not any(p in msg_str for p in handled_prompts):
                     return self._letter_to_action(' ')
@@ -1997,6 +1999,8 @@ class ExpertAgent:
         for r in range(MAP_H):
             for c in range(MAP_W):
                 if _is_closed_door_glyph(int(glyphs[r, c])):
+                    if self._door_open_attempts[r, c] >= 5:
+                        continue  # gave up on this door
                     d = dis[r, c]
                     if d != -1 and d < best_d:
                         best_d = d
@@ -2079,10 +2083,12 @@ class ExpertAgent:
             if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
                 g = int(glyphs[nr, nc])
                 if _is_closed_door_glyph(g):
+                    # Give up after 5 attempts (locked/stuck door)
+                    if self._door_open_attempts[nr, nc] >= 5:
+                        continue
                     self._last_action_reason = f"opening door at ({nr},{nc})"
                     self._door_open_attempts[nr, nc] += 1
                     action = Actions.DELTA_TO_MOVE.get((dy, dx), Actions.SEARCH)
-                    # Save direction for kick prompt if door is locked
                     self._kick_dir = action
                     return action
         return None
