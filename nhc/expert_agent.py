@@ -1580,8 +1580,8 @@ class ExpertAgent:
     def _p4b_equipment(self, s) -> Optional[int]:
         if not s.inventory or s.has_adjacent_monsters:
             return None
-        # Only check after pickup or every 50 steps (avoid spam)
-        if self.last_action != Actions.PICKUP and self._step_count % 50 != 0:
+        # Check after pickup or every 10 steps
+        if self.last_action != Actions.PICKUP and self._step_count % 10 != 0:
             return None
         # Don't try if last equip attempt failed
         if self.last_action in (Actions.WEAR, Actions.WIELD):
@@ -1747,32 +1747,39 @@ class ExpertAgent:
         return None
 
     # ----------------------------------------------------------
-    # P5: Corpse eating for intrinsics
+    # P5: Corpse eating (proactive, like AutoAscend)
     # ----------------------------------------------------------
 
     def _p5_corpse_intrinsics(self, s) -> Optional[int]:
+        """Eat safe corpses proactively. AutoAscend eats when NOT satiated,
+        not just when hungry. This prevents starvation and gains intrinsics."""
         if not self._on_corpse or not self._corpse_name:
             return None
-        # Don't eat during cooldown
         if self._eat_cooldown > 0:
             return None
-        # Don't eat if satiated (risk of choking to death)
+        # Don't eat if satiated (choking risk)
         if s.hunger_state == "satiated":
             return None
-        # Floating eye: only eat when blind (telepathy only works when blind)
-        if self._corpse_name == "floating eye" and "blind" not in s.conditions:
+        # Don't eat while in combat (wastes a turn)
+        if s.has_adjacent_monsters:
+            return None
+        # Floating eye: skip (paralysis on melee, telepathy only when blind)
+        if self._corpse_name == "floating eye":
             return None
 
+        safe = False
+        reason = "nutrition"
         if self.threat_db is not None:
             report = self.threat_db.corpse_value(self._corpse_name, self.resistances)
             if report.safe_to_eat:
+                safe = True
                 reason = report.beneficial_intrinsic or "nutrition"
-                self._pending_action = "eat"
-                self._last_action_reason = f"eating {self._corpse_name} ({reason})"
-                return Actions.EAT
         elif self._corpse_safe_to_eat(self._corpse_name):
+            safe = True
+
+        if safe:
             self._pending_action = "eat"
-            self._last_action_reason = f"eating {self._corpse_name} corpse"
+            self._last_action_reason = f"eating {self._corpse_name} ({reason})"
             return Actions.EAT
 
         return None
@@ -1976,7 +1983,7 @@ class ExpertAgent:
 
         # 6. Search for hidden doors/passages (last resort)
         total_searches = int(self._search_count_map.sum())
-        if total_searches > 100:
+        if total_searches > 300:
             # Exhausted searching. Descend if possible (relax gate).
             if stairs_pos is not None and stairs_pos != (py, px):
                 if dis[stairs_pos[0], stairs_pos[1]] != -1:
@@ -2248,7 +2255,7 @@ class ExpertAgent:
         if s.hp < s.max_hp * 0.6:
             return False
         # XL gate by depth
-        if s.dlevel == 1 and s.xlevel < 2:
+        if s.dlevel == 1 and s.xlevel < 5:
             return False
         if 2 <= s.dlevel <= 4 and s.xlevel < s.dlevel + 1:
             return False
