@@ -439,6 +439,7 @@ class ExpertAgent:
         self._refused_attacks: set = set()  # monster names we refused to attack (peacefuls)
         self._refused_positions: set = set()  # positions we shouldn't walk to (peacefuls there)
         self._eat_cooldown: int = 0  # steps to skip eating after a failed eat
+        self._throw_cooldown: int = 0  # steps to skip throwing after an attempt
 
     @staticmethod
     def _make_episode_stats() -> dict:
@@ -513,6 +514,7 @@ class ExpertAgent:
         self._refused_attacks = set()
         self._refused_positions = set()
         self._eat_cooldown = 0
+        self._throw_cooldown = 0
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
@@ -1234,6 +1236,9 @@ class ExpertAgent:
 
     def _p2_ranged_threats(self, s) -> Optional[int]:
         py, px = s.position
+        # Decrement throw cooldown
+        if self._throw_cooldown > 0:
+            self._throw_cooldown -= 1
         _PEACEFUL_NAMES = {
             "shopkeeper", "aligned priest", "high priest",
             "guard", "Oracle", "watchman", "watch captain",
@@ -1261,6 +1266,8 @@ class ExpertAgent:
         # Don't engage with visible monsters if we're stuck (behind wall, etc.)
         if self.turns_on_tile > 3:
             return None
+        if self._stuck_moves > 3:
+            return None
 
         for mon in non_adjacent:
             if self.threat_db is not None:
@@ -1280,8 +1287,12 @@ class ExpertAgent:
                 return None
 
         # Try throwing daggers at monsters in line of fire
-        if self._daggers:
+        # Cooldown prevents throw spam; range limit keeps it tactical
+        if self._daggers and self._throw_cooldown == 0:
             for mon in sorted(non_adjacent, key=lambda m: max(abs(m.row-py), abs(m.col-px))):
+                dist = max(abs(mon.row - py), abs(mon.col - px))
+                if dist > 5:
+                    break  # too far, not worth throwing
                 line = _monster_in_line(py, px, mon.row, mon.col)
                 if line is not None:
                     dagger_letter = next(iter(self._daggers))
@@ -1290,12 +1301,17 @@ class ExpertAgent:
                         self._pending_action = "throw"
                         self._pending_letter = dagger_letter
                         self._ranged_dir = dir_action
+                        self._throw_cooldown = 100
                         self._last_action_reason = f"throw dagger at {mon.name}"
                         return Actions.THROW
                     break  # only try first in-line monster
 
-        # Approach closest killable monster for XP. Be aggressive.
+        # Approach closest killable monster for XP.
+        # Only approach if within 8 tiles (don't cross the map for one monster)
         closest = min(non_adjacent, key=lambda m: max(abs(m.row - py), abs(m.col - px)))
+        closest_dist = max(abs(closest.row - py), abs(closest.col - px))
+        if closest_dist > 8:
+            return None
         if self.threat_db is not None:
             report = self.threat_db.assess_threat(closest.name, self._player_state(s))
         else:
@@ -1303,7 +1319,6 @@ class ExpertAgent:
 
         # Approach if: not instakill risk and HP above 30%
         if not report.instakill_risk and s.hp > s.max_hp * 0.3:
-            # Use BFS to approach, not blind directional movement
             walkable, walkable_diag = self._build_nav_masks(s._glyphs)
             dis = _bfs_distances(py, px, walkable, walkable_diag)
             if dis[closest.row, closest.col] != -1:
@@ -1622,10 +1637,9 @@ class ExpertAgent:
             r, c = rp
             if 0 <= r < MAP_H and 0 <= c < MAP_W:
                 g = int(glyphs[r, c])
-                # If there's still a monster there, keep it blocked
-                if GLYPH_MON_OFF <= g < GLYPH_PET_OFF:
+                # If there's still a monster or pet there, keep it blocked
+                if GLYPH_MON_OFF <= g < GLYPH_PET_OFF + NUMMONS:
                     new_refused.add(rp)
-                # Otherwise the monster moved, unblock
         self._refused_positions = new_refused
 
         for r in range(MAP_H):
