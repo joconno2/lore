@@ -2225,8 +2225,8 @@ class ExpertAgent:
             hostiles = [m for m in s.visible_monsters if not m.is_pet]
             if hostiles:
                 return None
-        # Rest when HP below 80% (fight at full strength)
-        if s.hp >= s.max_hp * 0.8:
+        # Rest when HP below 50%
+        if s.hp >= s.max_hp * 0.5:
             return None
         # Don't rest if hungry or worse (wastes nutrition)
         if s.hunger_state in ("hungry", "weak", "fainting", "fainted"):
@@ -2237,9 +2237,9 @@ class ExpertAgent:
             if elb == Actions.ENGRAVE:
                 self._last_action_reason = "writing Elbereth before resting"
                 return elb
-        # Cap resting: rest until healed or max 50 turns
+        # Cap resting at 25 turns
         py, px = s.position
-        if self.turns_on_tile > 50:
+        if self.turns_on_tile > 25:
             return None
         self._last_action_reason = f"resting hp={s.hp}/{s.max_hp}"
         return Actions.SEARCH
