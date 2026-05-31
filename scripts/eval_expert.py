@@ -21,18 +21,18 @@ import gymnasium as gym
 import nle.nethack as nethack
 
 from nhc.expert_agent import ExpertAgent
-from nhc.elbereth_env import NetHackScoreEngrave
 
 
 def make_env(seed=None, character="val-hum-fem-law"):
-    env = NetHackScoreEngrave(
+    env = gym.make(
+        "NetHackChallenge-v0",
         observation_keys=(
             "glyphs", "blstats", "message", "misc",
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",
         ),
-        actions=nethack.ACTIONS,
         character=character,
         max_episode_steps=5000,
+        no_progress_timeout=10000,
     )
     return env
 
