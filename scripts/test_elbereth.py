@@ -3,12 +3,12 @@
 import gymnasium as gym
 import nle.nethack as nethack
 
-env = gym.make("NetHackScore-v0",
+env = gym.make("NetHackChallenge-v0",
     observation_keys=("glyphs", "blstats", "message", "misc",
                       "inv_strs", "inv_letters", "inv_oclasses"),
-    actions=nethack.ACTIONS,
     character="val-hum-fem-neu",
     max_episode_steps=500,
+    no_progress_timeout=500,
 )
 
 act_list = list(nethack.ACTIONS)
