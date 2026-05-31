@@ -885,7 +885,7 @@ class ExpertAgent:
         # force SEARCH (always advances a turn). Prevents step-wasting loops.
         if s.turn == self._prev_turn:
             self._inactivity_steps += 1
-            if self._inactivity_steps > 20:
+            if self._inactivity_steps > 5:
                 action = Actions.SEARCH
                 self._inactivity_steps = 0
         else:
