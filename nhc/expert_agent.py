@@ -2316,8 +2316,7 @@ class ExpertAgent:
         """Find the inventory letter of the best food item to eat."""
         if not s.inventory:
             return None
-        # Food priority: ration > lembas/cram > tripe > safe non-corpse food
-        # Don't select corpses from inventory (they might be unsafe/old)
+        FOOD_CLASS = 7
         food_items = {
             "food ration": 10, "lembas wafer": 9, "cram ration": 9,
             "tripe ration": 7,
@@ -2327,14 +2326,19 @@ class ExpertAgent:
             "kelp frond": 4, "meatball": 4, "egg": 3,
             "lizard corpse": 6, "lichen corpse": 6,
         }
+        oclasses = getattr(s, 'inventory_oclasses', {})
         best = None
         best_priority = -1
         for letter, item_str in s.inventory.items():
+            # If we have object class data, only consider food items
+            if oclasses and oclasses.get(letter) != FOOD_CLASS:
+                continue
             lower = item_str.lower()
+            if "cursed" in lower:
+                continue
             for food_name, pri in food_items.items():
                 if food_name in lower and pri > best_priority:
-                    if "cursed" not in lower:
-                        best, best_priority = letter, pri
+                    best, best_priority = letter, pri
         return best
 
     def _letter_to_action(self, letter: str) -> int:

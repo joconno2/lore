@@ -310,6 +310,7 @@ class GameState:
 
     # Inventory (parsed from inv_strs if available)
     inventory: dict = field(default_factory=dict)
+    inventory_oclasses: dict = field(default_factory=dict)
 
     # Raw observation cache (for downstream modules that need it)
     _glyphs: Optional[np.ndarray] = field(default=None, repr=False)
@@ -496,10 +497,12 @@ class GameState:
     def _parse_inventory(self, obs: dict) -> None:
         inv_strs = obs.get("inv_strs")
         inv_letters = obs.get("inv_letters")
+        inv_oclasses = obs.get("inv_oclasses")
         if inv_strs is None or inv_letters is None:
             return
 
         self.inventory = {}
+        self.inventory_oclasses = {}
         for i, letter_val in enumerate(inv_letters):
             letter = int(letter_val)
             if letter == 0:
@@ -515,6 +518,8 @@ class GameState:
                 item_str = ""
             if item_str:
                 self.inventory[letter_chr] = item_str
+                if inv_oclasses is not None:
+                    self.inventory_oclasses[letter_chr] = int(inv_oclasses[i])
 
     # ---- Convenience properties ----
 
