@@ -1757,9 +1757,6 @@ class ExpertAgent:
         # Don't eat if satiated (choking risk)
         if s.hunger_state == "satiated":
             return None
-        # Don't eat while in combat (wastes a turn)
-        if s.has_adjacent_monsters:
-            return None
         # Floating eye: skip (paralysis on melee, telepathy only when blind)
         if self._corpse_name == "floating eye":
             return None
