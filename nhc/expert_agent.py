@@ -2152,7 +2152,7 @@ class ExpertAgent:
         if s.hp < s.max_hp * 0.6:
             return False
         # XL gate by depth
-        if s.dlevel == 1 and s.xlevel < 3:
+        if s.dlevel == 1 and s.xlevel < 2:
             return False
         if 2 <= s.dlevel <= 4 and s.xlevel < s.dlevel + 1:
             return False
