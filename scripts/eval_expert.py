@@ -24,7 +24,7 @@ from nhc.expert_agent import ExpertAgent
 from nhc.elbereth_env import NetHackScoreEngrave
 
 
-def make_env(seed=None, character="val-hum-fem-neu"):
+def make_env(seed=None, character="val-hum-fem-law"):
     env = NetHackScoreEngrave(
         observation_keys=(
             "glyphs", "blstats", "message", "misc",

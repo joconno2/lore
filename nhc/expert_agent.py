@@ -469,7 +469,7 @@ class ExpertAgent:
         self.state = GameState() if _HAS_OBS_PARSER else None
         if _HAS_PRAYER:
             self.prayer = PrayerState()
-        # Valkyrie starts with cold resistance and stealth
+        # Lawful Valkyrie starts with cold resistance and stealth
         self.resistances = {"cold resistance"}
         self.has_food = False
         self.has_lizard_corpse = False
@@ -1119,10 +1119,10 @@ class ExpertAgent:
             ("P0-emerg", self._p0_emergencies),
             ("P1-combat", self._p1_adjacent_combat),
             ("P2-ranged", self._p2_ranged_threats),
+            ("P2b-excal", self._p4c_excalibur),  # Excalibur is top strategic priority
             ("P3-food", self._p3_food),
             ("P4-items", self._p4_items),
             ("P4b-equip", self._p4b_equipment),
-            ("P4c-excal", self._p4c_excalibur),
             ("P5-corpse", self._p5_corpse_intrinsics),
             ("P5b-rest", self._p5b_rest),
             ("P6-nav", self._p6_navigation),
@@ -1264,6 +1264,13 @@ class ExpertAgent:
             ik_name = next(m.name for m, r in threats if r.instakill_risk)
             self._last_action_reason = f"flee instakill {ik_name}"
             return self._flee_or_elbereth(s)
+
+        # Outnumbered (3+ hostiles) or HP below 40%: Elbereth
+        if len(hostile) >= 3 or (s.hp < s.max_hp * 0.4 and len(hostile) >= 2):
+            elb = self._try_elbereth(s)
+            if elb == Actions.ENGRAVE:
+                self._last_action_reason = f"elbereth ({len(hostile)} hostiles, hp={s.hp}/{s.max_hp})"
+                return elb
 
         top_mon, top_report = threats[0]
 
@@ -1600,18 +1607,18 @@ class ExpertAgent:
 
     def _p4c_excalibur(self, s) -> Optional[int]:
         """Dip long sword in fountain to create Excalibur.
-        Requires: lawful alignment (Valkyrie), XL >= 5, long sword, fountain."""
+        Requires: lawful alignment, XL >= 5, long sword in inventory, fountain."""
         if self._has_excalibur:
             return None
         if s.xlevel < 5:
             return None
         if s.hp < s.max_hp * 0.5:
             return None  # water demon risk
-        # Find long sword in inventory
+        # Find long sword in inventory (wielded or not)
         sword_letter = None
         for letter, item_str in s.inventory.items():
             lower = item_str.lower()
-            if "long sword" in lower and "(weapon in hand)" in lower:
+            if "long sword" in lower and "cursed" not in lower:
                 sword_letter = letter
                 break
         if sword_letter is None:
@@ -1625,7 +1632,7 @@ class ExpertAgent:
             self._pending_letter = sword_letter
             self._last_action_reason = "dipping for Excalibur"
             return Actions.DIP
-        # Path to nearest fountain if one is known
+        # Path to nearest known fountain (no distance cap)
         if self._fountain_positions:
             glyphs = s._glyphs
             if glyphs is not None:
@@ -1636,7 +1643,7 @@ class ExpertAgent:
                     d = dis[fp[0], fp[1]]
                     if d != -1 and d < best_d:
                         best_d, best_f = d, fp
-                if best_f is not None and best_d < 30:
+                if best_f is not None:
                     step = self._step_toward(py, px, best_f, dis, walkable, walkable_diag)
                     if step is not None:
                         self._last_action_reason = f"heading to fountain at {best_f}"
@@ -2369,8 +2376,14 @@ class ExpertAgent:
         if "you feel wide awake" in text:
             self.resistances.add("sleep resistance")
         # Excalibur creation
-        if "the fountain dries up" in text or "your long sword" in text:
-            pass  # tracked via inventory check
+        if "your sword has a bright" in text or "excalibur" in text:
+            self._has_excalibur = True
+            if self.verbose:
+                self._log("EXCALIBUR", "created!")
+        # Fountain dried up
+        if "fountain dries up" in text:
+            py, px = s.position
+            self._fountain_positions.discard((py, px))
         # Elbereth confirmation
         if "elbereth" in text and "you read" in text:
             self._on_elbereth = True
