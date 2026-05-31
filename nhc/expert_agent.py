@@ -1026,13 +1026,29 @@ class ExpertAgent:
         return f"action_{action}"
 
     def _validate_move(self, action: int, s) -> int:
-        """Prevent illegal moves: diagonal through doorways, into walls, into peacefuls."""
+        """Prevent illegal moves: diagonal through doorways, into walls, into peacefuls, into pets."""
         dd = Actions.MOVE_DELTAS.get(action)
         if dd is None:
             return action  # not a movement action
         dy, dx = dd
         py, px = s.position
         nr, nc = py + dy, px + dx
+        # Block moves into pets (wastes steps without advancing turn)
+        if s._glyphs is not None and 0 <= nr < MAP_H and 0 <= nc < MAP_W:
+            g = int(s._glyphs[nr, nc])
+            if GLYPH_PET_OFF <= g < GLYPH_PET_OFF + NUMMONS:
+                # Try alternate direction around the pet
+                for cdy, cdx in [(0, dx), (dy, 0), (0, -dx), (-dy, 0)]:
+                    if cdy == 0 and cdx == 0:
+                        continue
+                    cr, cc = py + cdy, px + cdx
+                    if 0 <= cr < MAP_H and 0 <= cc < MAP_W and self._walkable[cr, cc]:
+                        cg = int(s._glyphs[cr, cc])
+                        if not (GLYPH_PET_OFF <= cg < GLYPH_PET_OFF + NUMMONS):
+                            alt = Actions.DELTA_TO_MOVE.get((cdy, cdx))
+                            if alt is not None:
+                                return alt
+                return Actions.SEARCH  # wait if completely blocked by pets
         # Block moves into refused positions (peacefuls)
         if (nr, nc) in self._refused_positions:
             # Try alternate direction that avoids the peaceful
