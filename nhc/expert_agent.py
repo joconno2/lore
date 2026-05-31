@@ -692,6 +692,10 @@ class ExpertAgent:
             # Engrave prompts
             if "What do you want to write with?" in msg_str:
                 return self._letter_to_action('-')  # write with finger (dust)
+            if "You write in the dust" in msg_str or \
+               "You engrave in the dust" in msg_str:
+                # Intermediate message after '-'. Dismiss with space.
+                return self._letter_to_action(' ')
             if "Do you want to add to the current engraving?" in msg_str:
                 return self._letter_to_action('n')  # overwrite, fresh Elbereth
             if "What do you want to write in the dust here?" in msg_str or \
@@ -702,9 +706,6 @@ class ExpertAgent:
                 if self.verbose:
                     self._log("ELBERETH", "typing Elbereth")
                 return self._letter_to_action('E')  # first char
-            if "You write in the dust" in msg_str or \
-               "You engrave in the dust" in msg_str:
-                pass  # info message, handled by --More-- above
             # Engrave failed
             if "Never mind" in msg_str and self._pending_action == "elbereth":
                 self._pending_action = None

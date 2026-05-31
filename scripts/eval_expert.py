@@ -25,14 +25,14 @@ from nhc.expert_agent import ExpertAgent
 
 def make_env(seed=None, character="val-hum-fem-neu"):
     env = gym.make(
-        "NetHackScore-v0",
+        "NetHackChallenge-v0",
         observation_keys=(
             "glyphs", "blstats", "message", "misc",
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",
         ),
-        actions=nethack.ACTIONS,
         character=character,
         max_episode_steps=5000,
+        no_progress_timeout=5000,
     )
     return env
 
