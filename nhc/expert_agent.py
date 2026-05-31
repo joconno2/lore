@@ -1241,8 +1241,13 @@ class ExpertAgent:
             if self.has_food and self._eat_cooldown == 0:
                 self._pending_action = "eat"
                 return Actions.EAT
-            # No food or eat on cooldown: just wait.
-            return Actions.SEARCH
+            # Starving with no food: eat from ground if corpse present
+            if self._on_corpse and self._corpse_name and self._eat_cooldown == 0:
+                if self._corpse_safe_to_eat(self._corpse_name):
+                    self._pending_action = "eat"
+                    return Actions.EAT
+            # Nothing to eat: just wait (turn advances, might find food later)
+            return Actions.WAIT
 
         # Terminal illness / food poisoning
         if "foodpois" in conds or "termill" in conds:
