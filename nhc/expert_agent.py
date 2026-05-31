@@ -1431,11 +1431,10 @@ class ExpertAgent:
                         return Actions.THROW
                     break  # only try first in-line monster
 
-        # Approach closest killable monster for XP.
-        # Only approach if within 8 tiles (don't cross the map for one monster)
+        # Approach closest killable monster for XP
         closest = min(non_adjacent, key=lambda m: max(abs(m.row - py), abs(m.col - px)))
         closest_dist = max(abs(closest.row - py), abs(closest.col - px))
-        if closest_dist > 8:
+        if closest_dist > 15:
             return None
         if self.threat_db is not None:
             report = self.threat_db.assess_threat(closest.name, self._player_state(s))
