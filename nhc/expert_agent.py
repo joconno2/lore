@@ -1258,10 +1258,17 @@ class ExpertAgent:
 
         threats.sort(key=lambda x: -x[1].danger_level)
 
-        # Instakill risks: flee or Elbereth
+        # Instakill risks: Elbereth first, flee if can't engrave
         any_instakill = any(r.instakill_risk for _, r in threats)
         if any_instakill:
             ik_name = next(m.name for m, r in threats if r.instakill_risk)
+            # Elbereth is the safest response to instakill
+            elb = self._try_elbereth(s)
+            if elb == Actions.ENGRAVE:
+                self._last_action_reason = f"elbereth vs instakill {ik_name}"
+                return elb
+            if self._on_elbereth:
+                return Actions.SEARCH  # wait on Elbereth
             self._last_action_reason = f"flee instakill {ik_name}"
             return self._flee_or_elbereth(s)
 
