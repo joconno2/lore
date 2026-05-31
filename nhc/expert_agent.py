@@ -1991,15 +1991,10 @@ class ExpertAgent:
                     if step is not None:
                         self._last_action_reason = f"heading to stairs (searched {total_searches})"
                         return step
-            # On stairs after exhausted searching: descend with relaxed gate
-            # DL1: need at least XL 2. Other levels: need XL >= DL.
-            relaxed_ok = s.hp > s.max_hp * 0.5
-            if s.dlevel == 1:
-                relaxed_ok = relaxed_ok and s.xlevel >= 2
-            else:
-                relaxed_ok = relaxed_ok and s.xlevel >= s.dlevel
-            if on_dn_stairs and relaxed_ok:
-                self._last_action_reason = f"descend (searched {total_searches}, relaxed gate)"
+            # On stairs after exhausted searching: descend if healthy
+            # Deeper levels have more score. Don't stay stuck.
+            if on_dn_stairs and s.hp > s.max_hp * 0.5:
+                self._last_action_reason = f"descend (searched {total_searches})"
                 return Actions.DOWN
             # Random walk to find something
             import random
