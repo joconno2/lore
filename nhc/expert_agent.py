@@ -441,9 +441,12 @@ class ExpertAgent:
         self._eat_cooldown: int = 0  # steps to skip eating after a failed eat
         self._throw_cooldown: int = 0  # steps to skip throwing after an attempt
         # Elbereth state
-        self._pending_sequence: list = []  # queued action indices for multi-step commands
+        self._pending_sequence: list = []
         self._on_elbereth: bool = False
-        self._elbereth_cooldown: int = 0  # steps before trying Elbereth again after failure
+        self._elbereth_cooldown: int = 0
+        # Inactivity detection
+        self._inactivity_steps: int = 0
+        self._prev_turn: int = -1
 
     @staticmethod
     def _make_episode_stats() -> dict:
@@ -522,6 +525,8 @@ class ExpertAgent:
         self._pending_sequence = []
         self._on_elbereth = False
         self._elbereth_cooldown = 0
+        self._inactivity_steps = 0
+        self._prev_turn = -1
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
@@ -875,6 +880,18 @@ class ExpertAgent:
 
         action = self._decide(s)
         action = self._validate_move(action, s)
+
+        # Inactivity guard: if turn hasn't advanced for many steps,
+        # force SEARCH (always advances a turn). Prevents step-wasting loops.
+        if s.turn == self._prev_turn:
+            self._inactivity_steps += 1
+            if self._inactivity_steps > 20:
+                action = Actions.SEARCH
+                self._inactivity_steps = 0
+        else:
+            self._inactivity_steps = 0
+        self._prev_turn = s.turn
+
         self.last_action = action
         self._prev_hp = s.hp
         if self.verbose:
