@@ -1369,7 +1369,7 @@ class ExpertAgent:
         top_mon, top_report = threats[0]
 
         # Never-melee monsters (floating eye, gas spore, etc.): flee always
-        if top_report.never_melee:
+        if getattr(top_report, 'never_melee', False) or top_mon.name in _NEVER_MELEE:
             self._last_action_reason = f"flee never-melee {top_mon.name}"
             return self._flee_from(s, top_mon)
 
@@ -1390,7 +1390,10 @@ class ExpertAgent:
             return self._flee_or_elbereth(s)
 
         # Filter out never-melee from targets, melee the best remaining
-        meleeable = [(m, r) for m, r in threats if not r.never_melee and m.name not in _WEIRD]
+        meleeable = [(m, r) for m, r in threats
+                     if not getattr(r, 'never_melee', False)
+                     and m.name not in _NEVER_MELEE
+                     and m.name not in _WEIRD]
         if not meleeable:
             # All adjacent monsters are never-melee/weird, flee
             self._last_action_reason = "flee all non-meleeable"
