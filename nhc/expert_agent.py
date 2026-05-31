@@ -542,14 +542,17 @@ class ExpertAgent:
             return action
 
         # AutoAscend-style prompt handling: clear misc flags before priority cascade.
-        # NetHackChallenge-v0 passes all prompts through. We must handle them
-        # or the agent wastes steps in prompt loops.
+        # NetHackChallenge-v0 passes all prompts through.
         misc = obs.get("misc")
         if misc is not None:
             msg_raw = obs.get("message")
             msg_str = ""
             if msg_raw is not None:
                 msg_str = bytes(msg_raw).rstrip(b'\x00').decode("latin-1", errors="replace").strip()
+
+            # xwaitingforspace: always send SPACE (AutoAscend does this)
+            if misc[0] and not misc[1]:
+                return self._letter_to_action(' ')
 
             # Text entry mode (getlin): ESC unless it's our engrave sequence
             if misc[1] and not self._pending_sequence:
@@ -558,11 +561,8 @@ class ExpertAgent:
                 else:
                     return Actions.ESC
 
-            # yn prompt without text entry: send SPACE to dismiss
-            # (but let our message handlers catch specific yn prompts first)
-            # Only auto-dismiss if no recognized prompt in the message
+            # yn prompt without text entry: auto-dismiss unrecognized prompts
             if misc[2] and not misc[1]:
-                # Check if it's a prompt we handle (eat, attack, pray, direction, etc.)
                 handled_prompts = [
                     "[yn]", "[ynq]", "eat it?", "eat this?",
                     "Really attack", "direction?",
@@ -1225,9 +1225,13 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p1_adjacent_combat(self, s) -> Optional[int]:
-        # Don't melee while on Elbereth (erases it, -5 alignment)
+        # On Elbereth: wait if HP low, resume fighting if HP full
         if self._on_elbereth:
-            return Actions.SEARCH
+            hp_ratio = s.hp / max(s.max_hp, 1)
+            if hp_ratio < 0.8:
+                return Actions.SEARCH  # regen HP while protected
+            else:
+                self._on_elbereth = False  # healed up, resume normal play
         # Filter out pets, peacefuls, and unreachable monsters
         hostile = []
         glyphs = s._glyphs
@@ -1303,12 +1307,24 @@ class ExpertAgent:
             self._last_action_reason = f"flee instakill {ik_name}"
             return self._flee_or_elbereth(s)
 
-        # Outnumbered (3+ hostiles) or HP below 40%: Elbereth
-        if len(hostile) >= 3 or (s.hp < s.max_hp * 0.4 and len(hostile) >= 2):
-            elb = self._try_elbereth(s)
-            if elb == Actions.ENGRAVE:
-                self._last_action_reason = f"elbereth ({len(hostile)} hostiles, hp={s.hp}/{s.max_hp})"
-                return elb
+        # AutoAscend-style Elbereth heuristic: weighted monster count + HP check
+        if s.hp < 30 and hostile:
+            adj_weight = 0.0
+            for mon, report in threats:
+                hp_mult = min(20.0 / max(s.hp, 1), 1.5)
+                if report.danger_level <= 2:
+                    adj_weight += 0.1 * hp_mult
+                elif report.danger_level >= 7:
+                    adj_weight += 3.0 * hp_mult
+                else:
+                    adj_weight += 1.0 * hp_mult
+            hp_ratio = (s.hp / max(s.max_hp, 1)) ** 0.5
+            elbereth_priority = -15 + 20 * adj_weight * (1 - hp_ratio)
+            if elbereth_priority > 0:
+                elb = self._try_elbereth(s)
+                if elb == Actions.ENGRAVE:
+                    self._last_action_reason = f"elbereth (weight={adj_weight:.1f} hp={s.hp}/{s.max_hp})"
+                    return elb
 
         top_mon, top_report = threats[0]
 
@@ -1645,10 +1661,10 @@ class ExpertAgent:
 
     def _p4c_excalibur(self, s) -> Optional[int]:
         """Dip long sword in fountain to create Excalibur.
-        Requires: lawful alignment, XL >= 5, long sword in inventory, fountain."""
+        Requires: lawful alignment, XL >= 7, long sword in inventory, fountain."""
         if self._has_excalibur:
             return None
-        if s.xlevel < 5:
+        if s.xlevel < 7:
             return None
         if s.hp < s.max_hp * 0.5:
             return None  # water demon risk
