@@ -565,6 +565,23 @@ class AgentV2:
                 if self.go_to(tr, tc, dis):
                     return
 
+        # Find nearest closed door and go to it
+        best_door = None
+        best_door_d = 999999
+        for r in range(MAP_H):
+            for c in range(MAP_W):
+                g = int(self.glyphs[r, c])
+                cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
+                if cm in _CLOSED_DOOR_CMAPS and self.door_attempts[r, c] < 5:
+                    d = dis[r, c]
+                    if d != -1 and d < best_door_d:
+                        best_door_d = d
+                        best_door = (r, c)
+        if best_door and best_door_d > 1:
+            # Walk toward the door
+            if self.go_to(best_door[0], best_door[1], dis):
+                return
+
         # Adjacent closed door: walk into it
         for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             nr, nc = py + dy, px + dx
