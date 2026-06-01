@@ -390,7 +390,15 @@ class AgentV2:
         if dis[ty, tx] == -1:
             return False
 
-        # Take one step toward target using BFS gradient
+        # Take one step toward target.
+        # BFS is from player, so we need the adjacent walkable cell
+        # that's closest to the target in BFS distance.
+        # Reconstruct: from target, trace back to player.
+        # Simpler: pick adjacent cell that reduces BFS distance to target.
+        # Since BFS is from player: adjacent cells have dis=1.
+        # We want the one where a BFS from THAT cell would have the
+        # shortest distance to target. Approximate: pick the adjacent
+        # cell closest to target by Manhattan distance.
         best_ny, best_nx = -1, -1
         best_d = 999999
         for ddy in (-1, 0, 1):
@@ -399,11 +407,10 @@ class AgentV2:
                     continue
                 ny, nx = py + ddy, px + ddx
                 if 0 <= ny < MAP_H and 0 <= nx < MAP_W and dis[ny, nx] != -1:
-                    if dis[ny, nx] < dis[py, px]:
-                        target_d = abs(ny - ty) + abs(nx - tx)
-                        if target_d < best_d:
-                            best_d = target_d
-                            best_ny, best_nx = ny, nx
+                    target_d = abs(ny - ty) + abs(nx - tx)
+                    if target_d < best_d:
+                        best_d = target_d
+                        best_ny, best_nx = ny, nx
 
         if best_ny == -1:
             return False
