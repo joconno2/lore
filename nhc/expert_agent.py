@@ -14,6 +14,13 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional
 
+try:
+    from nhc.food import FoodManager
+    _HAS_FOOD = True
+except ImportError:
+    FoodManager = None
+    _HAS_FOOD = False
+
 # ============================================================
 # Conditional imports: stub anything not yet built
 # ============================================================
@@ -410,6 +417,7 @@ class ExpertAgent:
         self.threat_db = ThreatDB() if _HAS_COMBAT else None
         self.prayer = PrayerState() if _HAS_PRAYER else None
         self.item_tracker = AppearanceTracker() if _HAS_ITEM_ID else None
+        self.food = FoodManager() if _HAS_FOOD else None
 
         # Per-episode state
         self._step_count: int = 0
@@ -545,6 +553,9 @@ class ExpertAgent:
         self._inactivity_steps = 0
         self._prev_turn = -1
         self._just_killed = None
+        self._corpse_target = None
+        if self.food:
+            self.food.reset()
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
@@ -895,24 +906,27 @@ class ExpertAgent:
             self._prev_turn = s.turn
             return Actions.WAIT
 
-        # After a kill: step onto corpse tile, then eat next step.
-        # Melee kills leave corpse on the ADJACENT tile (attack direction).
+        # After a kill: step onto corpse tile, then eat.
+        # FoodManager tracks which kills leave edible corpses.
         if self._just_killed and self._eat_cooldown == 0 and s.hunger_state != "satiated":
             corpse_name = self._just_killed
             self._just_killed = None
-            is_undead = any(u in corpse_name for u in ["zombie", "mummy", "skeleton", "wraith", "vampire", "ghost", "shade"])
-            if not is_undead and corpse_name not in _NO_CORPSE and \
-               corpse_name != "floating eye" and self._corpse_safe_to_eat(corpse_name):
-                if self.last_action in Actions.MOVE_DELTAS:
-                    # Step 1: walk onto the corpse tile
+            # Check if FoodManager recorded an edible corpse from this kill
+            if self.food and self.food.corpses and self.last_action in Actions.MOVE_DELTAS:
+                latest = self.food.corpses[-1]  # most recent corpse
+                if latest.safe and latest.name == corpse_name:
+                    # Step onto the corpse tile (attack direction)
                     self._pending_action = "step_to_corpse"
+                    self._corpse_target = (latest.row, latest.col)
                     self._last_priority = "P0b-step"
                     self._last_action_reason = f"stepping to {corpse_name} corpse"
                     if self.verbose:
                         self._log("P0b-step", f"stepping to {corpse_name}")
-                    return self.last_action  # same direction as attack
+                    return self.last_action
+        elif self._just_killed:
+            self._just_killed = None  # consume flag even if can't eat
 
-        # Step 2: now on corpse tile, eat it
+        # Step 2: on corpse tile, eat
         if self._pending_action == "step_to_corpse":
             self._pending_action = "eat_kill"
             self._last_priority = "P0b-eat"
@@ -977,6 +991,13 @@ class ExpertAgent:
                     stats["kills"] += 1
                     stats["kill_names"].append(name)
                     self._just_killed = name
+                    # Record corpse location for food manager
+                    if self.food and self.last_action in Actions.MOVE_DELTAS:
+                        dd = Actions.MOVE_DELTAS[self.last_action]
+                        cy = s.position[0] + dd[0]
+                        cx = s.position[1] + dd[1]
+                        if 0 <= cy < MAP_H and 0 <= cx < MAP_W:
+                            self.food.on_kill(name, cy, cx, s.turn, self.resistances)
                     if self.verbose:
                         self._log("KILL", f"{name} ({stats['kills']} total)")
                     break
@@ -1074,6 +1095,8 @@ class ExpertAgent:
             self._cached_path = None
             self._stuck_moves = 0
             self._refused_positions = set()
+            if self.food:
+                self.food.on_level_change()
         if s.xlevel != self._prev_xlevel:
             if self.verbose:
                 self._log("XLVL", f"xl{self._prev_xlevel}->xl{s.xlevel}")
@@ -1220,6 +1243,7 @@ class ExpertAgent:
             ("P3b-corpse", self._p5_corpse_intrinsics),  # eat corpses before pickup
             ("P4-items", self._p4_items),
             ("P4b-equip", self._p4b_equipment),
+            ("P5-seek-food", self._p5_seek_corpse),
             ("P5b-rest", self._p5b_rest),
             ("P6-nav", self._p6_navigation),
         ]
@@ -1825,6 +1849,51 @@ class ExpertAgent:
             self._pending_action = "eat"
             self._last_action_reason = f"eating {corpse_name} ({reason})"
             return Actions.EAT
+
+        return None
+
+    # ----------------------------------------------------------
+    # P5-seek: Walk to known fresh corpses (FoodManager)
+    # ----------------------------------------------------------
+
+    def _p5_seek_corpse(self, s) -> Optional[int]:
+        """Navigate to nearest fresh corpse tracked by FoodManager."""
+        if not self.food:
+            return None
+        if self._eat_cooldown > 0:
+            return None
+        if s.hunger_state == "satiated":
+            return None
+        if s.has_adjacent_monsters:
+            return None
+
+        self.food.expire_corpses(s.turn)
+        fresh = self.food.get_fresh_corpses(s.turn)
+        if not fresh:
+            return None
+
+        py, px = s.position
+        # If standing on a corpse, eat it
+        for c in fresh:
+            if c.row == py and c.col == px:
+                self.food.remove_corpse_at(py, px)
+                self._pending_action = "eat"
+                self._last_action_reason = f"eating {c.name} corpse (tracked)"
+                return Actions.EAT
+
+        # Navigate to nearest corpse (max 6 tiles, not too far)
+        glyphs = s._glyphs
+        if glyphs is None:
+            return None
+        walkable, walkable_diag = self._build_nav_masks(glyphs)
+        dis = _bfs_distances(py, px, walkable, walkable_diag)
+        nearest = self.food.nearest_corpse(py, px, s.turn, dis, max_distance=6)
+        if nearest:
+            step = self._step_toward(py, px, (nearest.row, nearest.col),
+                                     dis, walkable, walkable_diag)
+            if step is not None:
+                self._last_action_reason = f"seeking {nearest.name} corpse ({dis[nearest.row, nearest.col]} tiles)"
+                return step
 
         return None
 
