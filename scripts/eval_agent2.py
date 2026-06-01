@@ -12,18 +12,19 @@ import nle.nethack as nethack
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from nhc.agent2 import AgentV2, AgentFinished
-from nhc.elbereth_env import NetHackScoreEngrave
 
 
 def make_env(character="val-hum-fem-law"):
-    return NetHackScoreEngrave(
+    return gym.make(
+        "NetHackScore-v0",
         observation_keys=(
-            "glyphs", "blstats", "message", "misc",
+            "glyphs", "blstats", "message", "misc", "specials",
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",
         ),
         actions=nethack.ACTIONS,
         character=character,
-        max_episode_steps=20000,
+        max_episode_steps=100000,
+        allow_all_yn_questions=True,
         penalty_step=0.0,
     )
 
@@ -57,13 +58,14 @@ def main():
     p.add_argument("--output", type=str, default=None)
     args = p.parse_args()
 
-    env = make_env()
     results = []
     t0 = time.time()
 
     for ep in range(args.episodes):
         seed = args.seed + ep
+        env = make_env()
         result = run_episode(env, seed=seed, verbose=args.verbose)
+        env.close()
         results.append(result)
 
         scores = [r["score"] for r in results]
@@ -71,9 +73,8 @@ def main():
         print(f"Ep {ep+1}/{args.episodes}: score={result['score']:.0f} "
               f"dl={result['dlevel']} xl={result['xlevel']} "
               f"steps={result['steps']} turns={result['turn']} "
+              f"spt={result['steps']/max(1,result['turn']):.1f} "
               f"[{elapsed:.0f}s]")
-
-    env.close()
 
     scores = [r["score"] for r in results]
     dlevels = [r["dlevel"] for r in results]
