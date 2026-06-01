@@ -625,6 +625,7 @@ class AgentV2:
                     if 'corpse' in msg_check.lower() and \
                        ('you see here' in msg_check.lower() or 'there is' in msg_check.lower()):
                         if self.blstats.hunger != 0:  # not satiated
+                            self.initial_message = ''  # prevent re-triggering
                             self.step(A.Command.EAT)
                             continue
                     if self.fight():
