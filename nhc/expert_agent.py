@@ -460,6 +460,8 @@ class ExpertAgent:
         # Inactivity detection
         self._inactivity_steps: int = 0
         self._prev_turn: int = -1
+        # Kill tracking for corpse eating
+        self._just_killed: Optional[str] = None
 
     @staticmethod
     def _make_episode_stats() -> dict:
@@ -540,6 +542,7 @@ class ExpertAgent:
         self._elbereth_cooldown = 0
         self._inactivity_steps = 0
         self._prev_turn = -1
+        self._just_killed = None
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
@@ -935,6 +938,7 @@ class ExpertAgent:
                     name = lower.split(prefix, 1)[1].rstrip("!. ")
                     stats["kills"] += 1
                     stats["kill_names"].append(name)
+                    self._just_killed = name
                     if self.verbose:
                         self._log("KILL", f"{name} ({stats['kills']} total)")
                     break
@@ -1748,32 +1752,40 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _p5_corpse_intrinsics(self, s) -> Optional[int]:
-        """Eat safe corpses proactively. AutoAscend eats when NOT satiated,
-        not just when hungry. This prevents starvation and gains intrinsics."""
-        if not self._on_corpse or not self._corpse_name:
-            return None
+        """Eat safe corpses proactively. Triggers on:
+        1. Corpse detected on tile (message-based)
+        2. Just killed a monster (corpse likely under us)"""
         if self._eat_cooldown > 0:
             return None
-        # Don't eat if satiated (choking risk)
         if s.hunger_state == "satiated":
             return None
-        # Floating eye: skip (paralysis on melee, telepathy only when blind)
-        if self._corpse_name == "floating eye":
+
+        # Determine corpse name from detection or recent kill
+        corpse_name = None
+        if self._on_corpse and self._corpse_name:
+            corpse_name = self._corpse_name
+        elif self._just_killed:
+            corpse_name = self._just_killed
+            self._just_killed = None  # consume the flag
+
+        if not corpse_name:
+            return None
+        if corpse_name == "floating eye":
             return None
 
         safe = False
         reason = "nutrition"
         if self.threat_db is not None:
-            report = self.threat_db.corpse_value(self._corpse_name, self.resistances)
+            report = self.threat_db.corpse_value(corpse_name, self.resistances)
             if report.safe_to_eat:
                 safe = True
                 reason = report.beneficial_intrinsic or "nutrition"
-        elif self._corpse_safe_to_eat(self._corpse_name):
+        elif self._corpse_safe_to_eat(corpse_name):
             safe = True
 
         if safe:
             self._pending_action = "eat"
-            self._last_action_reason = f"eating {self._corpse_name} ({reason})"
+            self._last_action_reason = f"eating {corpse_name} ({reason})"
             return Actions.EAT
 
         return None
