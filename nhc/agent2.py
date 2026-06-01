@@ -629,7 +629,8 @@ class AgentV2:
                         if 'corpse' in msg_check.lower() and \
                            ('you see here' in msg_check.lower() or 'there is' in msg_check.lower()):
                             if self.blstats.hunger != 0:  # not satiated
-                                self._eat_cooldown_v2 = 3  # skip next 3 iterations
+                                self._eat_cooldown_v2 = 3
+                                print(f"  EAT_ATTEMPT turn={self.blstats.time}")
                                 self.step(A.Command.EAT)
                                 continue
                     else:
