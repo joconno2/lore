@@ -756,10 +756,15 @@ class AgentV2:
     def main(self):
         """Main game loop. Runs until episode ends."""
         try:
-            # Initial setup
+            # Initial setup: reset and clear any initial prompts
             obs, info = self.env.reset(seed=self.seed)
             self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-            self._update_state()
+            self._update(None)  # handles initial --More-- and updates state
+
+            # Disable autopickup
+            self.step(A.Command.AUTOPICKUP)
+            if 'Autopickup: ON' in self.message:
+                self.step(A.Command.AUTOPICKUP)
 
             loop_count = 0
             while True:
@@ -789,6 +794,9 @@ class AgentV2:
                     if self.rest():
                         continue
                     self.explore()
+                    # Fallback: if explore didn't step, force search
+                    if self.step_count == 0 or self._inactivity > 5:
+                        self.step(A.Command.SEARCH)
 
                 except RuntimeError as e:
                     if 'Stuck' in str(e):
