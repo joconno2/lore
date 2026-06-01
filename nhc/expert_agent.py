@@ -360,6 +360,8 @@ _INSTAKILL = {
 }
 _WEAK = {"lichen", "newt", "shrieker", "grid bug"}
 _WEIRD = {"leprechaun", "nymph"}  # steal items, avoid melee
+_NO_CORPSE = {"grid bug", "gas spore", "yellow light", "black light",
+              "flaming sphere", "freezing sphere", "shocking sphere"}
 
 @dataclass
 class _StubThreatReport:
