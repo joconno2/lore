@@ -135,7 +135,9 @@ class AgentV2:
             raise AgentFinished()
 
         # Handle prompts iteratively (replaces recursive _update)
+        prompt_count = 0
         for _ in range(200):  # safety limit
+            prompt_count += 1
             msg_raw = self.obs.get('message', b'')
             self.message = bytes(msg_raw).decode('latin-1', errors='replace').replace('\x00', '').strip()
             misc = self.obs.get('misc', [0, 0, 0])
@@ -198,6 +200,8 @@ class AgentV2:
             # No prompts: done
             break
 
+        if prompt_count > 5:
+            print(f"  PROMPT LOOP: {prompt_count} iterations, msg={self.message[:50]}")
         self._update_game_state()
 
     _ugs_count = 0
