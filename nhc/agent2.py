@@ -101,7 +101,7 @@ class AgentV2:
     # ================================================================
 
     def step(self, action, gen=None):
-        """Send action to env, recursively handle prompts.
+        """Send action to env, handle prompts iteratively.
 
         action: NLE action object, string char, or int action value
         gen: optional generator yielding responses for multi-step actions
@@ -126,49 +126,86 @@ class AgentV2:
             self._parse_blstats()
             raise AgentFinished()
 
-        self._update(gen)
+        # Handle prompts iteratively (replaces recursive _update)
+        for _ in range(200):  # safety limit
+            msg_raw = self.obs.get('message', b'')
+            self.message = bytes(msg_raw).decode('latin-1', errors='replace').replace('\x00', '').strip()
+            misc = self.obs.get('misc', [0, 0, 0])
 
-    def _update(self, gen=None):
-        """Handle prompts, then update game state. AutoAscend update()."""
-        obs = self.obs
-        msg_raw = obs.get('message', b'')
-        self.message = bytes(msg_raw).decode('latin-1', errors='replace').replace('\x00', '').strip()
-        misc = obs.get('misc', [0, 0, 0])
+            # Multi-step action generator
+            if gen is not None:
+                try:
+                    next_action = next(gen)
+                    if isinstance(next_action, str):
+                        next_idx = self._val2idx.get(ord(next_action))
+                    elif isinstance(next_action, int) and next_action < len(self.actions):
+                        next_idx = next_action
+                    else:
+                        next_idx = self._val2idx.get(int(next_action))
+                    if next_idx is not None:
+                        obs, reward, done, truncated, info = self.env.step(next_idx)
+                        self.obs = obs
+                        self.score += reward
+                        self.step_count += 1
+                        if done or truncated:
+                            self._parse_blstats()
+                            raise AgentFinished()
+                        continue
+                except StopIteration:
+                    gen = None
 
-        # If multi-step action generator, get next response
-        if gen is not None:
-            try:
-                next_action = next(gen)
-                self.step(next_action, gen)
-                return
-            except StopIteration:
-                pass
+            # xwaitingforspace
+            if misc[0]:
+                obs, reward, done, truncated, info = self.env.step(self._val2idx.get(32, 0))
+                self.obs = obs
+                self.score += reward
+                self.step_count += 1
+                if done or truncated:
+                    self._parse_blstats()
+                    raise AgentFinished()
+                continue
 
-        # AutoAscend line 409: if message not done or yn prompt, send space
-        # "not done" = xwaitingforspace or --More--
-        if misc[0]:  # xwaitingforspace
-            self.step(A.TextCharacters.SPACE)
-            return
+            # --More--
+            if '--More--' in self.message:
+                obs, reward, done, truncated, info = self.env.step(self._val2idx.get(32, 0))
+                self.obs = obs
+                self.score += reward
+                self.step_count += 1
+                if done or truncated:
+                    self._parse_blstats()
+                    raise AgentFinished()
+                continue
 
-        if '--More--' in self.message:
-            self.step(A.TextCharacters.SPACE)
-            return
+            # Text entry: ESC
+            if misc[1]:
+                obs, reward, done, truncated, info = self.env.step(self._val2idx.get(27, 0))
+                self.obs = obs
+                self.score += reward
+                self.step_count += 1
+                if done or truncated:
+                    self._parse_blstats()
+                    raise AgentFinished()
+                continue
 
-        # Text entry: ESC out (AutoAscend line 413-421)
-        if misc[1]:
-            self.step(A.Command.ESC)
-            return
+            # yn prompt
+            if misc[2]:
+                if 'Really attack' in self.message:
+                    resp = self._val2idx.get(ord('n'))
+                else:
+                    resp = self._val2idx.get(ord('y'))
+                if resp is not None:
+                    obs, reward, done, truncated, info = self.env.step(resp)
+                    self.obs = obs
+                    self.score += reward
+                    self.step_count += 1
+                    if done or truncated:
+                        self._parse_blstats()
+                        raise AgentFinished()
+                continue
 
-        # yn prompt: handle contextually (AutoAscend line 428-430)
-        if misc[2]:
-            if 'Really attack' in self.message:
-                self.step('n')
-                return
-            # Default: yes
-            self.step('y')
-            return
+            # No prompts: done
+            break
 
-        # No prompts: update game state
         self._update_game_state()
 
     def _update_game_state(self):
