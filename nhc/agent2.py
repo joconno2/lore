@@ -414,14 +414,14 @@ class AgentV2:
         py, px = self.blstats.y, self.blstats.x
         for r in range(MAP_H):
             for c in range(MAP_W):
+                if r == py and c == px:
+                    continue  # skip player
                 g = int(glyphs[r, c])
                 if GLYPH_MON_OFF <= g < GLYPH_PET_OFF:
                     mon_id = g - GLYPH_MON_OFF
                     name = nh.permonst(mon_id).mname if mon_id < NUMMONS else f"mon_{mon_id}"
                     dist = max(abs(r - py), abs(c - px))
                     monsters.append((dist, r, c, name, mon_id))
-                elif GLYPH_PET_OFF <= g < GLYPH_PET_OFF + NUMMONS:
-                    pass  # pet, skip
         return sorted(monsters)
 
     # ==========================================================
