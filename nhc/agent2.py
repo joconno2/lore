@@ -372,8 +372,17 @@ class AgentV2:
         # First step is last element of reversed path
         ny, nx = path[-1]
         dy, dx = ny - py, nx - px
-        # Check for diagonal through door (not allowed in NetHack)
         py, px = self.blstats.y, self.blstats.x
+        # Don't step into boulders or walls
+        if 0 <= ny < MAP_H and 0 <= nx < MAP_W:
+            g = int(self.glyphs[ny, nx])
+            if g == GLYPH_OBJ_OFF + 447:  # boulder
+                return False
+            cm = _cmap(g)
+            if cm in _WALL or cm == 0:  # wall or stone
+                return False
+
+        # Check for diagonal through door (not allowed in NetHack)
         if abs(dy) + abs(dx) > 1:  # diagonal
             src_cm = _cmap(int(self.glyphs[py, px]))
             dst_cm = _cmap(int(self.glyphs[ny, nx]))
