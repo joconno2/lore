@@ -16,14 +16,16 @@ from nhc.agent2 import AgentV2, AgentFinished
 
 def make_env(character="val-hum-fem-law"):
     return gym.make(
-        "NetHackChallenge-v0",
+        "NetHackScore-v0",
         observation_keys=(
             "glyphs", "blstats", "message", "misc",
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",
         ),
+        actions=nethack.ACTIONS,
         character=character,
-        max_episode_steps=200000,
-        no_progress_timeout=200000,
+        max_episode_steps=10000,
+        allow_all_yn_questions=True,
+        allow_all_modes=True,
     )
 
 
