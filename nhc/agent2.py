@@ -466,14 +466,7 @@ class AgentV2:
                     (-1,1):'NE',(1,1):'SE',(1,-1):'SW',(-1,-1):'NW'}
             name = dmap.get((dy, dx))
             if name and name in self._name2idx:
-                prev_score = self.score
                 self.step(self._name2idx[name])
-                # Detect kill by score increase (more reliable than message)
-                if self.score > prev_score:
-                    if self.food.is_corpse_safe(n, self.resistances) and n != 'floating eye':
-                        # Step onto corpse tile and eat
-                        self.step(self._name2idx[name])
-                        self.step(A.Command.EAT)
                 return True
 
         # Approach nearest within 15 tiles
