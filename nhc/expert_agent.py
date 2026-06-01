@@ -2141,10 +2141,15 @@ class ExpertAgent:
                     if step is not None:
                         self._last_action_reason = f"heading to stairs (searched {total_searches})"
                         return step
-            # On stairs after exhausted searching: descend if healthy
-            # Deeper levels have more score. Don't stay stuck.
-            if on_dn_stairs and s.hp > s.max_hp * 0.5:
-                self._last_action_reason = f"descend (searched {total_searches})"
+            # On stairs after exhausted searching: use strategy force-descent
+            force = False
+            if self.strategy:
+                force = self.strategy.should_force_descend(
+                    s.dlevel, s.xlevel, s.hp, s.max_hp, total_searches)
+            else:
+                force = s.hp > s.max_hp * 0.5
+            if on_dn_stairs and force:
+                self._last_action_reason = f"force descend (searched {total_searches})"
                 return Actions.DOWN
             # Random walk to find something
             import random
