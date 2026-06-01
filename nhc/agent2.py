@@ -793,9 +793,10 @@ class AgentV2:
                         continue
                     if self.rest():
                         continue
+                    prev_steps = self.step_count
                     self.explore()
-                    # Fallback: if explore didn't step, force search
-                    if self.step_count == 0 or self._inactivity > 5:
+                    # If explore didn't take any steps, force a search
+                    if self.step_count == prev_steps:
                         self.step(A.Command.SEARCH)
 
                 except RuntimeError as e:
