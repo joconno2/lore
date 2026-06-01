@@ -678,23 +678,41 @@ class AgentV2:
                                         self._update_state()
                                 return
 
-        # Random walk: pick any walkable adjacent tile to explore further
+        # AutoAscend-style search: go to best wall-adjacent tile to search
+        # Priority: tiles near stone/walls, penalize already-searched, boost dead-ends
         py, px = self.blstats.y, self.blstats.x
-        import random
-        candidates = []
-        for dy in (-1,0,1):
-            for dx in (-1,0,1):
-                if dy == 0 and dx == 0:
+        best_search = None
+        best_prio = -999999
+        for r in range(MAP_H):
+            for c in range(MAP_W):
+                if not self.walkable[r, c] or dis[r, c] == -1:
                     continue
-                ny, nx = py+dy, px+dx
-                if 0 <= ny < MAP_H and 0 <= nx < MAP_W and self.walkable[ny, nx]:
-                    candidates.append((dy, dx))
-        if candidates:
-            dy, dx = random.choice(candidates)
-            self._move_direction(dy, dx)
-            return
+                # Count adjacent stone/wall tiles
+                adj_stone = 0
+                for dy2 in (-1, 0, 1):
+                    for dx2 in (-1, 0, 1):
+                        if dy2 == 0 and dx2 == 0:
+                            continue
+                        nr, nc = r + dy2, c + dx2
+                        if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
+                            if not self.seen[nr, nc]:
+                                adj_stone += 1
+                            g2 = int(self.glyphs[nr, nc])
+                            cm2 = g2 - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g2 < GLYPH_CMAP_OFF + 87 else -1
+                            if cm2 in _WALL_CMAPS or cm2 == 0:
+                                adj_stone += 1
+                if adj_stone == 0:
+                    continue
+                prio = adj_stone * 10 - self.search_count[r, c] ** 2 * 2 - dis[r, c]
+                if prio > best_prio:
+                    best_prio = prio
+                    best_search = (r, c)
 
-        # Search (always advances a turn)
+        if best_search and best_search != (py, px):
+            if self.go_to(best_search[0], best_search[1], dis):
+                return
+
+        # Search at current position
         self.search_count[self.blstats.y, self.blstats.x] += 1
         search_idx = self._act_by_name.get('SEARCH', 75)
         obs, r, done, trunc, info = self.env.step(search_idx)
