@@ -33,7 +33,7 @@ from nhc.fight import (
 BLStats = namedtuple('BLStats',
     'x y str_pct str dex con int wis cha score '
     'hp max_hp depth gold energy max_energy ac monster_level '
-    'xl xp time hunger carrying_capacity dungeon_number level_number')
+    'xl xp time hunger carrying_capacity dungeon_number level_number prop_mask')
 
 # Glyph constants
 GLYPH_MON_OFF = 0
@@ -182,7 +182,7 @@ class AgentV2:
         """Parse observation into game state."""
         obs = self.obs
         bl = obs['blstats']
-        self.blstats = BLStats(*bl[:26]) if len(bl) >= 26 else None
+        self.blstats = BLStats(*bl[:27]) if len(bl) >= 27 else None
         self.glyphs = obs['glyphs']
 
         if self.blstats is None:

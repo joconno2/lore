@@ -28,8 +28,8 @@ def make_env(character="val-hum-fem-law"):
 
 
 def run_episode(env, seed=0, verbose=False):
+    env.seed(seed, seed)
     agent = AgentV2(env, verbose=verbose)
-    env.reset(seed=seed)  # agent.main() handles the rest
     t0 = time.time()
     try:
         agent.main()
