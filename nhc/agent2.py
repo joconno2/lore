@@ -704,9 +704,11 @@ class AgentV2:
         """Explore: open doors, go to frontier, find stairs, search, descend."""
         py, px = self.blstats.y, self.blstats.x
 
-        # 0. On downstairs: ALWAYS descend if conditions met
-        if self._on_stairs_down() and self.blstats.hp > self.blstats.max_hp * 0.3:
-            if self._level_turns > 15:
+        # 0. On downstairs: descend if ready
+        if self._on_stairs_down() and self.blstats.hp > self.blstats.max_hp * 0.5:
+            xl_ok = self.blstats.xl >= self.blstats.depth + 1
+            time_ok = self._level_turns > 50
+            if xl_ok and time_ok:
                 self.step(A.MiscDirection.DOWN)
                 return
 
@@ -765,8 +767,10 @@ class AgentV2:
             if self.step_toward(best_door[0], best_door[1], dis):
                 return
 
-        # 3. Check if we should force descent (spent enough time on this level)
-        force_descend = self._level_turns > 50
+        # 3. Check if we should force descent
+        # Don't descend too early: require XL >= depth + 1 (farm each level)
+        xl_ready = self.blstats.xl >= self.blstats.depth + 1
+        force_descend = self._level_turns > 100 and xl_ready
 
         # 3a. Navigate to stairs if force_descend and stairs known (BEFORE frontier)
         if force_descend and self._stairs_down and self.blstats.hp > self.blstats.max_hp * 0.3:
@@ -1006,9 +1010,10 @@ class AgentV2:
             while True:
                 try:
                     # Check descent after every action
-                    if self._on_stairs_down() and self._level_turns > 15:
-                        self.step(A.MiscDirection.DOWN)
-                        continue
+                    if self._on_stairs_down() and self._level_turns > 50:
+                        if self.blstats.xl >= self.blstats.depth + 1 and self.blstats.hp > self.blstats.max_hp * 0.5:
+                            self.step(A.MiscDirection.DOWN)
+                            continue
 
                     # Stall detection: if turn doesn't advance, force search
                     cur_turn = self.blstats.time if self.blstats else 0
