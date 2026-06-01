@@ -678,6 +678,18 @@ class AgentV2:
                                         self._update_state()
                                 return
 
+        # Try moving toward unseen tiles before searching
+        py, px = self.blstats.y, self.blstats.x
+        import random
+        dirs = [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)]
+        random.shuffle(dirs)
+        for dy, dx in dirs:
+            ny, nx = py+dy, px+dx
+            if 0 <= ny < MAP_H and 0 <= nx < MAP_W:
+                if not self.seen[ny, nx] or (self.walkable[ny, nx] and self.search_count[ny, nx] < self.search_count[py, px]):
+                    self._move_direction(dy, dx)
+                    return
+
         # Search (always advances a turn)
         self.search_count[self.blstats.y, self.blstats.x] += 1
         search_idx = self._act_by_name.get('SEARCH', 75)
