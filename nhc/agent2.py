@@ -465,11 +465,6 @@ class AgentV2:
                 return True
             if n in NEVER_MELEE:
                 continue
-            # Flee if HP critically low
-            if self.blstats.hp <= max(5, self.blstats.max_hp // 4):
-                dy, dx = py - r, px - c
-                self._move_dir(dy, dx)
-                return True
             # Melee
             dy, dx = r - py, c - px
             self._move_dir(dy, dx)
