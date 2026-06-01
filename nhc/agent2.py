@@ -487,7 +487,7 @@ class AgentV2:
     def emergency(self):
         """Handle HP critical and starvation."""
         bl = self.blstats
-        if bl.hp <= max(5, bl.max_hp // 3) and bl.time >= 300:
+        if bl.hp <= max(8, bl.max_hp // 3) and bl.time >= 300:
             self.step(A.Command.PRAY)
             return True
         if bl.hunger >= 4 and bl.time >= 300:  # fainting
