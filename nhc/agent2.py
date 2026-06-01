@@ -468,6 +468,9 @@ class AgentV2:
             # Melee
             dy, dx = r - py, c - px
             self._move_dir(dy, dx)
+            # After kill, step onto corpse for eating
+            if hasattr(self, 'initial_message') and 'kill' in (self.initial_message or '').lower():
+                self._move_dir(dy, dx)
             return True
 
         # Approach nearest within 15 tiles
@@ -620,7 +623,16 @@ class AgentV2:
                 try:
                     if self.emergency():
                         continue
-                    # Ground corpse eating disabled (getlin env handling blocks it)
+                    # Eat corpse on ground (NetHackScoreEngrave passes eat getlin through)
+                    last_eat = getattr(self, '_last_eat_turn', -100)
+                    if self.blstats.time - last_eat > 5:
+                        msg_check = getattr(self, 'initial_message', '') or ''
+                        if 'corpse' in msg_check.lower() and \
+                           ('you see here' in msg_check.lower() or 'there is' in msg_check.lower()):
+                            if self.blstats.hunger != 0:
+                                self._last_eat_turn = self.blstats.time
+                                self.step(A.Command.EAT)
+                                continue
                     if self.fight():
                         continue
                     self.explore()

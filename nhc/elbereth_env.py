@@ -19,6 +19,10 @@ _ENGRAVE_MSGS = [
     b"You write in the dust",
     b"You engrave in the dust",
     b"Do you want to add to the current engraving",
+    b"What do you want to eat",
+    b"There is a",
+    b"eat it?",
+    b"eat this?",
 ]
 
 

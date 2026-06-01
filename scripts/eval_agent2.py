@@ -12,11 +12,11 @@ import nle.nethack as nethack
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from nhc.agent2 import AgentV2, AgentFinished
+from nhc.elbereth_env import NetHackScoreEngrave
 
 
 def make_env(character="val-hum-fem-law"):
-    return gym.make(
-        "NetHackScore-v0",
+    return NetHackScoreEngrave(
         observation_keys=(
             "glyphs", "blstats", "message", "misc",
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",
@@ -24,7 +24,6 @@ def make_env(character="val-hum-fem-law"):
         actions=nethack.ACTIONS,
         character=character,
         max_episode_steps=20000,
-        allow_all_yn_questions=True,
         penalty_step=0.0,
     )
 
