@@ -232,7 +232,7 @@ class AgentV2:
     def _parse_blstats(self):
         bl = self.obs.get('blstats') if self.obs else None
         if bl is not None and len(bl) >= 26:
-            self.blstats = BLStats(*bl[:26])
+            self.blstats = BLStats(*[int(v) for v in bl[:26]])
         elif self.blstats is None:
             # Default blstats for safety
             self.blstats = BLStats(0,0,0,0,0,0,0,0,0,0,16,16,1,0,0,0,10,0,1,0,1,0,0,0,1,0)
