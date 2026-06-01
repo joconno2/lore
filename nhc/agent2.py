@@ -372,6 +372,24 @@ class AgentV2:
         # First step is last element of reversed path
         ny, nx = path[-1]
         dy, dx = ny - py, nx - px
+        # Check for diagonal through door (not allowed in NetHack)
+        py, px = self.blstats.y, self.blstats.x
+        if abs(dy) + abs(dx) > 1:  # diagonal
+            src_cm = _cmap(int(self.glyphs[py, px]))
+            dst_cm = _cmap(int(self.glyphs[ny, nx]))
+            src_obj = _cmap(int(self.objects[py, px])) if self.objects[py, px] != -1 else -1
+            dst_obj = _cmap(int(self.objects[ny, nx])) if self.objects[ny, nx] != -1 else -1
+            if src_cm in _DOOR or dst_cm in _DOOR or src_obj in _DOOR or dst_obj in _DOOR:
+                # Use cardinal step instead
+                for cdy, cdx in [(dy, 0), (0, dx)]:
+                    if cdy == 0 and cdx == 0:
+                        continue
+                    cr, cc = py + cdy, px + cdx
+                    if 0 <= cr < MAP_H and 0 <= cc < MAP_W and (self.walkable[cr, cc] or _cmap(int(self.glyphs[cr, cc])) in _CLOSED_DOOR):
+                        dy, dx = cdy, cdx
+                        ny, nx = cr, cc
+                        break
+
         dmap = {(-1,0):'N',(1,0):'S',(0,1):'E',(0,-1):'W',
                 (-1,1):'NE',(1,1):'SE',(1,-1):'SW',(-1,-1):'NW'}
         name = dmap.get((dy, dx))
