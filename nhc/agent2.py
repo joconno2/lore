@@ -651,11 +651,11 @@ class AgentV2:
             # go_to failed, fall through to search
 
         # Find stairs down - descend when level explored or search exhausted
-        level_explored = (best_frontier is None)
+        level_explored = (best_frontier is None) and (best_door is None)
         total_s = int(self.search_count.sum())
         can_descend = (
             self.blstats.hp > self.blstats.max_hp * 0.5 and
-            (level_explored or total_s > 100)
+            (level_explored or total_s > 50)
         )
 
         if can_descend:
