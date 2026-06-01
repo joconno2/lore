@@ -796,11 +796,22 @@ class AgentV2:
                     prev_steps = self.step_count
                     try:
                         self.explore()
-                    except Exception:
-                        pass
+                    except AgentFinished:
+                        raise
+                    except Exception as e:
+                        if self.verbose:
+                            print(f"  explore error: {e}")
                     # ALWAYS take a step if nothing else did
                     if self.step_count == prev_steps:
-                        self.step(1000 + self._act_by_name.get('SEARCH', 75))
+                        # Direct env.step as last resort
+                        search_idx = self._act_by_name.get('SEARCH', 75)
+                        obs, r, done, trunc, info = self.env.step(search_idx)
+                        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+                        self.score += r
+                        self.step_count += 1
+                        if done or trunc or self.step_count > 15000:
+                            raise AgentFinished()
+                        self._update_state()
 
                 except RuntimeError as e:
                     if 'Stuck' in str(e):
