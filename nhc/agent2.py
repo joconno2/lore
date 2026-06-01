@@ -105,10 +105,12 @@ class AgentV2:
         """Raw env.step with blstats copy."""
         obs, reward, done, truncated, info = self.env.step(idx)
         self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-        # Read blstats from COPIED obs, not raw (NLE reuses arrays)
+        # Read blstats from COPIED obs
         bl = self.obs.get('blstats')
         if bl is not None:
-            self._raw_bl = bl.copy()
+            self._raw_bl = np.array(bl, dtype=np.int64)
+            if self.step_count <= 3:
+                print(f"  _env_step: bl[12]={int(bl[12])} bl[18]={int(bl[18])} bl[20]={int(bl[20])}")
         self.score += reward
         self.step_count += 1
         return done or truncated
