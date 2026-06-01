@@ -696,8 +696,12 @@ class AgentV2:
         if sword_letter is None:
             return False
 
-        # DIP command, type sword letter
-        self.step(A.Command.DIP, gen=iter(sword_letter))
+        # Two-step dip: DIP command, then sword letter
+        self.step(A.Command.DIP)
+        sword_idx = self._val2idx.get(ord(sword_letter))
+        if sword_idx is not None:
+            self._env_step(sword_idx)
+            self._update_game_state()
         return True
 
     def explore(self):
@@ -1032,6 +1036,8 @@ class AgentV2:
                     if self.fight():
                         continue
                     if self.eat():
+                        continue
+                    if self.dip_excalibur():
                         continue
                     self.explore()
                 except RuntimeError:
