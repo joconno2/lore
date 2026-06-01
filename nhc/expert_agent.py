@@ -21,6 +21,27 @@ except ImportError:
     FoodManager = None
     _HAS_FOOD = False
 
+try:
+    from nhc.equipment import EquipmentManager
+    _HAS_EQUIP = True
+except ImportError:
+    EquipmentManager = None
+    _HAS_EQUIP = False
+
+try:
+    from nhc.strategy import StrategyManager
+    _HAS_STRATEGY = True
+except ImportError:
+    StrategyManager = None
+    _HAS_STRATEGY = False
+
+try:
+    from nhc import fight as fight_module
+    _HAS_FIGHT = True
+except ImportError:
+    fight_module = None
+    _HAS_FIGHT = False
+
 # ============================================================
 # Conditional imports: stub anything not yet built
 # ============================================================
@@ -418,6 +439,8 @@ class ExpertAgent:
         self.prayer = PrayerState() if _HAS_PRAYER else None
         self.item_tracker = AppearanceTracker() if _HAS_ITEM_ID else None
         self.food = FoodManager() if _HAS_FOOD else None
+        self.equip = EquipmentManager() if _HAS_EQUIP else None
+        self.strategy = StrategyManager() if _HAS_STRATEGY else None
 
         # Per-episode state
         self._step_count: int = 0
@@ -556,6 +579,8 @@ class ExpertAgent:
         self._corpse_target = None
         if self.food:
             self.food.reset()
+        if self.strategy:
+            self.strategy.reset()
 
     def act(self, obs: dict) -> int:
         """Main decision function. Takes NLE observation, returns action index."""
@@ -889,6 +914,16 @@ class ExpertAgent:
 
         # Parse messages for resistance gains and inventory clues
         self._parse_message_for_state(s)
+
+        # Update strategy manager
+        if self.strategy:
+            total_searches = int(self._search_count_map.sum())
+            self.strategy.update(
+                s.dlevel, s.xlevel, s.hp, s.max_hp,
+                self._has_excalibur,
+                level_explored=False,  # computed lazily in should_descend
+                total_searches=total_searches,
+                has_food=self.has_food)
 
         # Parse game events for logging and stats
         self._last_action_reason = ""
@@ -1649,15 +1684,15 @@ class ExpertAgent:
         # Don't try if last equip attempt failed
         if self.last_action in (Actions.WEAR, Actions.WIELD):
             return None
-        # Try to wield a better weapon
-        wep = self._find_best_weapon(s)
+        # Try to wield a better weapon (use EquipmentManager if available)
+        wep = self.equip.find_best_weapon(s.inventory) if self.equip else self._find_best_weapon(s)
         if wep:
             self._pending_action = "wield"
             self._pending_letter = wep
             self._last_action_reason = f"wielding '{wep}'"
             return Actions.WIELD
         # Try to wear unworn armor
-        arm = self._find_best_armor(s)
+        arm = self.equip.find_best_armor(s.inventory) if self.equip else self._find_best_armor(s)
         if arm:
             self._pending_action = "wear"
             self._pending_letter = arm
@@ -2360,21 +2395,24 @@ class ExpertAgent:
     # ----------------------------------------------------------
 
     def _should_descend(self, s) -> bool:
-        """Decide whether we're strong enough to descend.
+        """Decide whether we're strong enough to descend."""
+        # Use strategy manager if available
+        if self.strategy:
+            level_explored = not self._find_frontier(s._glyphs,
+                _bfs_distances(s.position[0], s.position[1],
+                    self._walkable, self._walkable.copy())) if s._glyphs is not None else False
+            total_searches = int(self._search_count_map.sum())
+            visible = len([m for m in s.visible_monsters if not m.is_pet]) if s.visible_monsters else 0
+            return self.strategy.should_descend(
+                s.dlevel, s.xlevel, s.hp, s.max_hp,
+                level_explored, total_searches, visible)
 
-        Milestone 1: farm DL1 to XL 4.
-        Milestone 2-4: XL >= DL + 2 (stay strong relative to depth).
-        DL5+: XL >= DL + 1 (looser gate once established).
-        """
-        # HP gate
+        # Fallback: simple gates
         if s.hp < s.max_hp * 0.6:
             return False
-        # XL gate by depth
         if s.dlevel == 1 and s.xlevel < 2:
             return False
-        if 2 <= s.dlevel <= 4 and s.xlevel < s.dlevel + 1:
-            return False
-        if s.dlevel >= 5 and s.xlevel < s.dlevel + 1:
+        if s.xlevel < s.dlevel + 1:
             return False
         # Don't descend if adjacent hostile monsters (finish the fight first)
         if s.has_adjacent_monsters:
