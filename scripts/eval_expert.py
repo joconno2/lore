@@ -157,9 +157,8 @@ def _handle_prompts(env, obs, agent, steps, total_reward, done=False):
             done = term or trunc
             continue
 
-        # --More-- or fainting messages: clear them
-        if ("--More--" in msg or "You faint" in msg or "You regain" in msg) \
-                and not misc[1] and not misc[2]:
+        # --More-- prompt: clear it
+        if "--More--" in msg and not misc[1] and not misc[2]:
             obs, r, term, trunc, info = env.step(_SPACE_IDX)
             total_reward += r
             steps += 1
