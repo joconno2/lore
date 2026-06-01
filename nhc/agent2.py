@@ -624,16 +624,15 @@ class AgentV2:
                     if self.emergency():
                         continue
                     # Eat corpse on ground if initial_message mentions one
-                    if not getattr(self, '_eat_cooldown_v2', 0):
+                    last_eat = getattr(self, '_last_eat_turn', -100)
+                    if self.blstats.time - last_eat > 5:
                         msg_check = getattr(self, 'initial_message', '') or ''
                         if 'corpse' in msg_check.lower() and \
                            ('you see here' in msg_check.lower() or 'there is' in msg_check.lower()):
                             if self.blstats.hunger != 0:  # not satiated
-                                self._eat_cooldown_v2 = 50
+                                self._last_eat_turn = self.blstats.time
                                 self.step(A.Command.EAT)
                                 continue
-                    else:
-                        self._eat_cooldown_v2 -= 1
                     if self.fight():
                         continue
                     self.explore()
