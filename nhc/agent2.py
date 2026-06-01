@@ -794,10 +794,13 @@ class AgentV2:
                     if self.rest():
                         continue
                     prev_steps = self.step_count
-                    self.explore()
-                    # If explore didn't take any steps, force a search
+                    try:
+                        self.explore()
+                    except Exception:
+                        pass
+                    # ALWAYS take a step if nothing else did
                     if self.step_count == prev_steps:
-                        self.step(A.Command.SEARCH)
+                        self.step(1000 + self._act_by_name.get('SEARCH', 75))
 
                 except RuntimeError as e:
                     if 'Stuck' in str(e):
