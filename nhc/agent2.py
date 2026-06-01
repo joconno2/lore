@@ -232,7 +232,10 @@ class AgentV2:
     def _parse_blstats(self):
         bl = self.obs.get('blstats') if self.obs else None
         if bl is not None and len(bl) >= 26:
-            self.blstats = BLStats(*[int(v) for v in bl[:26]])
+            vals = [int(v) for v in bl[:26]]
+            self.blstats = BLStats(*vals)
+            if self.step_count <= 5 and self.verbose:
+                print(f"  BLSTATS: depth={vals[12]} xl={vals[18]} time={vals[20]} hp={vals[10]}")
         elif self.blstats is None:
             # Default blstats for safety
             self.blstats = BLStats(0,0,0,0,0,0,0,0,0,0,16,16,1,0,0,0,10,0,1,0,1,0,0,0,1,0)
