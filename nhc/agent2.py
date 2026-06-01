@@ -556,12 +556,17 @@ class AgentV2:
             if self.step_toward(best_f[0], best_f[1], dis):
                 return
 
-        # 4. Descend if explored
-        for r in range(MAP_H):
-            for c in range(MAP_W):
-                cm = _cmap(int(self.glyphs[r,c]))
-                if cm in (24, 26) and dis[r,c] != -1:  # stairs down
-                    if self.blstats.hp > self.blstats.max_hp * 0.5:
+        # 4. Descend: when explored OR after enough time on this level
+        total_s = int(self.search_count.sum())
+        should_descend = (
+            (best_f is None and best_door is None) or  # fully explored
+            total_s > 100  # searched enough
+        )
+        if should_descend and self.blstats.hp > self.blstats.max_hp * 0.5:
+            for r in range(MAP_H):
+                for c in range(MAP_W):
+                    cm = _cmap(int(self.glyphs[r,c]))
+                    if cm in (24, 26) and dis[r,c] != -1:  # stairs down
                         if self.step_toward(r, c, dis):
                             if (self.blstats.y, self.blstats.x) == (r, c):
                                 self.step(A.MiscDirection.DOWN)
