@@ -1,41 +1,31 @@
-"""LORE Expert Agent v2: Clean room rewrite based on AutoAscend architecture.
+"""LORE Agent v2: Clean room rewrite of AutoAscend architecture.
 
-Key differences from v1 (expert_agent.py):
-- Agent DRIVES the env via step(), not the other way around
-- Recursive prompt handling (step -> update -> step)
-- Strategy-based game loop with preemptible priorities
-- Proper state tracking per level
-- All systems integrated (food, equipment, combat, navigation)
+The agent DRIVES the env. step() calls env.step() and recursively
+handles all prompts via update(). The main loop runs strategies
+in priority order. Each strategy calls step() which handles the
+full NLE interaction.
 
-Usage:
-    agent = AgentV2(env, verbose=True)
-    agent.main()  # runs until episode ends
+This is a faithful reimplementation of AutoAscend's core loop
+(agent.py:365-430, 1517-1567) adapted for our modules.
 """
 from __future__ import annotations
 
-import contextlib
 import numpy as np
-from collections import namedtuple, Counter
+from collections import namedtuple, deque
 from typing import Optional
 
 import nle.nethack as nh
 from nle.nethack import actions as A
 
-from nhc.food import FoodManager, NO_CORPSE, UNDEAD_FRAGMENTS
-from nhc.equipment import EquipmentManager, WEAPON_DATA
-from nhc.strategy import StrategyManager, Milestone
-from nhc.fight import (
-    assess_monster, should_elbereth, pick_melee_target, should_flee,
-    NEVER_MELEE, INSTAKILL, PEACEFUL_IDS, PEACEFUL_NAMES, WEAK
-)
+from nhc.food import FoodManager
+from nhc.equipment import EquipmentManager
+from nhc.fight import assess_monster, NEVER_MELEE, INSTAKILL, PEACEFUL_NAMES, PEACEFUL_IDS
 
-# BLStats field indices (from NLE)
 BLStats = namedtuple('BLStats',
     'x y str_pct str dex con int wis cha score '
     'hp max_hp depth gold energy max_energy ac monster_level '
     'xl xp time hunger carrying_capacity dungeon_number level_number prop_mask')
 
-# Glyph constants
 GLYPH_MON_OFF = 0
 GLYPH_PET_OFF = 381
 GLYPH_BODY_OFF = 1144
@@ -44,43 +34,41 @@ GLYPH_CMAP_OFF = 2359
 NUMMONS = 381
 MAP_H, MAP_W = 21, 79
 
-# CMAP indices
-_WALKABLE_CMAPS = frozenset({12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31})
-_CLOSED_DOOR_CMAPS = frozenset({15, 16})
-_WALL_CMAPS = frozenset(range(1, 12))
-_DOOR_CMAPS = frozenset({12, 13, 14, 15, 16})
-_BOULDER_GLYPH = GLYPH_OBJ_OFF + 447
+_WALKABLE = frozenset({12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31})
+_CLOSED_DOOR = frozenset({15, 16})
+_WALL = frozenset(range(1, 12))
+_DOOR = frozenset({12, 13, 14, 15, 16})
 
 
 class AgentFinished(Exception):
-    """Raised when the episode ends."""
     pass
 
 
+def _cmap(g):
+    return g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
+
+
 class AgentV2:
-    """Expert system agent based on AutoAscend's architecture."""
-
-    def __init__(self, env, verbose=False, seed=None):
+    def __init__(self, env, seed=None, verbose=False):
         self.env = env
-        self.verbose = verbose
         self.seed = seed
-        self.actions = list(nh.ACTIONS)
+        self.verbose = verbose
 
-        # Action lookup
-        self._act_by_name = {}
-        self._act_by_val = {}
+        # Build action lookups
+        self.actions = list(nh.ACTIONS)
+        self._val2idx = {}
+        self._name2idx = {}
         for i, a in enumerate(self.actions):
-            name = a.name if hasattr(a, 'name') else str(a)
-            if name not in self._act_by_name:
-                self._act_by_name[name] = i
-            val = int(a)
-            if val not in self._act_by_val:
-                self._act_by_val[val] = i
+            v = int(a)
+            if v not in self._val2idx:
+                self._val2idx[v] = i
+            n = a.name if hasattr(a, 'name') else str(a)
+            if n not in self._name2idx:
+                self._name2idx[n] = i
 
         # Subsystems
         self.food = FoodManager()
         self.equip = EquipmentManager()
-        self.strategy = StrategyManager()
 
         # State
         self.obs = None
@@ -90,9 +78,8 @@ class AgentV2:
         self.score = 0.0
         self.step_count = 0
         self._last_turn = -1
-        self._inactivity = 0
 
-        # Per-level state
+        # Per-level maps
         self.seen = np.zeros((MAP_H, MAP_W), dtype=bool)
         self.walkable = np.zeros((MAP_H, MAP_W), dtype=bool)
         self.objects = np.full((MAP_H, MAP_W), -1, dtype=np.int16)
@@ -102,918 +89,459 @@ class AgentV2:
         # Tracking
         self.resistances = {"cold resistance"}
         self.has_excalibur = False
-        self._on_elbereth = False
-        self._elbereth_cooldown = 0
-        self._eat_cooldown = 0
-        self._prev_dlevel = 1
+        self._prev_depth = 1
         self.inventory = {}
         self.inv_oclasses = {}
 
-    # ==========================================================
-    # Core: step / update (AutoAscend pattern)
-    # ==========================================================
+    # ================================================================
+    # Core: step / update (AutoAscend agent.py:365-430)
+    # ================================================================
 
-    def step(self, action, response_iter=None):
-        """Send action to env, handle prompts recursively."""
+    def step(self, action, gen=None):
+        """Send action to env, recursively handle prompts.
+
+        action: NLE action object, string char, or int action value
+        gen: optional generator yielding responses for multi-step actions
+        """
         if isinstance(action, str):
-            action = self._act_by_val[ord(action)]
-        elif isinstance(action, int) and action >= 1000:
-            # Raw action index
-            action = action - 1000
+            assert len(action) == 1
+            idx = self._val2idx.get(ord(action))
+        elif isinstance(action, int) and action < len(self.actions):
+            idx = action
         else:
-            # NLE action object
-            action = self._act_by_val.get(int(action), action)
+            idx = self._val2idx.get(int(action))
 
-        obs, reward, done, truncated, info = self.env.step(action)
-        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+        if idx is None:
+            return
+
+        obs, reward, done, truncated, info = self.env.step(idx)
+        self.obs = obs
         self.score += reward
         self.step_count += 1
 
         if done or truncated:
+            self._parse_blstats()
             raise AgentFinished()
-        if self.step_count > 50000:
-            raise AgentFinished()
 
-        self._update(response_iter)
+        self._update(gen)
 
-    _update_depth = 0
-
-    def _update(self, response_iter=None):
-        """Handle prompts, then update game state."""
-        self._update_depth += 1
-        if self._update_depth > 50:
-            self._update_depth = 0
-            self._update_state()
-            return
-
+    def _update(self, gen=None):
+        """Handle prompts, then update game state. AutoAscend update()."""
         obs = self.obs
+        msg_raw = obs.get('message', b'')
+        self.message = bytes(msg_raw).decode('latin-1', errors='replace').replace('\x00', '').strip()
         misc = obs.get('misc', [0, 0, 0])
-        msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
-        self.message = msg
 
-        # If we have a response iterator (multi-step action), use it
-        if response_iter is not None:
+        # If multi-step action generator, get next response
+        if gen is not None:
             try:
-                next_action = next(response_iter)
-                self.step(next_action, response_iter)
+                next_action = next(gen)
+                self.step(next_action, gen)
                 return
             except StopIteration:
                 pass
 
-        # Handle prompts (AutoAscend update() pattern)
-        # xwaitingforspace
-        if misc[0] and not misc[1] and not misc[2]:
+        # AutoAscend line 409: if message not done or yn prompt, send space
+        # "not done" = xwaitingforspace or --More--
+        if misc[0]:  # xwaitingforspace
             self.step(A.TextCharacters.SPACE)
             return
 
-        # --More--
-        if '--More--' in msg:
+        if '--More--' in self.message:
             self.step(A.TextCharacters.SPACE)
             return
 
-        # Text entry (getlin)
+        # Text entry: ESC out (AutoAscend line 413-421)
         if misc[1]:
             self.step(A.Command.ESC)
             return
 
-        # yn prompt
+        # yn prompt: handle contextually (AutoAscend line 428-430)
         if misc[2]:
-            if 'Really attack' in msg:
+            if 'Really attack' in self.message:
                 self.step('n')
                 return
-            if '[yn]' in msg or '[ynq]' in msg:
-                # Default: answer yes
-                self.step('y')
-                return
+            # Default: yes
+            self.step('y')
+            return
 
         # No prompts: update game state
-        self._update_depth = 0
-        self._update_state()
+        self._update_game_state()
 
-    def _update_state(self):
-        """Parse observation into game state."""
-        obs = self.obs
-        bl = obs['blstats']
-        self.blstats = BLStats(*bl[:26]) if len(bl) >= 26 else None
-        self.glyphs = obs['glyphs']
-
+    def _update_game_state(self):
+        """Parse observation into full game state."""
+        self._parse_blstats()
         if self.blstats is None:
             return
 
-        # Track inactivity
-        if self.blstats.time == self._last_turn:
-            self._inactivity += 1
-            if self._inactivity > 200:
-                raise RuntimeError("Stuck: 200 steps without turn advance")
-        else:
-            self._inactivity = 0
-            self._last_turn = self.blstats.time
-
         # Level change
-        if self.blstats.depth != self._prev_dlevel:
-            self._prev_dlevel = self.blstats.depth
-            self.seen = np.zeros((MAP_H, MAP_W), dtype=bool)
-            self.walkable = np.zeros((MAP_H, MAP_W), dtype=bool)
-            self.objects = np.full((MAP_H, MAP_W), -1, dtype=np.int16)
-            self.search_count = np.zeros((MAP_H, MAP_W), dtype=np.int32)
-            self.door_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
+        if self.blstats.depth != self._prev_depth:
+            self._prev_depth = self.blstats.depth
+            self.seen[:] = False
+            self.walkable[:] = False
+            self.objects[:] = -1
+            self.search_count[:] = 0
+            self.door_attempts[:] = 0
             self.food.on_level_change()
 
-        # Update maps
+        self.glyphs = self.obs['glyphs']
         self._update_maps()
-
-        # Parse inventory
         self._parse_inventory()
-
-        # Parse messages
         self._parse_messages()
 
-        # Cooldowns
-        if self._elbereth_cooldown > 0:
-            self._elbereth_cooldown -= 1
-        if self._eat_cooldown > 0:
-            self._eat_cooldown -= 1
-
-    # ==========================================================
-    # Map tracking
-    # ==========================================================
+    def _parse_blstats(self):
+        bl = self.obs.get('blstats')
+        if bl is not None and len(bl) >= 26:
+            self.blstats = BLStats(*bl[:26])
 
     def _update_maps(self):
-        """Update seen/walkable/objects from glyphs."""
-        glyphs = self.glyphs
+        g = self.glyphs
         py, px = self.blstats.y, self.blstats.x
-
         for r in range(MAP_H):
             for c in range(MAP_W):
-                g = int(glyphs[r, c])
-                cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
-
-                if cm in _WALKABLE_CMAPS:
+                v = int(g[r, c])
+                cm = _cmap(v)
+                if cm in _WALKABLE:
                     self.seen[r, c] = True
                     self.walkable[r, c] = True
-                    self.objects[r, c] = g
-                elif cm in _WALL_CMAPS:
+                    self.objects[r, c] = v
+                elif cm in _WALL:
                     self.seen[r, c] = True
                     self.walkable[r, c] = False
-                elif cm in _CLOSED_DOOR_CMAPS:
+                elif cm in _CLOSED_DOOR:
                     self.seen[r, c] = True
                     self.walkable[r, c] = False
-                elif g == _BOULDER_GLYPH:
+                elif v == GLYPH_OBJ_OFF + 447:  # boulder
                     self.seen[r, c] = True
                     self.walkable[r, c] = False
-                elif GLYPH_MON_OFF <= g < GLYPH_CMAP_OFF:
+                elif GLYPH_MON_OFF <= v < GLYPH_CMAP_OFF:
                     self.seen[r, c] = True
                     if self.objects[r, c] == -1:
                         self.walkable[r, c] = True
-                elif cm == 0:  # stone
-                    pass  # unseen
-
-        # Player's position is always walkable
+                elif cm == 0:
+                    if abs(r - py) <= 1 and abs(c - px) <= 1:
+                        self.seen[r, c] = True
+                        self.walkable[r, c] = False
         self.walkable[py, px] = True
         self.seen[py, px] = True
 
-        # Mark adjacent stone as seen
-        for dy in (-1, 0, 1):
-            for dx in (-1, 0, 1):
-                nr, nc = py + dy, px + dx
-                if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
-                    g = int(glyphs[nr, nc])
-                    if g - GLYPH_CMAP_OFF == 0:
-                        self.seen[nr, nc] = True
-                        self.walkable[nr, nc] = False
-
     def _parse_inventory(self):
-        """Parse inventory from observation."""
         inv_strs = self.obs.get('inv_strs')
         inv_letters = self.obs.get('inv_letters')
         inv_oclasses = self.obs.get('inv_oclasses')
         if inv_strs is None or inv_letters is None:
             return
-
         self.inventory = {}
         self.inv_oclasses = {}
-        for i, letter_val in enumerate(inv_letters):
-            letter = int(letter_val)
+        for i, lv in enumerate(inv_letters):
+            letter = int(lv)
             if letter == 0:
                 continue
-            letter_chr = chr(letter)
+            ch = chr(letter)
             raw = inv_strs[i]
             try:
-                item_str = bytes(np.asarray(raw, dtype=np.uint8)).decode(
-                    'ascii', errors='replace').rstrip('\x00').strip()
+                s = bytes(np.asarray(raw, dtype=np.uint8)).decode('ascii', errors='replace').rstrip('\x00').strip()
             except Exception:
-                item_str = ''
-            if item_str:
-                self.inventory[letter_chr] = item_str
+                s = ''
+            if s:
+                self.inventory[ch] = s
                 if inv_oclasses is not None:
-                    self.inv_oclasses[letter_chr] = int(inv_oclasses[i])
-
-        # Check for Excalibur
-        for item_str in self.inventory.values():
-            if 'Excalibur' in item_str:
-                self.has_excalibur = True
+                    self.inv_oclasses[ch] = int(inv_oclasses[i])
+        if any('Excalibur' in s for s in self.inventory.values()):
+            self.has_excalibur = True
 
     def _parse_messages(self):
-        """Parse messages for game events."""
         msg = self.message.lower()
-
-        # Resistance gains
-        resist_map = {
+        resists = {
             "you feel especially healthy": "poison resistance",
             "you feel a momentary chill": "cold resistance",
             "you feel warm": "fire resistance",
             "you feel full of energy": "shock resistance",
-            "you feel very firm": "disintegration resistance",
-            "you feel wide awake": "sleep resistance",
         }
-        for fragment, resist in resist_map.items():
-            if fragment in msg:
-                self.resistances.add(resist)
-
+        for frag, r in resists.items():
+            if frag in msg:
+                self.resistances.add(r)
+        if "your sword has a bright" in msg or "excalibur" in msg:
+            self.has_excalibur = True
         # Kill tracking
         for prefix in ["you kill the ", "you kill ", "you destroy the ", "you destroy "]:
             if prefix in msg:
                 name = msg.split(prefix, 1)[1].split("!")[0].split(".")[0].strip()
                 py, px = self.blstats.y, self.blstats.x
-                # Record corpse at approximate kill position
-                # (kills happen adjacent, but we don't track direction here)
                 self.food.on_kill(name, py, px, self.blstats.time, self.resistances)
                 break
 
-        # Excalibur
-        if "your sword has a bright" in msg or "excalibur" in msg:
-            self.has_excalibur = True
-
-    # ==========================================================
-    # Navigation helpers
-    # ==========================================================
+    # ================================================================
+    # Navigation
+    # ================================================================
 
     def bfs(self):
-        """BFS from player position. Returns distance array."""
-        from collections import deque
         py, px = self.blstats.y, self.blstats.x
         dis = np.full((MAP_H, MAP_W), -1, dtype=np.int32)
         dis[py, px] = 0
-        queue = deque([(py, px)])
-        while queue:
-            y, x = queue.popleft()
+        q = deque([(py, px)])
+        while q:
+            y, x = q.popleft()
             d = dis[y, x]
             for dy in (-1, 0, 1):
                 for dx in (-1, 0, 1):
                     if dy == 0 and dx == 0:
                         continue
                     ny, nx = y + dy, x + dx
-                    if 0 <= ny < MAP_H and 0 <= nx < MAP_W and dis[ny, nx] == -1:
-                        if not self.walkable[ny, nx]:
-                            # Allow through closed doors for pathfinding
-                            g = int(self.glyphs[ny, nx])
-                            cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
-                            if cm not in _CLOSED_DOOR_CMAPS:
-                                continue
-                        # No diagonal through doors
-                        if abs(dy) + abs(dx) > 1:
-                            g_src = int(self.glyphs[y, x])
-                            g_dst = int(self.glyphs[ny, nx])
-                            cm_src = g_src - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g_src < GLYPH_CMAP_OFF + 87 else -1
-                            cm_dst = g_dst - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g_dst < GLYPH_CMAP_OFF + 87 else -1
-                            if cm_src in _DOOR_CMAPS or cm_dst in _DOOR_CMAPS:
-                                continue
-                        dis[ny, nx] = d + 1
-                        queue.append((ny, nx))
+                    if not (0 <= ny < MAP_H and 0 <= nx < MAP_W) or dis[ny, nx] != -1:
+                        continue
+                    g = int(self.glyphs[ny, nx])
+                    cm = _cmap(g)
+                    ok = self.walkable[ny, nx] or cm in _CLOSED_DOOR or (GLYPH_MON_OFF <= g < GLYPH_CMAP_OFF)
+                    if not ok:
+                        continue
+                    # No diagonal through doors
+                    if abs(dy) + abs(dx) > 1:
+                        if _cmap(int(self.glyphs[y, x])) in _DOOR or cm in _DOOR:
+                            continue
+                    dis[ny, nx] = d + 1
+                    q.append((ny, nx))
         return dis
 
-    def go_to(self, ty, tx, dis=None):
-        """Navigate to (ty, tx) using BFS. Takes multiple steps."""
-        if dis is None:
-            dis = self.bfs()
-        py, px = self.blstats.y, self.blstats.x
+    def step_toward(self, ty, tx, dis):
+        """Take one BFS-optimal step toward (ty, tx). Returns True if stepped."""
         if dis[ty, tx] == -1:
             return False
-
-        # Take one step toward target using BFS path reconstruction.
-        # Trace back from target to player: find cell adjacent to player
-        # that's on the shortest BFS path.
-        # Method: from target, follow gradient of decreasing BFS distance
-        # until we reach a cell adjacent to player.
-        cur_y, cur_x = ty, tx
-        path = [(ty, tx)]
-        for _ in range(200):  # safety limit
-            if abs(cur_y - py) <= 1 and abs(cur_x - px) <= 1:
+        py, px = self.blstats.y, self.blstats.x
+        # Trace back from target
+        path = []
+        cy, cx = ty, tx
+        for _ in range(300):
+            if (cy, cx) == (py, px):
                 break
-            best_ny2, best_nx2 = -1, -1
-            best_d2 = dis[cur_y, cur_x]
-            for ddy in (-1, 0, 1):
-                for ddx in (-1, 0, 1):
-                    if ddy == 0 and ddx == 0:
+            path.append((cy, cx))
+            best = None
+            bd = dis[cy, cx]
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dy == 0 and dx == 0:
                         continue
-                    ny, nx = cur_y + ddy, cur_x + ddx
-                    if 0 <= ny < MAP_H and 0 <= nx < MAP_W and dis[ny, nx] != -1:
-                        if dis[ny, nx] < best_d2:
-                            best_d2 = dis[ny, nx]
-                            best_ny2, best_nx2 = ny, nx
-            if best_ny2 == -1:
+                    ny, nx = cy + dy, cx + dx
+                    if 0 <= ny < MAP_H and 0 <= nx < MAP_W and dis[ny, nx] != -1 and dis[ny, nx] < bd:
+                        bd = dis[ny, nx]
+                        best = (ny, nx)
+            if best is None:
                 return False
-            cur_y, cur_x = best_ny2, best_nx2
-            path.append((cur_y, cur_x))
-
-        # The last cell in path (closest to player) is our next step
+            cy, cx = best
         if not path:
             return False
-        best_ny, best_nx = path[-1]
+        # First step is last element of reversed path
+        ny, nx = path[-1]
+        dy, dx = ny - py, nx - px
+        dmap = {(-1,0):'N',(1,0):'S',(0,1):'E',(0,-1):'W',
+                (-1,1):'NE',(1,1):'SE',(1,-1):'SW',(-1,-1):'NW'}
+        name = dmap.get((dy, dx))
+        if name and name in self._name2idx:
+            self.step(self._name2idx[name])
+            return True
+        return False
 
-        if best_ny == -1:
-            return False
-
-        self._move_direction(best_ny - py, best_nx - px)
-        return True
-
-    def get_visible_monsters(self):
-        """Get list of visible monsters from glyphs."""
-        monsters = []
-        glyphs = self.glyphs
+    def get_monsters(self):
+        """Visible non-pet monsters with distance."""
         py, px = self.blstats.y, self.blstats.x
+        mons = []
         for r in range(MAP_H):
             for c in range(MAP_W):
                 if r == py and c == px:
-                    continue  # skip player
-                g = int(glyphs[r, c])
+                    continue
+                g = int(self.glyphs[r, c])
                 if GLYPH_MON_OFF <= g < GLYPH_PET_OFF:
-                    mon_id = g - GLYPH_MON_OFF
-                    name = nh.permonst(mon_id).mname if mon_id < NUMMONS else f"mon_{mon_id}"
-                    dist = max(abs(r - py), abs(c - px))
-                    monsters.append((dist, r, c, name, mon_id))
-        return sorted(monsters)
+                    mid = g - GLYPH_MON_OFF
+                    name = nh.permonst(mid).mname if mid < NUMMONS else f"mon{mid}"
+                    d = max(abs(r - py), abs(c - px))
+                    mons.append((d, r, c, name, mid))
+        return sorted(mons)
 
-    # ==========================================================
-    # High-level strategies
-    # ==========================================================
+    # ================================================================
+    # Strategies
+    # ================================================================
 
     def fight(self):
-        """Fight visible monsters. AutoAscend's fight2()."""
-        monsters = self.get_visible_monsters()
-        # Filter peacefuls
-        monsters = [(d, r, c, name, mid) for d, r, c, name, mid in monsters
-                     if name not in PEACEFUL_NAMES and mid not in PEACEFUL_IDS]
-        if not monsters:
+        """Fight or approach visible hostile monsters."""
+        mons = [(d,r,c,n,m) for d,r,c,n,m in self.get_monsters()
+                if n not in PEACEFUL_NAMES and m not in PEACEFUL_IDS]
+        if not mons:
             return False
-
         py, px = self.blstats.y, self.blstats.x
 
-        # Check for instakill adjacent
-        for d, r, c, name, mid in monsters:
-            if d <= 1 and name in INSTAKILL:
-                if not self._on_elbereth and self._elbereth_cooldown == 0:
-                    self.engrave_elbereth()
-                    return True
-                self.step(A.MiscDirection.WAIT)
-                return True
-
-        # Check for never-melee adjacent
-        for d, r, c, name, mid in monsters:
-            if d <= 1 and name in NEVER_MELEE:
+        # Adjacent monsters: melee them
+        adj = [(d,r,c,n,m) for d,r,c,n,m in mons if d <= 1]
+        for d, r, c, n, m in adj:
+            if n in INSTAKILL:
                 # Flee
-                dy = py - r
-                dx = px - c
-                self._move_direction(dy, dx)
-                return True
-
-        # Elbereth check
-        adj = [(d, r, c, name, mid) for d, r, c, name, mid in monsters if d <= 1]
-        if adj and self.blstats.hp < 30 and not self._on_elbereth and self._elbereth_cooldown == 0:
-            # Calculate elbereth priority inline (fight module expects different format)
-            adj_weight = 0.0
-            for d, r, c, name, mid in adj:
-                info = assess_monster(name, mid)
-                if info["peaceful"]:
-                    continue
-                hp_mult = min(20.0 / max(self.blstats.hp, 1), 2.0)
-                w = 0.2 if info["weak"] else (3.0 if info["danger"] >= 7 else 1.0)
-                adj_weight += w * hp_mult
-            hp_ratio = (self.blstats.hp / max(self.blstats.max_hp, 1)) ** 0.5
-            if -5 + 20 * adj_weight * (1 - hp_ratio) > 0:
-                self.engrave_elbereth()
-                return True
-
-        # On Elbereth: wait if HP low, otherwise move off
-        if self._on_elbereth:
-            if self.blstats.hp < self.blstats.max_hp * 0.8:
+                dy, dx = py - r, px - c
+                dmap = {(-1,0):'N',(1,0):'S',(0,1):'E',(0,-1):'W',
+                        (-1,1):'NE',(1,1):'SE',(1,-1):'SW',(-1,-1):'NW'}
+                name = dmap.get((dy, dx))
+                if name and name in self._name2idx:
+                    self.step(self._name2idx[name])
+                    return True
                 self.step(A.Command.SEARCH)
                 return True
-            self._on_elbereth = False
+            if n in NEVER_MELEE:
+                continue
+            # Melee
+            dy, dx = r - py, c - px
+            dmap = {(-1,0):'N',(1,0):'S',(0,1):'E',(0,-1):'W',
+                    (-1,1):'NE',(1,1):'SE',(1,-1):'SW',(-1,-1):'NW'}
+            name = dmap.get((dy, dx))
+            if name and name in self._name2idx:
+                self.step(self._name2idx[name])
+                # Eat corpse after kill
+                if 'kill' in self.message.lower() or 'destroy' in self.message.lower():
+                    if self.food.is_corpse_safe(n, self.resistances) and n != 'floating eye':
+                        # Step onto corpse and eat
+                        self.step(self._name2idx[name])  # step onto kill tile
+                        self.step(A.Command.EAT)
+                return True
 
-        # Melee adjacent target
-        if adj:
-            # Pick weakest non-peaceful, non-never-melee
-            targets = [(d, r, c, name, mid) for d, r, c, name, mid in adj
-                        if name not in NEVER_MELEE and name not in PEACEFUL_NAMES
-                        and mid not in PEACEFUL_IDS]
-            if targets:
-                _, tr, tc, tname, _ = targets[0]
-                dy = tr - py
-                dx = tc - px
-                # Wield best weapon before fighting
-                wep = self.equip.find_best_weapon(self.inventory)
-                if wep:
-                    self.step(A.Command.WIELD, iter(wep))
-                    return True
-                prev = self.step_count
-                self._move_direction(dy, dx)
-                if self.step_count > prev:
-                    # After kill: step onto corpse and eat
-                    if 'kill' in self.message.lower() or 'destroy' in self.message.lower():
-                        self._try_eat_corpse(tname, tr, tc)
-                    return True
-
-        # Approach nearest visible hostile
-        if monsters and monsters[0][0] <= 20 and self.blstats.hp > self.blstats.max_hp * 0.3:
-            d, tr, tc, name, mid = monsters[0]
+        # Approach nearest within 15 tiles
+        if mons[0][0] <= 15 and self.blstats.hp > self.blstats.max_hp * 0.3:
             dis = self.bfs()
-            if dis[tr, tc] != -1:
-                if self.go_to(tr, tc, dis):
+            d, r, c, n, m = mons[0]
+            if dis[r, c] != -1:
+                if self.step_toward(r, c, dis):
                     return True
-
         return False
 
-    def eat_corpses(self):
-        """Eat safe corpses on the ground."""
-        # Check if there's a corpse message
-        msg = self.message.lower()
-        if 'corpse' in msg and ('you see here' in msg or 'there is' in msg):
-            # Extract name
-            for pattern in ['you see here a ', 'you see here an ', 'there is a ', 'there is an ']:
-                if pattern in msg and 'corpse' in msg:
-                    after = msg.split(pattern, 1)[1]
-                    if 'corpse' in after:
-                        name = after.split(' corpse')[0].strip()
-                        if self.food.is_corpse_safe(name, self.resistances) and name != 'floating eye':
-                            self.step(A.Command.EAT)
-                            return True
-        return False
-
-    def eat_from_inventory(self):
-        """Eat food from inventory when hungry."""
-        hunger = self.blstats.hunger
-        if hunger < 2:  # not hungry
-            return False
-
-        FOOD_CLASS = 7
-        for letter, item_str in self.inventory.items():
-            if self.inv_oclasses.get(letter) != FOOD_CLASS:
-                continue
-            lower = item_str.lower()
-            if 'cursed' in lower:
-                continue
-            # Eat it
-            self.step(A.Command.EAT, iter(letter))
+    def emergency(self):
+        """Handle HP critical and starvation."""
+        bl = self.blstats
+        if bl.hp <= max(5, bl.max_hp // 3) and bl.time >= 300:
+            self.step(A.Command.PRAY)
             return True
+        if bl.hunger >= 4 and bl.time >= 300:  # fainting
+            self.step(A.Command.PRAY)
+            return True
+        if bl.hunger >= 2:  # hungry
+            FOOD = 7
+            for letter, item in self.inventory.items():
+                if self.inv_oclasses.get(letter) == FOOD and 'cursed' not in item.lower():
+                    self.step(A.Command.EAT, iter(letter))
+                    return True
         return False
 
     def explore(self):
-        """Explore current level: find frontier tiles, doors, stairs.
-        Also approaches visible hostile monsters as part of exploration."""
+        """Explore: open doors, go to frontier, search near walls, descend."""
         py, px = self.blstats.y, self.blstats.x
         dis = self.bfs()
 
-        # Approach visible hostile monsters (explore + fight integration)
-        monsters = self.get_visible_monsters()
-        hostiles = [(d, r, c, name, mid) for d, r, c, name, mid in monsters
-                    if name not in PEACEFUL_NAMES and mid not in PEACEFUL_IDS
-                    and name not in NEVER_MELEE]
-        if hostiles and self.blstats.hp > self.blstats.max_hp * 0.3:
-            d, tr, tc, name, mid = hostiles[0]  # nearest
-            if dis[tr, tc] != -1 and d <= 15:
-                if self.go_to(tr, tc, dis):
-                    return
-
-        # Find nearest closed door and go to it
-        best_door = None
-        best_door_d = 999999
-        for r in range(MAP_H):
-            for c in range(MAP_W):
-                g = int(self.glyphs[r, c])
-                cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
-                if cm in _CLOSED_DOOR_CMAPS and self.door_attempts[r, c] < 5:
-                    d = dis[r, c]
-                    if d != -1 and d < best_door_d:
-                        best_door_d = d
-                        best_door = (r, c)
-        if best_door and best_door_d > 1:
-            # Walk toward the door
-            if self.go_to(best_door[0], best_door[1], dis):
-                return
-
-        # Adjacent closed door: walk into it
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nr, nc = py + dy, px + dx
-            if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
+        # 1. Adjacent closed doors: open them
+        for dy, dx in [(-1,0),(1,0),(0,-1),(0,1)]:
+            nr, nc = py+dy, px+dx
+            if 0<=nr<MAP_H and 0<=nc<MAP_W:
                 g = int(self.glyphs[nr, nc])
-                cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
-                if cm in _CLOSED_DOOR_CMAPS and self.door_attempts[nr, nc] < 5:
-                    self.door_attempts[nr, nc] += 1
-                    self._move_direction(dy, dx)
-                    # If locked, kick it
-                    if 'locked' in self.message.lower():
-                        # KICK then direction
-                        kick_idx = self._act_by_name.get('KICK', 48)
-                        obs, r, done, trunc, info = self.env.step(kick_idx)
-                        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                        self.score += r
-                        self.step_count += 1
-                        if done or trunc:
-                            raise AgentFinished()
-                        # Send direction
-                        self._move_direction(dy, dx)
-                    return
+                if _cmap(g) in _CLOSED_DOOR and self.door_attempts[nr,nc] < 5:
+                    self.door_attempts[nr,nc] += 1
+                    dmap = {(-1,0):'N',(1,0):'S',(0,1):'E',(0,-1):'W'}
+                    name = dmap.get((dy,dx))
+                    if name and name in self._name2idx:
+                        self.step(self._name2idx[name])
+                        if 'locked' in self.message.lower():
+                            self.step(A.Command.KICK)
+                            self.step(self._name2idx[name])
+                        return
 
-        # Find frontier (walkable tile adjacent to unseen)
-        best_frontier = None
-        best_d = 999999
+        # 2. Go to nearest closed door
+        best_door, best_dd = None, 999
         for r in range(MAP_H):
             for c in range(MAP_W):
-                d = dis[r, c]
-                if d == -1 or d >= best_d or not self.walkable[r, c]:
+                if _cmap(int(self.glyphs[r,c])) in _CLOSED_DOOR and self.door_attempts[r,c]<5:
+                    d = dis[r,c]
+                    if d != -1 and d < best_dd:
+                        best_dd = d
+                        best_door = (r,c)
+        if best_door and best_dd > 1:
+            if self.step_toward(best_door[0], best_door[1], dis):
+                return
+
+        # 3. Go to nearest frontier
+        best_f, best_fd = None, 999
+        for r in range(MAP_H):
+            for c in range(MAP_W):
+                d = dis[r,c]
+                if d == -1 or d >= best_fd or not self.walkable[r,c]:
                     continue
-                for dy in (-1, 0, 1):
-                    for dx in (-1, 0, 1):
-                        if dy == 0 and dx == 0:
-                            continue
-                        nr, nc = r + dy, c + dx
-                        if 0 <= nr < MAP_H and 0 <= nc < MAP_W and not self.seen[nr, nc]:
-                            best_d = d
-                            best_frontier = (r, c)
+                for dy2 in (-1,0,1):
+                    for dx2 in (-1,0,1):
+                        if dy2==0 and dx2==0: continue
+                        nr, nc = r+dy2, c+dx2
+                        if 0<=nr<MAP_H and 0<=nc<MAP_W and not self.seen[nr,nc]:
+                            best_fd = d
+                            best_f = (r,c)
                             break
-                    if best_frontier and dis[best_frontier[0], best_frontier[1]] == best_d:
+                    if best_f and dis[best_f[0],best_f[1]] == best_fd:
                         break
-
-        if best_frontier:
-            if self.go_to(best_frontier[0], best_frontier[1], dis):
+        if best_f:
+            if self.step_toward(best_f[0], best_f[1], dis):
                 return
-            # go_to failed, fall through to search
 
-        # Find stairs down - descend when level explored or search exhausted
-        level_explored = (best_frontier is None) and (best_door is None)
-        total_s = int(self.search_count.sum())
-        can_descend = (
-            self.blstats.hp > self.blstats.max_hp * 0.5 and
-            (level_explored or total_s > 50)
-        )
-
-        if can_descend:
-            for r in range(MAP_H):
-                for c in range(MAP_W):
-                    g = int(self.glyphs[r, c])
-                    cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
-                    if cm in (24, 26):  # dnstair, dnladder
-                        if dis[r, c] != -1:
-                            if self.go_to(r, c, dis):
-                                if (self.blstats.y, self.blstats.x) == (r, c):
-                                    down_idx = self._act_by_val.get(int(A.MiscDirection.DOWN))
-                                    if down_idx is not None:
-                                        obs, r2, done, trunc, info = self.env.step(down_idx)
-                                        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                                        self.score += r2
-                                        self.step_count += 1
-                                        if done or trunc:
-                                            raise AgentFinished()
-                                        self._update_state()
-                                return
-
-        # AutoAscend-style search: go to best wall-adjacent tile to search
-        # Priority: tiles near stone/walls, penalize already-searched, boost dead-ends
-        py, px = self.blstats.y, self.blstats.x
-        best_search = None
-        best_prio = -999999
+        # 4. Descend if explored
         for r in range(MAP_H):
             for c in range(MAP_W):
-                if not self.walkable[r, c] or dis[r, c] == -1:
-                    continue
-                # Count adjacent stone/wall tiles
-                adj_stone = 0
-                for dy2 in (-1, 0, 1):
-                    for dx2 in (-1, 0, 1):
-                        if dy2 == 0 and dx2 == 0:
-                            continue
-                        nr, nc = r + dy2, c + dx2
-                        if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
-                            if not self.seen[nr, nc]:
-                                adj_stone += 1
-                            g2 = int(self.glyphs[nr, nc])
-                            cm2 = g2 - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g2 < GLYPH_CMAP_OFF + 87 else -1
-                            if cm2 in _WALL_CMAPS or cm2 == 0:
-                                adj_stone += 1
-                if adj_stone == 0:
-                    continue
-                prio = adj_stone * 10 - self.search_count[r, c] ** 2 * 2 - dis[r, c]
-                if prio > best_prio:
-                    best_prio = prio
-                    best_search = (r, c)
+                cm = _cmap(int(self.glyphs[r,c]))
+                if cm in (24, 26) and dis[r,c] != -1:  # stairs down
+                    if self.blstats.hp > self.blstats.max_hp * 0.5:
+                        if self.step_toward(r, c, dis):
+                            if (self.blstats.y, self.blstats.x) == (r, c):
+                                self.step(A.MiscDirection.DOWN)
+                            return
 
-        if best_search and best_search != (py, px):
-            if self.go_to(best_search[0], best_search[1], dis):
+        # 5. Search near walls (AutoAscend search priority)
+        best_s, best_sp = None, -999
+        for r in range(MAP_H):
+            for c in range(MAP_W):
+                if not self.walkable[r,c] or dis[r,c] == -1:
+                    continue
+                adj = 0
+                for dy2 in (-1,0,1):
+                    for dx2 in (-1,0,1):
+                        if dy2==0 and dx2==0: continue
+                        nr, nc = r+dy2, c+dx2
+                        if 0<=nr<MAP_H and 0<=nc<MAP_W:
+                            cm2 = _cmap(int(self.glyphs[nr,nc]))
+                            if cm2 in _WALL or cm2 == 0 or not self.seen[nr,nc]:
+                                adj += 1
+                if adj == 0:
+                    continue
+                p = adj * 10 - self.search_count[r,c]**2 * 2 - dis[r,c]
+                if p > best_sp:
+                    best_sp = p
+                    best_s = (r,c)
+
+        if best_s and best_s != (py,px):
+            if self.step_toward(best_s[0], best_s[1], dis):
                 return
 
-        # Search at current position
-        self.search_count[self.blstats.y, self.blstats.x] += 1
-        search_idx = self._act_by_name.get('SEARCH', 75)
-        obs, r, done, trunc, info = self.env.step(search_idx)
-        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-        self.score += r
-        self.step_count += 1
-        if done or trunc or self.step_count > 50000:
-            raise AgentFinished()
-        self._update_state()
-
-    def emergency(self):
-        """Handle emergencies: low HP, starvation."""
-        bl = self.blstats
-        # HP critical
-        if bl.hp <= max(5, bl.max_hp // 3):
-            # Try prayer
-            if bl.time >= 300:  # rough prayer safety
-                self.step(A.Command.PRAY)
-                return True
-            # Quaff healing potion
-            POTION_CLASS = 8
-            for letter, item_str in self.inventory.items():
-                if self.inv_oclasses.get(letter) != POTION_CLASS:
-                    continue
-                if any(h in item_str.lower() for h in ['healing', 'extra healing', 'full healing']):
-                    self.step(A.Command.QUAFF, iter(letter))
-                    return True
-
-        # Starvation
-        if bl.hunger >= 4:  # fainting
-            if bl.time >= 300:
-                self.step(A.Command.PRAY)
-                return True
-            self.step(A.MiscDirection.WAIT)
-            return True
-
-        if bl.hunger >= 2:  # hungry
-            if self.eat_from_inventory():
-                return True
-
-        return False
-
-    def dip_for_excalibur(self):
-        """Dip long sword in fountain for Excalibur."""
-        if self.has_excalibur or self.blstats.xl < 7:
-            return False
-
-        # Check if on fountain
-        py, px = self.blstats.y, self.blstats.x
-        g = int(self.objects[py, px])
-        cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
-        if cm != 31:  # not fountain
-            return False
-
-        # Find long sword
-        for letter, item_str in self.inventory.items():
-            if 'long sword' in item_str.lower() and 'cursed' not in item_str.lower():
-                self.step(A.Command.DIP, iter(letter))
-                return True
-
-        return False
-
-    def rest(self):
-        """Rest to recover HP."""
-        bl = self.blstats
-        if bl.hp >= bl.max_hp * 0.6:
-            return False
-        if bl.hunger >= 2:  # don't rest while hungry
-            return False
-        # Write Elbereth before resting
-        if not self._on_elbereth and self._elbereth_cooldown == 0:
-            self.engrave_elbereth()
+        # 6. Search at current position
+        self.search_count[py, px] += 1
         self.step(A.Command.SEARCH)
-        return True
 
-    # ==========================================================
-    # Multi-step actions
-    # ==========================================================
-
-    def engrave_elbereth(self):
-        """Write Elbereth in the dust."""
-        def gen():
-            yield '-'  # write with fingers
-            # Handle prompts in update()
-            yield from 'Elbereth'
-            yield '\r'
-
-        self.step(A.Command.ENGRAVE, gen())
-        self._on_elbereth = True
-
-    def _try_eat_corpse(self, name, row, col):
-        """Try to eat a corpse after killing."""
-        if self._eat_cooldown > 0:
-            return
-        if self.blstats.hunger == 0:  # satiated
-            return
-        if not self.food.is_corpse_safe(name, self.resistances):
-            return
-        if name == 'floating eye':
-            return
-
-        # Step onto corpse tile and eat
-        py, px = self.blstats.y, self.blstats.x
-        if (py, px) != (row, col):
-            dy = row - py
-            dx = col - px
-            if abs(dy) <= 1 and abs(dx) <= 1:
-                self._move_direction(dy, dx)
-
-        # Eat using direct env.step
-        eat_idx = self._act_by_val.get(int(A.Command.EAT))
-        if eat_idx is not None:
-            obs, r, done, trunc, info = self.env.step(eat_idx)
-            self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-            self.score += r
-            self.step_count += 1
-            if done or trunc or self.step_count > 50000:
-                raise AgentFinished()
-            # Handle eat prompt: answer 'y' to "eat it?"
-            misc = obs.get('misc', [0, 0, 0])
-            msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
-            self.message = msg
-            if misc[2] and 'eat' in msg.lower():
-                y_idx = self._act_by_val.get(ord('y'))
-                if y_idx:
-                    obs, r2, done, trunc, info = self.env.step(y_idx)
-                    self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                    self.score += r2
-                    self.step_count += 1
-                    if done or trunc:
-                        raise AgentFinished()
-            self._update_state()
-
-    def _do_search(self):
-        """Guaranteed step: direct env.step(SEARCH) with prompt clearing."""
-        search_idx = self._act_by_name.get('SEARCH', 75)
-        obs, r, done, trunc, info = self.env.step(search_idx)
-        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-        self.score += r
-        self.step_count += 1
-        if done or trunc or self.step_count > 50000:
-            raise AgentFinished()
-        # Clear prompts
-        misc = obs.get('misc', [0, 0, 0])
-        msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
-        for _ in range(10):
-            if not misc[0] and '--More--' not in msg and not misc[1] and not misc[2]:
-                break
-            if misc[1]:  # getlin - ESC
-                esc_idx = self._act_by_val.get(27, 38)
-                obs, r2, done, trunc, info = self.env.step(esc_idx)
-            elif misc[2]:  # yn - default yes
-                y_idx = self._act_by_val.get(ord('y'))
-                obs, r2, done, trunc, info = self.env.step(y_idx)
-            else:  # space for --More--/xwait
-                space_idx = self._act_by_val.get(32, 19)
-                obs, r2, done, trunc, info = self.env.step(space_idx)
-            self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-            self.score += r2
-            self.step_count += 1
-            if done or trunc or self.step_count > 50000:
-                raise AgentFinished()
-            misc = obs.get('misc', [0, 0, 0])
-            msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
-        self.message = msg
-        self._update_state()
-
-    def _move_direction(self, dy, dx):
-        """Move in a direction. Validates target is walkable first."""
-        py, px = self.blstats.y, self.blstats.x
-        ny, nx = py + dy, px + dx
-        # Don't move off map or into known walls
-        if not (0 <= ny < MAP_H and 0 <= nx < MAP_W):
-            return
-        if self.seen[ny, nx] and not self.walkable[ny, nx]:
-            # Check if it's a closed door (walkable for opening)
-            g = int(self.glyphs[ny, nx])
-            cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
-            if cm not in _CLOSED_DOOR_CMAPS:
-                return  # wall or boulder, don't try
-
-        direction_map = {
-            (-1, 0): 'N', (1, 0): 'S', (0, 1): 'E', (0, -1): 'W',
-            (-1, 1): 'NE', (1, 1): 'SE', (1, -1): 'SW', (-1, -1): 'NW',
-        }
-        name = direction_map.get((dy, dx))
-        if name:
-            idx = self._act_by_name.get(name)
-            if idx is not None:
-                obs, r, done, trunc, info = self.env.step(idx)
-                self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                self.score += r
-                self.step_count += 1
-                if done or trunc or self.step_count > 50000:
-                    raise AgentFinished()
-                # Handle prompts from the move
-                misc = obs.get('misc', [0, 0, 0])
-                msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
-                self.message = msg
-                # Auto-handle common prompts
-                while misc[0] or '--More--' in msg:
-                    space_idx = self._act_by_val.get(32, 19)  # ASCII space
-                    obs, r2, done, trunc, info = self.env.step(space_idx)
-                    self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                    self.score += r2
-                    self.step_count += 1
-                    if done or trunc or self.step_count > 50000:
-                        raise AgentFinished()
-                    misc = obs.get('misc', [0, 0, 0])
-                    msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
-                    self.message = msg
-                # Handle yn prompts
-                while misc[2]:
-                    if 'Really attack' in msg:
-                        resp = self._act_by_val.get(ord('n'))
-                    elif 'eat' in msg.lower() and '[yn]' in msg:
-                        resp = self._act_by_val.get(ord('y'))
-                    else:
-                        resp = self._act_by_val.get(ord('y'))  # default yes
-                    if resp is not None:
-                        obs, r2, done, trunc, info = self.env.step(resp)
-                        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                        self.score += r2
-                        self.step_count += 1
-                        if done or trunc or self.step_count > 50000:
-                            raise AgentFinished()
-                        misc = obs.get('misc', [0, 0, 0])
-                        msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
-                        self.message = msg
-                        # Also clear --More-- after yn
-                        while misc[0] or '--More--' in msg:
-                            space_idx = self._act_by_val.get(32, 19)
-                            obs, r3, done, trunc, info = self.env.step(space_idx)
-                            self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                            self.score += r3
-                            self.step_count += 1
-                            if done or trunc or self.step_count > 50000:
-                                raise AgentFinished()
-                            misc = obs.get('misc', [0, 0, 0])
-                            msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
-                            self.message = msg
-                    else:
-                        break
-                self._update_state()
-
-    # ==========================================================
-    # Main loop
-    # ==========================================================
+    # ================================================================
+    # Main loop (AutoAscend agent.py:1517-1567)
+    # ================================================================
 
     def main(self):
-        """Main game loop. Runs until episode ends."""
         try:
-            # Initial setup: reset and clear any initial prompts
             obs, info = self.env.reset(seed=self.seed)
-            self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-            self._update_state()  # just parse state, no prompt handling
-            print(f"  INIT: steps={self.step_count} walkable={int(self.walkable.sum())} seen={int(self.seen.sum())}")
+            self.obs = obs
+            self._update_game_state()
 
-            # Main loop
             while True:
-                if self.step_count > 50000:
-                    raise AgentFinished()
                 try:
-                    total_s = int(self.search_count.sum())
-                    self.strategy.update(
-                        self.blstats.depth, self.blstats.xl,
-                        self.blstats.hp, self.blstats.max_hp,
-                        self.has_excalibur, False, total_s, True)
-
-                    prev_turn = self.blstats.time if self.blstats else 0
                     if self.emergency():
                         continue
                     if self.fight():
                         continue
-                    if self.eat_corpses():
-                        continue
-                    if self.dip_for_excalibur():
-                        continue
-                    if self.rest():
-                        continue
                     self.explore()
-                    # If nothing advanced the turn, force search
-                    cur_turn = self.blstats.time if self.blstats else 0
-                    if cur_turn == prev_turn:
-                        self._do_search()
-
-                except RuntimeError as e:
-                    if 'Stuck' in str(e):
-                        self._inactivity = 0
-                        search_idx = self._act_by_name.get('SEARCH', 75)
-                        obs, r, done, trunc, info = self.env.step(search_idx)
-                        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                        self.score += r
-                        self.step_count += 1
-                        if done or trunc:
-                            raise AgentFinished()
-                        self._update_state()
-                    else:
-                        raise
+                except RuntimeError:
+                    self.step(A.Command.SEARCH)
 
         except AgentFinished:
             pass
-
         return self.score

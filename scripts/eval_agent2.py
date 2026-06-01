@@ -22,8 +22,8 @@ def make_env(character="val-hum-fem-law"):
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",
         ),
         character=character,
-        max_episode_steps=50000,
-        no_progress_timeout=50000,
+        max_episode_steps=100000,
+        no_progress_timeout=10000,
     )
 
 
