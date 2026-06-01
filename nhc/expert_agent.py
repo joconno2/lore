@@ -887,6 +887,12 @@ class ExpertAgent:
         # Scan inventory for food / lizard
         self._check_inventory(s)
 
+        # When fainted, just wait. Don't let inactivity guard interfere.
+        if s.hunger_state in ("fainted", "starved"):
+            self.last_action = Actions.WAIT
+            self._prev_turn = s.turn
+            return Actions.WAIT
+
         # After a kill, eat the corpse immediately (before combat cascade)
         # Skip monsters that rarely leave corpses
         _NO_CORPSE = {"grid bug", "gas spore", "yellow light", "black light",
