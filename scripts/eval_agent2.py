@@ -30,11 +30,7 @@ def make_env(character="val-hum-fem-law"):
 def run_episode(env, seed=0, verbose=False):
     agent = AgentV2(env, verbose=verbose, seed=seed)
     t0 = time.time()
-    try:
-        agent.main()
-    except Exception as e:
-        if verbose:
-            print(f"Episode ended: {e}")
+    agent.main()
 
     bl = agent.blstats
     elapsed = time.time() - t0
