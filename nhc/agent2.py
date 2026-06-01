@@ -390,27 +390,36 @@ class AgentV2:
         if dis[ty, tx] == -1:
             return False
 
-        # Take one step toward target.
-        # BFS is from player, so we need the adjacent walkable cell
-        # that's closest to the target in BFS distance.
-        # Reconstruct: from target, trace back to player.
-        # Simpler: pick adjacent cell that reduces BFS distance to target.
-        # Since BFS is from player: adjacent cells have dis=1.
-        # We want the one where a BFS from THAT cell would have the
-        # shortest distance to target. Approximate: pick the adjacent
-        # cell closest to target by Manhattan distance.
-        best_ny, best_nx = -1, -1
-        best_d = 999999
-        for ddy in (-1, 0, 1):
-            for ddx in (-1, 0, 1):
-                if ddy == 0 and ddx == 0:
-                    continue
-                ny, nx = py + ddy, px + ddx
-                if 0 <= ny < MAP_H and 0 <= nx < MAP_W and dis[ny, nx] != -1:
-                    target_d = abs(ny - ty) + abs(nx - tx)
-                    if target_d < best_d:
-                        best_d = target_d
-                        best_ny, best_nx = ny, nx
+        # Take one step toward target using BFS path reconstruction.
+        # Trace back from target to player: find cell adjacent to player
+        # that's on the shortest BFS path.
+        # Method: from target, follow gradient of decreasing BFS distance
+        # until we reach a cell adjacent to player.
+        cur_y, cur_x = ty, tx
+        path = [(ty, tx)]
+        for _ in range(200):  # safety limit
+            if abs(cur_y - py) <= 1 and abs(cur_x - px) <= 1:
+                break
+            best_ny2, best_nx2 = -1, -1
+            best_d2 = dis[cur_y, cur_x]
+            for ddy in (-1, 0, 1):
+                for ddx in (-1, 0, 1):
+                    if ddy == 0 and ddx == 0:
+                        continue
+                    ny, nx = cur_y + ddy, cur_x + ddx
+                    if 0 <= ny < MAP_H and 0 <= nx < MAP_W and dis[ny, nx] != -1:
+                        if dis[ny, nx] < best_d2:
+                            best_d2 = dis[ny, nx]
+                            best_ny2, best_nx2 = ny, nx
+            if best_ny2 == -1:
+                return False
+            cur_y, cur_x = best_ny2, best_nx2
+            path.append((cur_y, cur_x))
+
+        # The last cell in path (closest to player) is our next step
+        if not path:
+            return False
+        best_ny, best_nx = path[-1]
 
         if best_ny == -1:
             return False

@@ -83,8 +83,13 @@ def main():
     print(f"  Time:   {time.time() - t0:.0f}s total")
 
     if args.output:
+        # Convert numpy types for JSON
+        clean = []
+        for r in results:
+            clean.append({k: int(v) if hasattr(v, 'item') else float(v) if isinstance(v, float) else v
+                          for k, v in r.items()})
         with open(args.output, "w") as f:
-            json.dump({"episodes": results}, f, indent=2)
+            json.dump({"episodes": clean}, f, indent=2)
         print(f"  Saved to {args.output}")
 
 
