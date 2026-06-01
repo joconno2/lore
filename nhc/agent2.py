@@ -514,8 +514,9 @@ class AgentV2:
         dmap = {(-1,0):'N',(1,0):'S',(0,1):'E',(0,-1):'W'}
         name = dmap.get((dy, dx))
         if name and name in self._name2idx:
-            # KICK command, then direction
-            self.step(A.Command.KICK, gen=iter([self._name2idx[name]]))
+            # KICK sends the action, then the direction is the next action
+            self.step(A.Command.KICK)
+            self.step(self._name2idx[name])
 
     def get_monsters(self):
         """Visible non-pet monsters with distance."""
@@ -940,12 +941,26 @@ class AgentV2:
             except AgentFinished:
                 raise
 
+            stall_turn = -1
+            stall_count = 0
             while True:
                 try:
                     # Check descent after every action
-                    if self._on_stairs_down() and self._level_turns > 20:
+                    if self._on_stairs_down() and self._level_turns > 15:
                         self.step(A.MiscDirection.DOWN)
                         continue
+
+                    # Stall detection: if turn doesn't advance, force search
+                    cur_turn = self.blstats.time if self.blstats else 0
+                    if cur_turn == stall_turn:
+                        stall_count += 1
+                        if stall_count > 3:
+                            self.step(A.Command.SEARCH)
+                            stall_count = 0
+                            continue
+                    else:
+                        stall_turn = cur_turn
+                        stall_count = 0
 
                     if self.emergency():
                         continue
