@@ -725,6 +725,17 @@ class AgentV2:
 
         self.step(A.Command.EAT)
 
+    def _do_search(self):
+        """Guaranteed step: direct env.step(SEARCH)."""
+        search_idx = self._act_by_name.get('SEARCH', 75)
+        obs, r, done, trunc, info = self.env.step(search_idx)
+        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+        self.score += r
+        self.step_count += 1
+        if done or trunc or self.step_count > 15000:
+            raise AgentFinished()
+        self._update_state()
+
     def _move_direction(self, dy, dx):
         """Move in a direction."""
         direction_map = {
@@ -765,6 +776,8 @@ class AgentV2:
 
             # Now run the real loop
             while True:
+                if self.step_count > 15000:
+                    raise AgentFinished()
                 try:
                     total_s = int(self.search_count.sum())
                     self.strategy.update(
@@ -772,15 +785,26 @@ class AgentV2:
                         self.blstats.hp, self.blstats.max_hp,
                         self.has_excalibur, False, total_s, True)
 
+                    prev = self.step_count
                     if self.emergency():
+                        if self.step_count == prev:
+                            self._do_search()
                         continue
                     if self.fight():
+                        if self.step_count == prev:
+                            self._do_search()
                         continue
                     if self.eat_corpses():
+                        if self.step_count == prev:
+                            self._do_search()
                         continue
                     if self.dip_for_excalibur():
+                        if self.step_count == prev:
+                            self._do_search()
                         continue
                     if self.rest():
+                        if self.step_count == prev:
+                            self._do_search()
                         continue
                     self.explore()
 
