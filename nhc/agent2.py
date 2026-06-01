@@ -268,6 +268,10 @@ class AgentV2:
                 elif cm == 0:  # stone
                     pass  # unseen
 
+        # Player's position is always walkable
+        self.walkable[py, px] = True
+        self.seen[py, px] = True
+
         # Mark adjacent stone as seen
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
