@@ -359,6 +359,8 @@ _INSTAKILL = {
     "purple worm",  # engulf
 }
 _WEAK = {"lichen", "newt", "shrieker", "grid bug"}
+_NO_CORPSE = {"grid bug", "gas spore", "yellow light", "black light",
+              "flaming sphere", "freezing sphere", "shocking sphere"}
 _WEIRD = {"leprechaun", "nymph"}  # steal items, avoid melee
 
 @dataclass
@@ -448,8 +450,10 @@ class ExpertAgent:
         self._last_target: Optional[tuple] = None
         self._search_count_map = np.zeros((MAP_H, MAP_W), dtype=np.int32)
         self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
-        self._kick_dir: Optional[int] = None  # direction to kick when prompted
-        self._refused_attacks: set = set()  # monster names we refused to attack (peacefuls)
+        self._kick_dir: Optional[int] = None
+        self._refused_attacks: set = set()
+        # Corpse tracking: (row, col) -> (monster_name, turn_killed)
+        self._corpse_map: dict = {}
         self._refused_positions: set = set()  # positions we shouldn't walk to (peacefuls there)
         self._eat_cooldown: int = 0  # steps to skip eating after a failed eat
         self._throw_cooldown: int = 0  # steps to skip throwing after an attempt
@@ -536,6 +540,7 @@ class ExpertAgent:
         self._refused_attacks = set()
         self._refused_positions = set()
         self._eat_cooldown = 0
+        self._corpse_map = {}
         self._throw_cooldown = 0
         self._pending_sequence = []
         self._on_elbereth = False
@@ -894,9 +899,6 @@ class ExpertAgent:
             return Actions.WAIT
 
         # After a kill, eat the corpse immediately (before combat cascade)
-        # Skip monsters that rarely leave corpses
-        _NO_CORPSE = {"grid bug", "gas spore", "yellow light", "black light",
-                      "flaming sphere", "freezing sphere", "shocking sphere"}
         if self._just_killed and self._eat_cooldown == 0 and s.hunger_state != "satiated":
             corpse_name = self._just_killed
             self._just_killed = None
@@ -969,6 +971,15 @@ class ExpertAgent:
                     stats["kills"] += 1
                     stats["kill_names"].append(name)
                     self._just_killed = name
+                    # Track corpse location (at last action's target tile)
+                    if self.last_action in Actions.MOVE_DELTAS:
+                        dd = Actions.MOVE_DELTAS[self.last_action]
+                        cy = s.position[0] + dd[0]
+                        cx = s.position[1] + dd[1]
+                        if 0 <= cy < MAP_H and 0 <= cx < MAP_W:
+                            is_undead = any(u in name for u in ["zombie", "mummy", "skeleton", "wraith", "vampire", "ghost", "shade"])
+                            if not is_undead and name not in _NO_CORPSE:
+                                self._corpse_map[(cy, cx)] = (name, s.turn)
                     if self.verbose:
                         self._log("KILL", f"{name} ({stats['kills']} total)")
                     break
@@ -1040,6 +1051,9 @@ class ExpertAgent:
         if "this corpse tastes" in lower or "this corpse is" in lower or \
            "you bite into the" in lower:
             stats["corpses_eaten"] += 1
+            # Remove eaten corpse from tracking
+            py, px = s.position
+            self._corpse_map.pop((py, px), None)
 
         # HP tracking: significant drops
         if self._prev_hp > 0 and s.hp < self._prev_hp:
@@ -1065,6 +1079,7 @@ class ExpertAgent:
             self._door_open_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
             self._cached_path = None
             self._stuck_moves = 0
+            self._corpse_map = {}  # corpses are per-level
             self._refused_positions = set()
         if s.xlevel != self._prev_xlevel:
             if self.verbose:
@@ -1212,6 +1227,7 @@ class ExpertAgent:
             ("P3b-corpse", self._p5_corpse_intrinsics),  # eat corpses before pickup
             ("P4-items", self._p4_items),
             ("P4b-equip", self._p4b_equipment),
+            ("P5-seek-corpse", self._p5_seek_corpse),
             ("P5b-rest", self._p5b_rest),
             ("P6-nav", self._p6_navigation),
         ]
@@ -1817,6 +1833,68 @@ class ExpertAgent:
             self._pending_action = "eat"
             self._last_action_reason = f"eating {corpse_name} ({reason})"
             return Actions.EAT
+
+        return None
+
+    # ----------------------------------------------------------
+    # P5-seek: Walk to known corpses to eat them
+    # ----------------------------------------------------------
+
+    def _p5_seek_corpse(self, s) -> Optional[int]:
+        """Walk to nearest known fresh corpse and eat it.
+        AutoAscend tracks corpses and walks to them proactively."""
+        if self._eat_cooldown > 0:
+            return None
+        if s.hunger_state == "satiated":
+            return None
+        if s.has_adjacent_monsters:
+            return None  # fight first
+        if not self._corpse_map:
+            return None
+
+        py, px = s.position
+        # Remove stale corpses (> 50 turns old) and eaten ones
+        stale = []
+        for pos, (name, turn) in self._corpse_map.items():
+            if s.turn - turn > 50:
+                stale.append(pos)
+        for pos in stale:
+            del self._corpse_map[pos]
+
+        if not self._corpse_map:
+            return None
+
+        # If we're ON a corpse, eat it
+        if (py, px) in self._corpse_map:
+            name, turn = self._corpse_map[(py, px)]
+            if self._corpse_safe_to_eat(name) and name != "floating eye":
+                del self._corpse_map[(py, px)]
+                self._pending_action = "eat"
+                self._last_action_reason = f"eating tracked {name} corpse"
+                return Actions.EAT
+
+        # Find nearest reachable corpse
+        glyphs = s._glyphs
+        if glyphs is None:
+            return None
+        walkable, walkable_diag = self._build_nav_masks(glyphs)
+        dis = _bfs_distances(py, px, walkable, walkable_diag)
+
+        best_pos, best_d = None, 999999
+        for pos, (name, turn) in self._corpse_map.items():
+            if not self._corpse_safe_to_eat(name) or name == "floating eye":
+                continue
+            r, c = pos
+            d = dis[r, c]
+            if d != -1 and d < best_d and d < 20:  # max 20 tiles
+                best_d, best_pos = d, pos
+
+        if best_pos is not None:
+            step = self._step_toward(py, px, best_pos, dis, walkable, walkable_diag)
+            if step is not None:
+                name = self._corpse_map[best_pos][0]
+                self._last_action_reason = f"seeking {name} corpse at {best_pos}"
+                return step
 
         return None
 
