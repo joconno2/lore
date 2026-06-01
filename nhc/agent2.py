@@ -504,8 +504,8 @@ class AgentV2:
                         self._try_eat_corpse(tname, tr, tc)
                     return True
 
-        # Approach nearest if within 7 tiles
-        if monsters and monsters[0][0] <= 7 and self.blstats.hp > self.blstats.max_hp * 0.3:
+        # Approach nearest visible hostile
+        if monsters and monsters[0][0] <= 20 and self.blstats.hp > self.blstats.max_hp * 0.3:
             d, tr, tc, name, mid = monsters[0]
             dis = self.bfs()
             if dis[tr, tc] != -1:
@@ -737,7 +737,7 @@ class AgentV2:
         self._update_state()
 
     def _move_direction(self, dy, dx):
-        """Move in a direction."""
+        """Move in a direction. Uses direct env.step for reliability."""
         direction_map = {
             (-1, 0): 'N', (1, 0): 'S', (0, 1): 'E', (0, -1): 'W',
             (-1, 1): 'NE', (1, 1): 'SE', (1, -1): 'SW', (-1, -1): 'NW',
@@ -746,7 +746,41 @@ class AgentV2:
         if name:
             idx = self._act_by_name.get(name)
             if idx is not None:
-                self.step(1000 + idx)
+                obs, r, done, trunc, info = self.env.step(idx)
+                self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+                self.score += r
+                self.step_count += 1
+                if done or trunc or self.step_count > 15000:
+                    raise AgentFinished()
+                # Handle prompts from the move
+                misc = obs.get('misc', [0, 0, 0])
+                msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
+                self.message = msg
+                # Auto-handle common prompts
+                while misc[0] or '--More--' in msg:
+                    space_idx = self._act_by_val.get(32, 19)  # ASCII space
+                    obs, r2, done, trunc, info = self.env.step(space_idx)
+                    self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+                    self.score += r2
+                    self.step_count += 1
+                    if done or trunc or self.step_count > 15000:
+                        raise AgentFinished()
+                    misc = obs.get('misc', [0, 0, 0])
+                    msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
+                    self.message = msg
+                # Handle "Really attack" yn prompts
+                if misc[2] and 'Really attack' in msg:
+                    n_idx = self._act_by_val.get(ord('n'))
+                    if n_idx is not None:
+                        obs, r2, done, trunc, info = self.env.step(n_idx)
+                        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+                        self.score += r2
+                        self.step_count += 1
+                        if done or trunc:
+                            raise AgentFinished()
+                        msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
+                        self.message = msg
+                self._update_state()
 
     # ==========================================================
     # Main loop
