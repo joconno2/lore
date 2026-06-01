@@ -574,10 +574,18 @@ class AgentV2:
                 if cm in _CLOSED_DOOR_CMAPS and self.door_attempts[nr, nc] < 5:
                     self.door_attempts[nr, nc] += 1
                     self._move_direction(dy, dx)
-                    # If locked, kick
+                    # If locked, kick it
                     if 'locked' in self.message.lower():
-                        self.step(A.Command.KICK)
-                        self._move_direction(dy, dx)  # direction for kick
+                        # KICK then direction
+                        kick_idx = self._act_by_name.get('KICK', 48)
+                        obs, r, done, trunc, info = self.env.step(kick_idx)
+                        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+                        self.score += r
+                        self.step_count += 1
+                        if done or trunc:
+                            raise AgentFinished()
+                        # Send direction
+                        self._move_direction(dy, dx)
                     return
 
         # Find frontier (walkable tile adjacent to unseen)
