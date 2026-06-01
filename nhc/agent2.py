@@ -395,6 +395,15 @@ class AgentV2:
         name = dmap.get((dy, dx))
         if name and name in self._name2idx:
             self.step(self._name2idx[name])
+            # If diagonal failed (door), retry with cardinal
+            if 'diagonally' in self.message.lower() and abs(dy) + abs(dx) > 1:
+                for cdy, cdx in [(dy, 0), (0, dx)]:
+                    if cdy == 0 and cdx == 0:
+                        continue
+                    cname = dmap.get((cdy, cdx))
+                    if cname and cname in self._name2idx:
+                        self.step(self._name2idx[cname])
+                        return True
             return True
         return False
 
