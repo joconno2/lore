@@ -468,6 +468,9 @@ class AgentV2:
             # Melee
             dy, dx = r - py, c - px
             self._move_dir(dy, dx)
+            # After kill: step onto corpse tile (initial_message triggers eating in main loop)
+            if hasattr(self, 'initial_message') and 'kill' in (self.initial_message or '').lower():
+                self._move_dir(dy, dx)  # step onto where monster was
             return True
 
         # Approach nearest within 15 tiles
