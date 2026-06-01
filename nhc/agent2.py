@@ -105,7 +105,8 @@ class AgentV2:
         """Raw env.step with blstats copy."""
         obs, reward, done, truncated, info = self.env.step(idx)
         self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-        bl = obs.get('blstats')
+        # Read blstats from COPIED obs, not raw (NLE reuses arrays)
+        bl = self.obs.get('blstats')
         if bl is not None:
             self._raw_bl = bl.copy()
         self.score += reward
