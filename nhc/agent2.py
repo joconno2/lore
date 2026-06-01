@@ -678,17 +678,21 @@ class AgentV2:
                                         self._update_state()
                                 return
 
-        # Try moving toward unseen tiles before searching
+        # Random walk: pick any walkable adjacent tile to explore further
         py, px = self.blstats.y, self.blstats.x
         import random
-        dirs = [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)]
-        random.shuffle(dirs)
-        for dy, dx in dirs:
-            ny, nx = py+dy, px+dx
-            if 0 <= ny < MAP_H and 0 <= nx < MAP_W:
-                if not self.seen[ny, nx] or (self.walkable[ny, nx] and self.search_count[ny, nx] < self.search_count[py, px]):
-                    self._move_direction(dy, dx)
-                    return
+        candidates = []
+        for dy in (-1,0,1):
+            for dx in (-1,0,1):
+                if dy == 0 and dx == 0:
+                    continue
+                ny, nx = py+dy, px+dx
+                if 0 <= ny < MAP_H and 0 <= nx < MAP_W and self.walkable[ny, nx]:
+                    candidates.append((dy, dx))
+        if candidates:
+            dy, dx = random.choice(candidates)
+            self._move_direction(dy, dx)
+            return
 
         # Search (always advances a turn)
         self.search_count[self.blstats.y, self.blstats.x] += 1
