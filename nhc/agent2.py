@@ -468,9 +468,6 @@ class AgentV2:
             # Melee
             dy, dx = r - py, c - px
             self._move_dir(dy, dx)
-            # After kill: step onto corpse tile (initial_message triggers eating in main loop)
-            if hasattr(self, 'initial_message') and 'kill' in (self.initial_message or '').lower():
-                self._move_dir(dy, dx)  # step onto where monster was
             return True
 
         # Approach nearest within 15 tiles
@@ -623,16 +620,7 @@ class AgentV2:
                 try:
                     if self.emergency():
                         continue
-                    # Eat corpse on ground if initial_message mentions one
-                    last_eat = getattr(self, '_last_eat_turn', -100)
-                    if self.blstats.time - last_eat > 5:
-                        msg_check = getattr(self, 'initial_message', '') or ''
-                        if 'corpse' in msg_check.lower() and \
-                           ('you see here' in msg_check.lower() or 'there is' in msg_check.lower()):
-                            if self.blstats.hunger != 0:  # not satiated
-                                self._last_eat_turn = self.blstats.time
-                                self.step(A.Command.EAT)
-                                continue
+                    # Ground corpse eating disabled (getlin env handling blocks it)
                     if self.fight():
                         continue
                     self.explore()
