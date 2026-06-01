@@ -571,6 +571,9 @@ class AgentV2:
             obs, info = self.env.reset(seed=self.seed)
             self.obs = obs
             self._update_game_state()
+            # Clear any initial prompts with ESC then SEARCH
+            self.step(A.Command.ESC)
+            self.step(A.Command.ESC)
 
             while True:
                 try:
