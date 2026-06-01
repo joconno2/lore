@@ -403,22 +403,30 @@ class AgentV2:
                         ny, nx = cr, cc
                         break
 
+        # Final validation: don't step into walls/boulders
+        if 0 <= ny < MAP_H and 0 <= nx < MAP_W:
+            g = int(self.glyphs[ny, nx])
+            cm = _cmap(g)
+            if cm in _WALL or cm == 0 or g == GLYPH_OBJ_OFF + 447:
+                return False
+
+        self._move_dir(dy, dx)
+        # If diagonal failed (door), retry with cardinal
+        if 'diagonally' in self.message.lower() and abs(dy) + abs(dx) > 1:
+            for cdy, cdx in [(dy, 0), (0, dx)]:
+                if cdy == 0 and cdx == 0:
+                    continue
+                self._move_dir(cdy, cdx)
+                return True
+        return True
+
+    def _move_dir(self, dy, dx):
+        """Send a compass direction through step()."""
         dmap = {(-1,0):'N',(1,0):'S',(0,1):'E',(0,-1):'W',
                 (-1,1):'NE',(1,1):'SE',(1,-1):'SW',(-1,-1):'NW'}
         name = dmap.get((dy, dx))
         if name and name in self._name2idx:
             self.step(self._name2idx[name])
-            # If diagonal failed (door), retry with cardinal
-            if 'diagonally' in self.message.lower() and abs(dy) + abs(dx) > 1:
-                for cdy, cdx in [(dy, 0), (0, dx)]:
-                    if cdy == 0 and cdx == 0:
-                        continue
-                    cname = dmap.get((cdy, cdx))
-                    if cname and cname in self._name2idx:
-                        self.step(self._name2idx[cname])
-                        return True
-            return True
-        return False
 
     def get_monsters(self):
         """Visible non-pet monsters with distance."""
@@ -452,26 +460,15 @@ class AgentV2:
         adj = [(d,r,c,n,m) for d,r,c,n,m in mons if d <= 1]
         for d, r, c, n, m in adj:
             if n in INSTAKILL:
-                # Flee
                 dy, dx = py - r, px - c
-                dmap = {(-1,0):'N',(1,0):'S',(0,1):'E',(0,-1):'W',
-                        (-1,1):'NE',(1,1):'SE',(1,-1):'SW',(-1,-1):'NW'}
-                name = dmap.get((dy, dx))
-                if name and name in self._name2idx:
-                    self.step(self._name2idx[name])
-                    return True
-                self.step(A.Command.SEARCH)
+                self._move_dir(dy, dx)
                 return True
             if n in NEVER_MELEE:
                 continue
             # Melee
             dy, dx = r - py, c - px
-            dmap = {(-1,0):'N',(1,0):'S',(0,1):'E',(0,-1):'W',
-                    (-1,1):'NE',(1,1):'SE',(1,-1):'SW',(-1,-1):'NW'}
-            name = dmap.get((dy, dx))
-            if name and name in self._name2idx:
-                self.step(self._name2idx[name])
-                return True
+            self._move_dir(dy, dx)
+            return True
 
         # Approach nearest within 15 tiles
         if mons[0][0] <= 15 and self.blstats.hp > self.blstats.max_hp * 0.3:
