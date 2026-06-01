@@ -563,8 +563,8 @@ class AgentV2:
         # Prayer safety: 300 turns between prayers (AutoAscend uses 400-500)
         can_pray = (bl.time - self._last_prayer_turn) >= 300
 
-        # HP critical: pray (AutoAscend: HP < max/5 or HP < 6 for XL < 6)
-        if can_pray and (bl.hp < max(6, bl.max_hp // 5)):
+        # HP critical: pray at HP < max/3 or HP < 8 (more aggressive than AutoAscend)
+        if can_pray and (bl.hp < max(8, bl.max_hp // 3)):
             self._last_prayer_turn = bl.time
             self.step(A.Command.PRAY)
             return True
@@ -740,18 +740,21 @@ class AgentV2:
 
         # 3a. Navigate to stairs if force_descend and stairs known (BEFORE frontier)
         if force_descend and self._stairs_down and self.blstats.hp > self.blstats.max_hp * 0.3:
-            # Find nearest stairs by Manhattan distance
+            fight_dis = self._bfs_allow_hostiles()
             best_s, best_sd = None, 999
             for sy, sx in self._stairs_down:
-                d = abs(sy - py) + abs(sx - px)
-                if d < best_sd:
+                d = fight_dis[sy, sx]
+                if d != -1 and d < best_sd:
                     best_sd = d
                     best_s = (sy, sx)
             if best_s:
                 if best_sd == 0:
                     self.step(A.MiscDirection.DOWN)
                     return
-                # Simple greedy navigation toward stairs
+                moved = self.step_toward(best_s[0], best_s[1], fight_dis)
+                if moved:
+                    return
+                # step_toward failed; try greedy as fallback
                 self._greedy_move_toward(best_s[0], best_s[1])
                 return
 
@@ -779,18 +782,19 @@ class AgentV2:
 
         # 4. No frontier: navigate to stairs
         if self._stairs_down and self.blstats.hp > self.blstats.max_hp * 0.3:
+            fight_dis = self._bfs_allow_hostiles()
             best_s, best_sd = None, 999
             for sy, sx in self._stairs_down:
-                d = abs(sy - py) + abs(sx - px)
-                if d < best_sd:
+                d = fight_dis[sy, sx]
+                if d != -1 and d < best_sd:
                     best_sd = d
                     best_s = (sy, sx)
             if best_s:
                 if best_sd == 0:
                     self.step(A.MiscDirection.DOWN)
                     return
-                self._greedy_move_toward(best_s[0], best_s[1])
-                return
+                if self.step_toward(best_s[0], best_s[1], fight_dis):
+                    return
 
         # 5. Search near walls (find hidden doors/passages)
         best_s, best_sp = None, -999
