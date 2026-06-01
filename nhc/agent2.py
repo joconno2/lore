@@ -620,9 +620,10 @@ class AgentV2:
                 try:
                     if self.emergency():
                         continue
-                    # Eat corpse on ground if message mentions one
-                    if self.message and 'corpse' in self.message.lower() and \
-                       ('you see here' in self.message.lower() or 'there is' in self.message.lower()):
+                    # Eat corpse on ground if initial_message mentions one
+                    msg_check = getattr(self, 'initial_message', self.message) or ''
+                    if 'corpse' in msg_check.lower() and \
+                       ('you see here' in msg_check.lower() or 'there is' in msg_check.lower()):
                         if self.blstats.hunger != 0:  # not satiated
                             self.step(A.Command.EAT)
                             continue
