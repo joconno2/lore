@@ -883,6 +883,20 @@ class ExpertAgent:
         # Scan inventory for food / lizard
         self._check_inventory(s)
 
+        # After a kill, eat the corpse immediately (before combat cascade)
+        if self._just_killed and self._eat_cooldown == 0 and s.hunger_state != "satiated":
+            corpse_name = self._just_killed
+            self._just_killed = None
+            if corpse_name != "floating eye" and self._corpse_safe_to_eat(corpse_name):
+                self._pending_action = "eat"
+                self._last_priority = "P0b-eat-kill"
+                self._last_action_reason = f"eating {corpse_name} after kill"
+                self.last_action = Actions.EAT
+                self._prev_hp = s.hp
+                if self.verbose:
+                    self._log("P0b-eat-kill", f"eating {corpse_name}")
+                return Actions.EAT
+
         action = self._decide(s)
         action = self._validate_move(action, s)
 
