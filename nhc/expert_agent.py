@@ -825,11 +825,15 @@ class ExpertAgent:
                 self.has_food = False
                 self._eat_attempts = 0
                 self._eat_cooldown = 200
-            # "Never mind" from eat specifically
+            # "Never mind" from eat
             if "Never mind" in msg_str and self._pending_action == "eat":
                 self._pending_action = None
                 self.has_food = False
-                self._eat_cooldown = 500  # long cooldown to prevent eat spam
+                self._eat_cooldown = 500
+            # "Never mind" from eat-after-kill (short cooldown, no corpse on ground)
+            if "Never mind" in msg_str and self._pending_action == "eat_kill":
+                self._pending_action = None
+                self._eat_cooldown = 5  # very short, just skip this one
 
         # Clear stale pending actions. If we reach here without a prompt
         # handling the pending action, it means the action completed or failed
@@ -884,11 +888,17 @@ class ExpertAgent:
         self._check_inventory(s)
 
         # After a kill, eat the corpse immediately (before combat cascade)
+        # Skip monsters that rarely leave corpses
+        _NO_CORPSE = {"grid bug", "gas spore", "yellow light", "black light",
+                      "flaming sphere", "freezing sphere", "shocking sphere"}
         if self._just_killed and self._eat_cooldown == 0 and s.hunger_state != "satiated":
             corpse_name = self._just_killed
             self._just_killed = None
-            if corpse_name != "floating eye" and self._corpse_safe_to_eat(corpse_name):
-                self._pending_action = "eat"
+            # Skip undead (name contains "zombie", "mummy", etc.) and no-corpse monsters
+            is_undead = any(u in corpse_name for u in ["zombie", "mummy", "skeleton", "wraith", "vampire", "ghost", "shade"])
+            if not is_undead and corpse_name not in _NO_CORPSE and \
+               corpse_name != "floating eye" and self._corpse_safe_to_eat(corpse_name):
+                self._pending_action = "eat_kill"  # distinct from regular "eat"
                 self._last_priority = "P0b-eat-kill"
                 self._last_action_reason = f"eating {corpse_name} after kill"
                 self.last_action = Actions.EAT
