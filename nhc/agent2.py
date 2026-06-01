@@ -136,8 +136,16 @@ class AgentV2:
 
         self._update(response_iter)
 
+    _update_depth = 0
+
     def _update(self, response_iter=None):
         """Handle prompts, then update game state."""
+        self._update_depth += 1
+        if self._update_depth > 50:
+            self._update_depth = 0
+            self._update_state()
+            return
+
         obs = self.obs
         misc = obs.get('misc', [0, 0, 0])
         msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
@@ -179,6 +187,7 @@ class AgentV2:
                 return
 
         # No prompts: update game state
+        self._update_depth = 0
         self._update_state()
 
     def _update_state(self):
