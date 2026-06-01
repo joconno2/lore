@@ -15,8 +15,11 @@ from nhc.agent2 import AgentV2, AgentFinished
 
 
 def make_env(character="val-hum-fem-law"):
+    from nhc.elbereth_env import NetHackScoreEngrave
+    import gymnasium
+    gymnasium.register(id="NetHackScoreEngrave-v0", entry_point="nhc.elbereth_env:NetHackScoreEngrave")
     return gym.make(
-        "NetHackScore-v0",
+        "NetHackScoreEngrave-v0",
         observation_keys=(
             "glyphs", "blstats", "message", "misc", "specials",
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",

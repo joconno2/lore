@@ -151,9 +151,11 @@ class AgentV2:
         if isinstance(action, str):
             assert len(action) == 1
             idx = self._val2idx.get(ord(action))
-        elif isinstance(action, int) and action < len(self.actions):
+        elif type(action) is int and action < len(self.actions):
+            # Plain int: treat as action index
             idx = action
         else:
+            # NLE action enum or other: look up by value
             idx = self._val2idx.get(int(action))
 
         if idx is None:
@@ -210,10 +212,26 @@ class AgentV2:
                         raise AgentFinished()
                 continue
 
-            # Text entry (misc[1] = in_getlin) - shouldn't reach us, but just in case
+            # Text entry (misc[1] = in_getlin)
             if misc[1]:
                 self._getlin_count += 1
-                if self._env_step(self._val2idx.get(27, 0)):  # ESC
+                # Handle eat menu: type food letter
+                if 'What do you want to eat' in self.message:
+                    food_letter = None
+                    for letter, item in self.inventory.items():
+                        oc = self.inv_oclasses.get(letter, -1)
+                        if oc == FOOD_CLASS and 'cursed' not in item.lower() and 'corpse' not in item.lower():
+                            food_letter = letter
+                            break
+                    if food_letter:
+                        resp_idx = self._val2idx.get(ord(food_letter))
+                        if resp_idx is not None:
+                            if self._env_step(resp_idx):
+                                self._parse_blstats()
+                                raise AgentFinished()
+                            continue
+                # Default: ESC out of text entry
+                if self._env_step(self._val2idx.get(27, 0)):
                     self._parse_blstats()
                     raise AgentFinished()
                 continue
@@ -259,6 +277,14 @@ class AgentV2:
         # Don't force locks
         if 'force the lock' in msg:
             return self._val2idx.get(ord('n'))
+        # Eat menu: respond with food item letter
+        if 'What do you want to eat' in msg:
+            for letter, item in self.inventory.items():
+                oc = self.inv_oclasses.get(letter, -1)
+                if oc == FOOD_CLASS and 'cursed' not in item.lower() and 'corpse' not in item.lower():
+                    return self._val2idx.get(ord(letter))
+            # No food: cancel
+            return self._val2idx.get(ord('q'))
         # Default: yes
         return self._val2idx.get(ord('y'))
 
@@ -578,31 +604,35 @@ class AgentV2:
         return False
 
     def eat(self):
-        """Eat when hungry. Try inventory food."""
+        """Eat when hungry. Two-step: EAT command then food letter."""
         bl = self.blstats
         if bl is None:
             return False
         if bl.hunger < HUNGRY:
             return False
-        # Cooldown: don't spam eat
-        if bl.time - self._last_eat_turn < 3:
+        if bl.time - self._last_eat_turn < 5:
             return False
 
         # Find food in inventory
+        food_letter = None
         for letter, item in self.inventory.items():
             oc = self.inv_oclasses.get(letter, -1)
-            if oc == FOOD_CLASS and 'cursed' not in item.lower():
-                # Skip corpses (can't reliably eat from inventory in this env)
-                if 'corpse' in item.lower():
-                    continue
-                self._last_eat_turn = bl.time
-                # EAT command, then type the letter
-                # If ground items prompt "eat it?", the yn handler says 'y'
-                # which might eat the wrong thing. Use gen to type letter.
-                self.step(A.Command.EAT, gen=iter(letter))
-                return True
+            if oc == FOOD_CLASS and 'cursed' not in item.lower() and 'corpse' not in item.lower():
+                food_letter = letter
+                break
 
-        return False
+        if food_letter is None:
+            return False
+
+        self._last_eat_turn = bl.time
+        # Two-step eat: EAT command, then food letter
+        self.step(A.Command.EAT)
+        # After EAT, game shows menu. Send food letter as next action.
+        food_idx = self._val2idx.get(ord(food_letter))
+        if food_idx is not None:
+            self._env_step(food_idx)
+            self._update_game_state()
+        return True
 
     def fight(self):
         """Fight or approach visible hostile monsters."""
