@@ -621,13 +621,16 @@ class AgentV2:
                     if self.emergency():
                         continue
                     # Eat corpse on ground if initial_message mentions one
-                    msg_check = getattr(self, 'initial_message', self.message) or ''
-                    if 'corpse' in msg_check.lower() and \
-                       ('you see here' in msg_check.lower() or 'there is' in msg_check.lower()):
-                        if self.blstats.hunger != 0:  # not satiated
-                            self.initial_message = ''  # prevent re-triggering
-                            self.step(A.Command.EAT)
-                            continue
+                    if not getattr(self, '_eat_cooldown_v2', 0):
+                        msg_check = getattr(self, 'initial_message', '') or ''
+                        if 'corpse' in msg_check.lower() and \
+                           ('you see here' in msg_check.lower() or 'there is' in msg_check.lower()):
+                            if self.blstats.hunger != 0:  # not satiated
+                                self._eat_cooldown_v2 = 20  # skip next 20 iterations
+                                self.step(A.Command.EAT)
+                                continue
+                    else:
+                        self._eat_cooldown_v2 -= 1
                     if self.fight():
                         continue
                     self.explore()
