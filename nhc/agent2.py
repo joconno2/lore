@@ -761,7 +761,12 @@ class AgentV2:
             self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
             self._update_state()
 
+            loop_count = 0
             while True:
+                loop_count += 1
+                if loop_count % 100 == 0:
+                    print(f"  loop={loop_count} steps={self.step_count} turn={self.blstats.time if self.blstats else '?'} "
+                          f"dl={self.blstats.depth if self.blstats else '?'} hp={self.blstats.hp if self.blstats else '?'}")
                 try:
                     # Strategy update
                     total_s = int(self.search_count.sum())
