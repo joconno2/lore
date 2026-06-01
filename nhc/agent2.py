@@ -121,7 +121,11 @@ class AgentV2:
 
         # Debug
         self._ugs_count = 0
-        self._prompt_steps = 0  # total env steps spent on prompt handling
+        self._prompt_steps = 0
+        self._yn_count = 0
+        self._xwait_count = 0
+        self._getlin_count = 0
+        self._more_count = 0
 
     # ================================================================
     # Core: step / update
@@ -188,34 +192,46 @@ class AgentV2:
                 except StopIteration:
                     gen = None
 
-            # xwaitingforspace
+            # NLE misc mapping (verified empirically):
+            # misc[0] = in_yn_function (yn prompt - game wants a single char response)
+            # misc[1] = in_getlin (text entry - game wants a string)
+            # misc[2] = xwaitforspace (but env handles this, should never reach us)
+            #
+            # The env's _perform_known_steps handles xwait and getlin internally.
+            # Only yn prompts (misc[0]) reach the agent with allow_all_yn_questions=True.
+
+            # yn prompt (misc[0] = in_yn_function)
             if misc[0]:
-                if self._env_step(self._val2idx.get(32, 0)):
-                    self._parse_blstats()
-                    raise AgentFinished()
-                continue
-
-            # --More--
-            if '--More--' in self.message:
-                if self._env_step(self._val2idx.get(32, 0)):
-                    self._parse_blstats()
-                    raise AgentFinished()
-                continue
-
-            # Text entry (getlin): ESC out
-            if misc[1]:
-                if self._env_step(self._val2idx.get(27, 0)):
-                    self._parse_blstats()
-                    raise AgentFinished()
-                continue
-
-            # yn prompt
-            if misc[2]:
+                self._yn_count += 1
                 resp = self._handle_yn_prompt()
                 if resp is not None:
                     if self._env_step(resp):
                         self._parse_blstats()
                         raise AgentFinished()
+                continue
+
+            # Text entry (misc[1] = in_getlin) - shouldn't reach us, but just in case
+            if misc[1]:
+                self._getlin_count += 1
+                if self._env_step(self._val2idx.get(27, 0)):  # ESC
+                    self._parse_blstats()
+                    raise AgentFinished()
+                continue
+
+            # xwait (misc[2]) - shouldn't reach us, but handle if it does
+            if misc[2]:
+                self._xwait_count += 1
+                if self._env_step(self._val2idx.get(32, 0)):  # SPACE
+                    self._parse_blstats()
+                    raise AgentFinished()
+                continue
+
+            # --More-- in message text (backup check)
+            if '--More--' in self.message:
+                self._more_count += 1
+                if self._env_step(self._val2idx.get(32, 0)):
+                    self._parse_blstats()
+                    raise AgentFinished()
                 continue
 
             break
@@ -723,21 +739,21 @@ class AgentV2:
         force_descend = self._level_turns > 50
 
         # 3a. Navigate to stairs if force_descend and stairs known (BEFORE frontier)
-        if force_descend and self._stairs_down and self.blstats.hp > self.blstats.max_hp * 0.5:
-            # Use a BFS that allows fighting through hostiles
-            fight_dis = self._bfs_allow_hostiles()
+        if force_descend and self._stairs_down and self.blstats.hp > self.blstats.max_hp * 0.3:
+            # Find nearest stairs by Manhattan distance
             best_s, best_sd = None, 999
             for sy, sx in self._stairs_down:
-                d = fight_dis[sy, sx]
-                if d != -1 and d < best_sd:
+                d = abs(sy - py) + abs(sx - px)
+                if d < best_sd:
                     best_sd = d
                     best_s = (sy, sx)
             if best_s:
                 if best_sd == 0:
                     self.step(A.MiscDirection.DOWN)
                     return
-                if self.step_toward(best_s[0], best_s[1], fight_dis):
-                    return
+                # Simple greedy navigation toward stairs
+                self._greedy_move_toward(best_s[0], best_s[1])
+                return
 
         # 3b. Go to nearest frontier (walkable tile adjacent to unseen)
         best_f, best_fd = None, 999
@@ -761,21 +777,20 @@ class AgentV2:
             if self.step_toward(best_f[0], best_f[1], dis):
                 return
 
-        # 4. No frontier: navigate to stairs (use fight-through BFS)
-        if self._stairs_down and self.blstats.hp > self.blstats.max_hp * 0.5:
-            fight_dis = self._bfs_allow_hostiles()
+        # 4. No frontier: navigate to stairs
+        if self._stairs_down and self.blstats.hp > self.blstats.max_hp * 0.3:
             best_s, best_sd = None, 999
             for sy, sx in self._stairs_down:
-                d = fight_dis[sy, sx]
-                if d != -1 and d < best_sd:
+                d = abs(sy - py) + abs(sx - px)
+                if d < best_sd:
                     best_sd = d
                     best_s = (sy, sx)
             if best_s:
                 if best_sd == 0:
                     self.step(A.MiscDirection.DOWN)
                     return
-                if self.step_toward(best_s[0], best_s[1], fight_dis):
-                    return
+                self._greedy_move_toward(best_s[0], best_s[1])
+                return
 
         # 5. Search near walls (find hidden doors/passages)
         best_s, best_sp = None, -999
@@ -806,21 +821,23 @@ class AgentV2:
             if self.step_toward(best_s[0], best_s[1], dis):
                 return
 
-        # 6. Search at current position, or random walk to unstick
-        if self.search_count[py, px] > 20:
-            # We've searched here a lot. Try random walkable direction to unstick.
-            import random
-            dirs = [(-1,0),(1,0),(0,-1),(0,1)]
-            random.shuffle(dirs)
-            for dy, dx in dirs:
-                nr, nc = py + dy, px + dx
-                if 0 <= nr < MAP_H and 0 <= nc < MAP_W and self.walkable[nr, nc]:
-                    g = int(self.glyphs[nr, nc])
-                    if not (GLYPH_MON_OFF <= g < GLYPH_PET_OFF):  # not hostile monster
-                        self._move_dir(dy, dx)
-                        return
-        self.search_count[py, px] += 1
-        self.step(A.Command.SEARCH)
+        # 6. Search at current position multiple times (secret doors need ~13 searches)
+        search_rounds = min(5, max(1, 13 - self.search_count[py, px]))
+        for _ in range(search_rounds):
+            self.search_count[py, px] += 1
+            self.step(A.Command.SEARCH)
+            # Check if a new door/passage appeared
+            for dy2 in (-1, 0, 1):
+                for dx2 in (-1, 0, 1):
+                    if dy2 == 0 and dx2 == 0:
+                        continue
+                    nr, nc = py + dy2, px + dx2
+                    if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
+                        g = int(self.glyphs[nr, nc])
+                        cm = _cmap(g)
+                        if cm in _CLOSED_DOOR or cm in _WALKABLE:
+                            if not self.seen[nr, nc] or cm in _CLOSED_DOOR:
+                                return  # Found something new, explore it
 
     def _bfs_allow_hostiles(self):
         """BFS that treats hostile monsters as walkable (can fight through them)."""
@@ -860,26 +877,35 @@ class AgentV2:
         return dis
 
     def _greedy_move_toward(self, ty, tx):
-        """Try to move closer to (ty, tx) using cardinal directions."""
+        """Try to move closer to (ty, tx) using cardinal directions.
+        With allow_all_yn_questions=False, walking into monsters auto-attacks."""
         py, px = self.blstats.y, self.blstats.x
         best_dir = None
         best_dist = abs(ty - py) + abs(tx - px)
-        for dy, dx in [(-1,0),(1,0),(0,-1),(0,1),(0,0)]:
-            if dy == 0 and dx == 0:
-                continue
+        # Try all 8 directions, prefer cardinal
+        for dy, dx in [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)]:
             ny, nx = py + dy, px + dx
-            if 0 <= ny < MAP_H and 0 <= nx < MAP_W and self.walkable[ny, nx]:
+            if not (0 <= ny < MAP_H and 0 <= nx < MAP_W):
+                continue
+            if not self.walkable[ny, nx]:
+                # Check if it's a monster we can fight through
                 g = int(self.glyphs[ny, nx])
-                if GLYPH_MON_OFF <= g < GLYPH_CMAP_OFF:
-                    continue  # Don't walk into monsters
-                d = abs(ty - ny) + abs(tx - nx)
-                if d < best_dist:
-                    best_dist = d
-                    best_dir = (dy, dx)
+                if not (GLYPH_MON_OFF <= g < GLYPH_CMAP_OFF):
+                    continue
+            # Skip diagonal through doors
+            if abs(dy) + abs(dx) > 1:
+                src_cm = _cmap(int(self.glyphs[py, px]))
+                dst_cm = _cmap(int(self.glyphs[ny, nx]))
+                if src_cm in _DOOR or dst_cm in _DOOR:
+                    continue
+            d = abs(ty - ny) + abs(tx - nx)
+            if d < best_dist:
+                best_dist = d
+                best_dir = (dy, dx)
         if best_dir:
             self._move_dir(best_dir[0], best_dir[1])
         else:
-            # Can't move closer, just search
+            # Can't move closer, search to advance turn
             self.step(A.Command.SEARCH)
 
     def _on_stairs_down(self):

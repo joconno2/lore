@@ -23,8 +23,8 @@ def make_env(character="val-hum-fem-law"):
         ),
         actions=nethack.ACTIONS,
         character=character,
-        max_episode_steps=100000,
-        allow_all_yn_questions=False,
+        max_episode_steps=1000000,
+        allow_all_yn_questions=True,
         penalty_step=0.0,
     )
 
@@ -36,7 +36,7 @@ def run_episode(env, seed=0, verbose=False):
 
     bl = agent.blstats
     elapsed = time.time() - t0
-    print(f"  DEBUG: ugs_count={agent._ugs_count} blstats={bl.depth if bl else 'None'}/{bl.xl if bl else 'None'}/{bl.time if bl else 'None'}")
+    print(f"  DEBUG: ugs={agent._ugs_count} yn={agent._yn_count} xw={agent._xwait_count} gl={agent._getlin_count} more={agent._more_count}")
     return {
         "score": agent.score,
         "steps": agent.step_count,
