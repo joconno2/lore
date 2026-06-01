@@ -893,25 +893,31 @@ class ExpertAgent:
             self._prev_turn = s.turn
             return Actions.WAIT
 
-        # After a kill, eat the corpse immediately (before combat cascade)
-        # Skip monsters that rarely leave corpses
-        _NO_CORPSE = {"grid bug", "gas spore", "yellow light", "black light",
-                      "flaming sphere", "freezing sphere", "shocking sphere"}
+        # After a kill: step onto corpse tile, then eat next step.
+        # Melee kills leave corpse on the ADJACENT tile (attack direction).
         if self._just_killed and self._eat_cooldown == 0 and s.hunger_state != "satiated":
             corpse_name = self._just_killed
             self._just_killed = None
-            # Skip undead (name contains "zombie", "mummy", etc.) and no-corpse monsters
             is_undead = any(u in corpse_name for u in ["zombie", "mummy", "skeleton", "wraith", "vampire", "ghost", "shade"])
             if not is_undead and corpse_name not in _NO_CORPSE and \
                corpse_name != "floating eye" and self._corpse_safe_to_eat(corpse_name):
-                self._pending_action = "eat_kill"  # distinct from regular "eat"
-                self._last_priority = "P0b-eat-kill"
-                self._last_action_reason = f"eating {corpse_name} after kill"
-                self.last_action = Actions.EAT
-                self._prev_hp = s.hp
-                if self.verbose:
-                    self._log("P0b-eat-kill", f"eating {corpse_name}")
-                return Actions.EAT
+                if self.last_action in Actions.MOVE_DELTAS:
+                    # Step 1: walk onto the corpse tile
+                    self._pending_action = "step_to_corpse"
+                    self._last_priority = "P0b-step"
+                    self._last_action_reason = f"stepping to {corpse_name} corpse"
+                    if self.verbose:
+                        self._log("P0b-step", f"stepping to {corpse_name}")
+                    return self.last_action  # same direction as attack
+
+        # Step 2: now on corpse tile, eat it
+        if self._pending_action == "step_to_corpse":
+            self._pending_action = "eat_kill"
+            self._last_priority = "P0b-eat"
+            self._last_action_reason = "eating corpse"
+            if self.verbose:
+                self._log("P0b-eat", "eating")
+            return Actions.EAT
 
         action = self._decide(s)
         action = self._validate_move(action, s)
