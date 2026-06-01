@@ -183,7 +183,7 @@ class AgentV2:
         """Parse observation into game state."""
         obs = self.obs
         bl = obs['blstats']
-        self.blstats = BLStats(*bl[:27]) if len(bl) >= 27 else None
+        self.blstats = BLStats(*bl[:26]) if len(bl) >= 26 else None
         self.glyphs = obs['glyphs']
 
         if self.blstats is None:
