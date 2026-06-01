@@ -826,7 +826,7 @@ class AgentV2:
                 return
 
         # 6. Search at current position multiple times (secret doors need ~13 searches)
-        search_rounds = min(5, max(1, 13 - self.search_count[py, px]))
+        search_rounds = min(3, max(1, 10 - self.search_count[py, px]))
         for _ in range(search_rounds):
             self.search_count[py, px] += 1
             self.step(A.Command.SEARCH)
