@@ -830,10 +830,10 @@ class ExpertAgent:
                 self._pending_action = None
                 self.has_food = False
                 self._eat_cooldown = 500
-            # "Never mind" from eat-after-kill: no cooldown at all
+            # "Never mind" from eat-after-kill: short cooldown
             if "Never mind" in msg_str and self._pending_action == "eat_kill":
                 self._pending_action = None
-                # No cooldown - try again on next kill immediately
+                self._eat_cooldown = 10  # short but non-zero to prevent spam
 
         # Clear stale pending actions. If we reach here without a prompt
         # handling the pending action, it means the action completed or failed
