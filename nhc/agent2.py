@@ -650,25 +650,33 @@ class AgentV2:
                 return
             # go_to failed, fall through to search
 
-        # Find stairs down
-        for r in range(MAP_H):
-            for c in range(MAP_W):
-                g = int(self.glyphs[r, c])
-                cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
-                if cm in (24, 26):  # dnstair, dnladder
-                    total_s = int(self.search_count.sum())
-                    if self.strategy.should_descend(
-                        self.blstats.depth, self.blstats.xl,
-                        self.blstats.hp, self.blstats.max_hp,
-                        True, total_s, 0) or \
-                       self.strategy.should_force_descend(
-                        self.blstats.depth, self.blstats.xl,
-                        self.blstats.hp, self.blstats.max_hp, total_s):
-                        if self.go_to(r, c, dis):
-                            if (self.blstats.y, self.blstats.x) == (r, c):
-                                self.step(A.MiscDirection.DOWN)
-                            return
-                        # go_to failed, fall through
+        # Find stairs down - descend when level explored or search exhausted
+        level_explored = (best_frontier is None)
+        total_s = int(self.search_count.sum())
+        can_descend = (
+            self.blstats.hp > self.blstats.max_hp * 0.5 and
+            (level_explored or total_s > 100)
+        )
+
+        if can_descend:
+            for r in range(MAP_H):
+                for c in range(MAP_W):
+                    g = int(self.glyphs[r, c])
+                    cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
+                    if cm in (24, 26):  # dnstair, dnladder
+                        if dis[r, c] != -1:
+                            if self.go_to(r, c, dis):
+                                if (self.blstats.y, self.blstats.x) == (r, c):
+                                    down_idx = self._act_by_val.get(int(A.MiscDirection.DOWN))
+                                    if down_idx is not None:
+                                        obs, r2, done, trunc, info = self.env.step(down_idx)
+                                        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+                                        self.score += r2
+                                        self.step_count += 1
+                                        if done or trunc:
+                                            raise AgentFinished()
+                                        self._update_state()
+                                return
 
         # Search (always advances a turn)
         self.search_count[self.blstats.y, self.blstats.x] += 1
