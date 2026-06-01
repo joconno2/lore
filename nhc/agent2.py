@@ -761,20 +761,7 @@ class AgentV2:
             self._update_state()  # just parse state, no prompt handling
             print(f"  INIT: steps={self.step_count} walkable={int(self.walkable.sum())} seen={int(self.seen.sum())}")
 
-            # Simple main loop: just search to verify stepping works
-            for i in range(20):
-                search_idx = self._act_by_name.get('SEARCH', 75)
-                obs, r, done, trunc, info = self.env.step(search_idx)
-                self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                self.score += r
-                self.step_count += 1
-                bl = obs['blstats']
-                print(f"  step {i}: turn={int(bl[20])} hp={int(bl[10])} score={self.score:.0f}")
-                if done or trunc:
-                    raise AgentFinished()
-                self._update_state()
-
-            # Now run the real loop
+            # Main loop
             while True:
                 if self.step_count > 15000:
                     raise AgentFinished()
