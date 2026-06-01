@@ -800,7 +800,29 @@ class AgentV2:
             if abs(dy) <= 1 and abs(dx) <= 1:
                 self._move_direction(dy, dx)
 
-        self.step(A.Command.EAT)
+        # Eat using direct env.step
+        eat_idx = self._act_by_val.get(int(A.Command.EAT))
+        if eat_idx is not None:
+            obs, r, done, trunc, info = self.env.step(eat_idx)
+            self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+            self.score += r
+            self.step_count += 1
+            if done or trunc or self.step_count > 15000:
+                raise AgentFinished()
+            # Handle eat prompt: answer 'y' to "eat it?"
+            misc = obs.get('misc', [0, 0, 0])
+            msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
+            self.message = msg
+            if misc[2] and 'eat' in msg.lower():
+                y_idx = self._act_by_val.get(ord('y'))
+                if y_idx:
+                    obs, r2, done, trunc, info = self.env.step(y_idx)
+                    self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+                    self.score += r2
+                    self.step_count += 1
+                    if done or trunc:
+                        raise AgentFinished()
+            self._update_state()
 
     def _do_search(self):
         """Guaranteed step: direct env.step(SEARCH) with prompt clearing."""
