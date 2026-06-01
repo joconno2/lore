@@ -118,7 +118,7 @@ class AgentV2:
             return
 
         obs, reward, done, truncated, info = self.env.step(idx)
-        self.obs = obs
+        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
         self.score += reward
         self.step_count += 1
 
@@ -144,7 +144,7 @@ class AgentV2:
                         next_idx = self._val2idx.get(int(next_action))
                     if next_idx is not None:
                         obs, reward, done, truncated, info = self.env.step(next_idx)
-                        self.obs = obs
+                        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
                         self.score += reward
                         self.step_count += 1
                         if done or truncated:
@@ -157,7 +157,7 @@ class AgentV2:
             # xwaitingforspace
             if misc[0]:
                 obs, reward, done, truncated, info = self.env.step(self._val2idx.get(32, 0))
-                self.obs = obs
+                self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
                 self.score += reward
                 self.step_count += 1
                 if done or truncated:
@@ -168,7 +168,7 @@ class AgentV2:
             # --More--
             if '--More--' in self.message:
                 obs, reward, done, truncated, info = self.env.step(self._val2idx.get(32, 0))
-                self.obs = obs
+                self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
                 self.score += reward
                 self.step_count += 1
                 if done or truncated:
@@ -179,7 +179,7 @@ class AgentV2:
             # Text entry: ESC
             if misc[1]:
                 obs, reward, done, truncated, info = self.env.step(self._val2idx.get(27, 0))
-                self.obs = obs
+                self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
                 self.score += reward
                 self.step_count += 1
                 if done or truncated:
@@ -195,7 +195,7 @@ class AgentV2:
                     resp = self._val2idx.get(ord('y'))
                 if resp is not None:
                     obs, reward, done, truncated, info = self.env.step(resp)
-                    self.obs = obs
+                    self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
                     self.score += reward
                     self.step_count += 1
                     if done or truncated:
@@ -572,7 +572,7 @@ class AgentV2:
     def main(self):
         try:
             obs, info = self.env.reset(seed=self.seed)
-            self.obs = obs
+            self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
             self._update_game_state()
             # Clear any initial prompts
             try:
