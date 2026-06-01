@@ -496,21 +496,21 @@ class AgentV2:
                 if wep:
                     self.step(A.Command.WIELD, iter(wep))
                     return True
+                prev = self.step_count
                 self._move_direction(dy, dx)
-
-                # After kill: step onto corpse and eat
-                if 'kill' in self.message.lower() or 'destroy' in self.message.lower():
-                    self._try_eat_corpse(tname, tr, tc)
-
-                return True
+                if self.step_count > prev:
+                    # After kill: step onto corpse and eat
+                    if 'kill' in self.message.lower() or 'destroy' in self.message.lower():
+                        self._try_eat_corpse(tname, tr, tc)
+                    return True
 
         # Approach nearest if within 7 tiles
         if monsters and monsters[0][0] <= 7 and self.blstats.hp > self.blstats.max_hp * 0.3:
             d, tr, tc, name, mid = monsters[0]
             dis = self.bfs()
             if dis[tr, tc] != -1:
-                self.go_to(tr, tc, dis)
-                return True
+                if self.go_to(tr, tc, dis):
+                    return True
 
         return False
 
