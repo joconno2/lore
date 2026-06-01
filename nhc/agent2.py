@@ -843,28 +843,22 @@ class AgentV2:
                         self.blstats.hp, self.blstats.max_hp,
                         self.has_excalibur, False, total_s, True)
 
-                    prev = self.step_count
+                    prev_turn = self.blstats.time if self.blstats else 0
                     if self.emergency():
-                        if self.step_count == prev:
-                            self._do_search()
                         continue
                     if self.fight():
-                        if self.step_count == prev:
-                            self._do_search()
                         continue
                     if self.eat_corpses():
-                        if self.step_count == prev:
-                            self._do_search()
                         continue
                     if self.dip_for_excalibur():
-                        if self.step_count == prev:
-                            self._do_search()
                         continue
                     if self.rest():
-                        if self.step_count == prev:
-                            self._do_search()
                         continue
                     self.explore()
+                    # If nothing advanced the turn, force search
+                    cur_turn = self.blstats.time if self.blstats else 0
+                    if cur_turn == prev_turn:
+                        self._do_search()
 
                 except RuntimeError as e:
                     if 'Stuck' in str(e):
