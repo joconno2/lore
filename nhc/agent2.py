@@ -10,6 +10,9 @@ This is a faithful reimplementation of AutoAscend's core loop
 """
 from __future__ import annotations
 
+import sys
+sys.setrecursionlimit(10000)
+
 import numpy as np
 from collections import namedtuple, deque
 from typing import Optional
