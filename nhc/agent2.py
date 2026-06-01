@@ -386,46 +386,25 @@ class AgentV2:
         if dis[ty, tx] == -1:
             return False
 
-        while (py, px) != (ty, tx):
-            # Trace path backward
-            best_ny, best_nx = -1, -1
-            best_d = dis[py, px]
-            # Actually trace from target backward... let's just step toward
-            dy = 0 if ty == py else (1 if ty > py else -1)
-            dx = 0 if tx == px else (1 if tx > px else -1)
-
-            # Find the adjacent cell closest to target
-            best_d = 999999
-            for ddy in (-1, 0, 1):
-                for ddx in (-1, 0, 1):
-                    if ddy == 0 and ddx == 0:
-                        continue
-                    ny, nx = py + ddy, px + ddx
-                    if 0 <= ny < MAP_H and 0 <= nx < MAP_W and dis[ny, nx] != -1:
+        # Take one step toward target using BFS gradient
+        best_ny, best_nx = -1, -1
+        best_d = 999999
+        for ddy in (-1, 0, 1):
+            for ddx in (-1, 0, 1):
+                if ddy == 0 and ddx == 0:
+                    continue
+                ny, nx = py + ddy, px + ddx
+                if 0 <= ny < MAP_H and 0 <= nx < MAP_W and dis[ny, nx] != -1:
+                    if dis[ny, nx] < dis[py, px]:
                         target_d = abs(ny - ty) + abs(nx - tx)
-                        if dis[ny, nx] < dis[py, px] or target_d < best_d:
-                            if dis[ny, nx] <= dis[py, px]:
-                                best_d = target_d
-                                best_ny, best_nx = ny, nx
+                        if target_d < best_d:
+                            best_d = target_d
+                            best_ny, best_nx = ny, nx
 
-            if best_ny == -1:
-                return False
+        if best_ny == -1:
+            return False
 
-            move_dy = best_ny - py
-            move_dx = best_nx - px
-            # Find the compass action
-            for i, a in enumerate(self.actions):
-                if hasattr(a, 'name') and type(a).__name__ == 'CompassDirection':
-                    delta = {
-                        'N': (-1, 0), 'S': (1, 0), 'E': (0, 1), 'W': (0, -1),
-                        'NE': (-1, 1), 'SE': (1, 1), 'SW': (1, -1), 'NW': (-1, -1),
-                    }.get(a.name)
-                    if delta and delta == (move_dy, move_dx):
-                        self.step(1000 + i)  # raw index
-                        break
-
-            py, px = self.blstats.y, self.blstats.x
-
+        self._move_direction(best_ny - py, best_nx - px)
         return True
 
     def get_visible_monsters(self):
@@ -610,8 +589,9 @@ class AgentV2:
                         break
 
         if best_frontier:
-            self.go_to(best_frontier[0], best_frontier[1], dis)
-            return
+            if self.go_to(best_frontier[0], best_frontier[1], dis):
+                return
+            # go_to failed, fall through to search
 
         # Find stairs down
         for r in range(MAP_H):
@@ -627,14 +607,22 @@ class AgentV2:
                        self.strategy.should_force_descend(
                         self.blstats.depth, self.blstats.xl,
                         self.blstats.hp, self.blstats.max_hp, total_s):
-                        self.go_to(r, c, dis)
-                        if (self.blstats.y, self.blstats.x) == (r, c):
-                            self.step(A.MiscDirection.DOWN)
-                        return
+                        if self.go_to(r, c, dis):
+                            if (self.blstats.y, self.blstats.x) == (r, c):
+                                self.step(A.MiscDirection.DOWN)
+                            return
+                        # go_to failed, fall through
 
-        # Search
-        self.search_count[py, px] += 1
-        self.step(A.Command.SEARCH)
+        # Search (always advances a turn)
+        self.search_count[self.blstats.y, self.blstats.x] += 1
+        search_idx = self._act_by_name.get('SEARCH', 75)
+        obs, r, done, trunc, info = self.env.step(search_idx)
+        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+        self.score += r
+        self.step_count += 1
+        if done or trunc or self.step_count > 15000:
+            raise AgentFinished()
+        self._update_state()
 
     def emergency(self):
         """Handle emergencies: low HP, starvation."""
