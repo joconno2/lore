@@ -230,9 +230,12 @@ class AgentV2:
         self._parse_messages()
 
     def _parse_blstats(self):
-        bl = self.obs.get('blstats')
+        bl = self.obs.get('blstats') if self.obs else None
         if bl is not None and len(bl) >= 26:
             self.blstats = BLStats(*bl[:26])
+        elif self.blstats is None:
+            # Default blstats for safety
+            self.blstats = BLStats(0,0,0,0,0,0,0,0,0,0,16,16,1,0,0,0,10,0,1,0,1,0,0,0,1,0)
 
     def _update_maps(self):
         g = self.glyphs
@@ -571,9 +574,12 @@ class AgentV2:
             obs, info = self.env.reset(seed=self.seed)
             self.obs = obs
             self._update_game_state()
-            # Clear any initial prompts with ESC then SEARCH
-            self.step(A.Command.ESC)
-            self.step(A.Command.ESC)
+            # Clear any initial prompts
+            try:
+                self.step(A.Command.ESC)
+                self.step(A.Command.ESC)
+            except AgentFinished:
+                raise
 
             while True:
                 try:
