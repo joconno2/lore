@@ -803,7 +803,7 @@ class AgentV2:
         self.step(A.Command.EAT)
 
     def _do_search(self):
-        """Guaranteed step: direct env.step(SEARCH)."""
+        """Guaranteed step: direct env.step(SEARCH) with prompt clearing."""
         search_idx = self._act_by_name.get('SEARCH', 75)
         obs, r, done, trunc, info = self.env.step(search_idx)
         self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
@@ -811,6 +811,29 @@ class AgentV2:
         self.step_count += 1
         if done or trunc or self.step_count > 15000:
             raise AgentFinished()
+        # Clear prompts
+        misc = obs.get('misc', [0, 0, 0])
+        msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
+        for _ in range(10):
+            if not misc[0] and '--More--' not in msg and not misc[1] and not misc[2]:
+                break
+            if misc[1]:  # getlin - ESC
+                esc_idx = self._act_by_val.get(27, 38)
+                obs, r2, done, trunc, info = self.env.step(esc_idx)
+            elif misc[2]:  # yn - default yes
+                y_idx = self._act_by_val.get(ord('y'))
+                obs, r2, done, trunc, info = self.env.step(y_idx)
+            else:  # space for --More--/xwait
+                space_idx = self._act_by_val.get(32, 19)
+                obs, r2, done, trunc, info = self.env.step(space_idx)
+            self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+            self.score += r2
+            self.step_count += 1
+            if done or trunc or self.step_count > 15000:
+                raise AgentFinished()
+            misc = obs.get('misc', [0, 0, 0])
+            msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
+        self.message = msg
         self._update_state()
 
     def _move_direction(self, dy, dx):
