@@ -105,12 +105,10 @@ class AgentV2:
         """Raw env.step with blstats copy."""
         obs, reward, done, truncated, info = self.env.step(idx)
         self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-        # Read blstats from COPIED obs
+        # Read blstats from COPIED obs - only update if game has started (time > 0)
         bl = self.obs.get('blstats')
-        if bl is not None:
+        if bl is not None and int(bl[20]) > 0:
             self._raw_bl = np.array(bl, dtype=np.int64)
-            if self.step_count <= 3:
-                print(f"  _env_step: bl[12]={int(bl[12])} bl[18]={int(bl[18])} bl[20]={int(bl[20])}")
         self.score += reward
         self.step_count += 1
         return done or truncated
