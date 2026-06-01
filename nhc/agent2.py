@@ -208,8 +208,11 @@ class AgentV2:
 
         self._update_game_state()
 
+    _ugs_count = 0
+
     def _update_game_state(self):
         """Parse observation into full game state."""
+        self._ugs_count += 1
         self._parse_blstats()
         if self.blstats is None:
             return

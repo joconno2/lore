@@ -36,6 +36,7 @@ def run_episode(env, seed=0, verbose=False):
 
     bl = agent.blstats
     elapsed = time.time() - t0
+    print(f"  DEBUG: ugs_count={agent._ugs_count} blstats={bl.depth if bl else 'None'}/{bl.xl if bl else 'None'}/{bl.time if bl else 'None'}")
     return {
         "score": agent.score,
         "steps": agent.step_count,
