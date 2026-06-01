@@ -471,11 +471,6 @@ class AgentV2:
             name = dmap.get((dy, dx))
             if name and name in self._name2idx:
                 self.step(self._name2idx[name])
-                # Check initial_message for kill (before prompt handling cleared it)
-                if hasattr(self, 'initial_message') and ('kill' in self.initial_message.lower() or 'destroy' in self.initial_message.lower()):
-                    if self.food.is_corpse_safe(n, self.resistances) and n != 'floating eye':
-                        self.step(self._name2idx[name])  # step onto corpse
-                        self.step(A.Command.EAT)  # eat it
                 return True
 
         # Approach nearest within 15 tiles
