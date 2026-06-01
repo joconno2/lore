@@ -60,9 +60,10 @@ class AgentFinished(Exception):
 class AgentV2:
     """Expert system agent based on AutoAscend's architecture."""
 
-    def __init__(self, env, verbose=False):
+    def __init__(self, env, verbose=False, seed=None):
         self.env = env
         self.verbose = verbose
+        self.seed = seed
         self.actions = list(nh.ACTIONS)
 
         # Action lookup
@@ -742,7 +743,7 @@ class AgentV2:
         """Main game loop. Runs until episode ends."""
         try:
             # Initial setup
-            obs, info = self.env.reset()
+            obs, info = self.env.reset(seed=self.seed)
             self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
             self._update_state()
 
