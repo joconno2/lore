@@ -759,65 +759,54 @@ class AgentV2:
             # Initial setup: reset and clear any initial prompts
             obs, info = self.env.reset(seed=self.seed)
             self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-            self._update(None)  # handles initial --More-- and updates state
+            self._update_state()  # just parse state, no prompt handling
+            print(f"  INIT: steps={self.step_count} walkable={int(self.walkable.sum())} seen={int(self.seen.sum())}")
 
-            # Disable autopickup
-            self.step(A.Command.AUTOPICKUP)
-            if 'Autopickup: ON' in self.message:
-                self.step(A.Command.AUTOPICKUP)
+            # Simple main loop: just search to verify stepping works
+            for i in range(20):
+                search_idx = self._act_by_name.get('SEARCH', 75)
+                obs, r, done, trunc, info = self.env.step(search_idx)
+                self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+                self.score += r
+                self.step_count += 1
+                bl = obs['blstats']
+                print(f"  step {i}: turn={int(bl[20])} hp={int(bl[10])} score={self.score:.0f}")
+                if done or trunc:
+                    raise AgentFinished()
+                self._update_state()
 
-            loop_count = 0
+            # Now run the real loop
             while True:
-                loop_count += 1
-                if loop_count % 100 == 0:
-                    print(f"  loop={loop_count} steps={self.step_count} turn={self.blstats.time if self.blstats else '?'} "
-                          f"dl={self.blstats.depth if self.blstats else '?'} hp={self.blstats.hp if self.blstats else '?'}")
                 try:
-                    # Strategy update
                     total_s = int(self.search_count.sum())
                     self.strategy.update(
                         self.blstats.depth, self.blstats.xl,
                         self.blstats.hp, self.blstats.max_hp,
                         self.has_excalibur, False, total_s, True)
 
-                    # Priority order (AutoAscend global_strategy pattern)
                     if self.emergency():
                         continue
                     if self.fight():
                         continue
                     if self.eat_corpses():
                         continue
-                    if self.eat_from_inventory():
-                        continue
                     if self.dip_for_excalibur():
                         continue
                     if self.rest():
                         continue
-                    prev_steps = self.step_count
-                    try:
-                        self.explore()
-                    except AgentFinished:
-                        raise
-                    except Exception as e:
-                        if self.verbose:
-                            print(f"  explore error: {e}")
-                    # ALWAYS take a step if nothing else did
-                    if self.step_count == prev_steps:
-                        # Direct env.step as last resort
+                    self.explore()
+
+                except RuntimeError as e:
+                    if 'Stuck' in str(e):
+                        self._inactivity = 0
                         search_idx = self._act_by_name.get('SEARCH', 75)
                         obs, r, done, trunc, info = self.env.step(search_idx)
                         self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
                         self.score += r
                         self.step_count += 1
-                        if done or trunc or self.step_count > 15000:
+                        if done or trunc:
                             raise AgentFinished()
                         self._update_state()
-
-                except RuntimeError as e:
-                    if 'Stuck' in str(e):
-                        # Reset inactivity and try to unstick
-                        self._inactivity = 0
-                        self.step(A.Command.SEARCH)
                     else:
                         raise
 
