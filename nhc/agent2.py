@@ -131,6 +131,8 @@ class AgentV2:
 
         if done or truncated:
             raise AgentFinished()
+        if self.step_count > 15000:
+            raise AgentFinished()
 
         self._update(response_iter)
 
