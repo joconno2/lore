@@ -469,16 +469,19 @@ class AgentV2:
 
         # Elbereth check
         adj = [(d, r, c, name, mid) for d, r, c, name, mid in monsters if d <= 1]
-        if adj and self.blstats.hp < 30:
-            elb = should_elbereth(
-                self.blstats.hp, self.blstats.max_hp,
-                adj,  # pass raw tuples, fight module will handle
-                self._on_elbereth, self._elbereth_cooldown)
-            if elb and elb.action == "elbereth":
+        if adj and self.blstats.hp < 30 and not self._on_elbereth and self._elbereth_cooldown == 0:
+            # Calculate elbereth priority inline (fight module expects different format)
+            adj_weight = 0.0
+            for d, r, c, name, mid in adj:
+                info = assess_monster(name, mid)
+                if info["peaceful"]:
+                    continue
+                hp_mult = min(20.0 / max(self.blstats.hp, 1), 2.0)
+                w = 0.2 if info["weak"] else (3.0 if info["danger"] >= 7 else 1.0)
+                adj_weight += w * hp_mult
+            hp_ratio = (self.blstats.hp / max(self.blstats.max_hp, 1)) ** 0.5
+            if -5 + 20 * adj_weight * (1 - hp_ratio) > 0:
                 self.engrave_elbereth()
-                return True
-            if elb and elb.action == "wait":
-                self.step(A.Command.SEARCH)
                 return True
 
         # On Elbereth: wait if HP low, otherwise move off
