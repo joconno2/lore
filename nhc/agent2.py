@@ -774,7 +774,19 @@ class AgentV2:
         self._update_state()
 
     def _move_direction(self, dy, dx):
-        """Move in a direction. Uses direct env.step for reliability."""
+        """Move in a direction. Validates target is walkable first."""
+        py, px = self.blstats.y, self.blstats.x
+        ny, nx = py + dy, px + dx
+        # Don't move off map or into known walls
+        if not (0 <= ny < MAP_H and 0 <= nx < MAP_W):
+            return
+        if self.seen[ny, nx] and not self.walkable[ny, nx]:
+            # Check if it's a closed door (walkable for opening)
+            g = int(self.glyphs[ny, nx])
+            cm = g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
+            if cm not in _CLOSED_DOOR_CMAPS:
+                return  # wall or boulder, don't try
+
         direction_map = {
             (-1, 0): 'N', (1, 0): 'S', (0, 1): 'E', (0, -1): 'W',
             (-1, 1): 'NE', (1, 1): 'SE', (1, -1): 'SW', (-1, -1): 'NW',
