@@ -560,7 +560,7 @@ class AgentV2:
         total_s = int(self.search_count.sum())
         should_descend = (
             (best_f is None and best_door is None) or  # fully explored
-            total_s > 100  # searched enough
+            total_s > 50  # searched enough
         )
         if should_descend and self.blstats.hp > self.blstats.max_hp * 0.5:
             for r in range(MAP_H):

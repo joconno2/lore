@@ -23,7 +23,7 @@ def make_env(character="val-hum-fem-law"):
         ),
         actions=nethack.ACTIONS,
         character=character,
-        max_episode_steps=10000,
+        max_episode_steps=20000,
         allow_all_yn_questions=True,
         penalty_step=0.0,
     )
