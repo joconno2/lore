@@ -131,7 +131,7 @@ class AgentV2:
 
         if done or truncated:
             raise AgentFinished()
-        if self.step_count > 15000:
+        if self.step_count > 50000:
             raise AgentFinished()
 
         self._update(response_iter)
@@ -719,7 +719,7 @@ class AgentV2:
         self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
         self.score += r
         self.step_count += 1
-        if done or trunc or self.step_count > 15000:
+        if done or trunc or self.step_count > 50000:
             raise AgentFinished()
         self._update_state()
 
@@ -829,7 +829,7 @@ class AgentV2:
             self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
             self.score += r
             self.step_count += 1
-            if done or trunc or self.step_count > 15000:
+            if done or trunc or self.step_count > 50000:
                 raise AgentFinished()
             # Handle eat prompt: answer 'y' to "eat it?"
             misc = obs.get('misc', [0, 0, 0])
@@ -853,7 +853,7 @@ class AgentV2:
         self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
         self.score += r
         self.step_count += 1
-        if done or trunc or self.step_count > 15000:
+        if done or trunc or self.step_count > 50000:
             raise AgentFinished()
         # Clear prompts
         misc = obs.get('misc', [0, 0, 0])
@@ -873,7 +873,7 @@ class AgentV2:
             self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
             self.score += r2
             self.step_count += 1
-            if done or trunc or self.step_count > 15000:
+            if done or trunc or self.step_count > 50000:
                 raise AgentFinished()
             misc = obs.get('misc', [0, 0, 0])
             msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
@@ -906,7 +906,7 @@ class AgentV2:
                 self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
                 self.score += r
                 self.step_count += 1
-                if done or trunc or self.step_count > 15000:
+                if done or trunc or self.step_count > 50000:
                     raise AgentFinished()
                 # Handle prompts from the move
                 misc = obs.get('misc', [0, 0, 0])
@@ -919,7 +919,7 @@ class AgentV2:
                     self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
                     self.score += r2
                     self.step_count += 1
-                    if done or trunc or self.step_count > 15000:
+                    if done or trunc or self.step_count > 50000:
                         raise AgentFinished()
                     misc = obs.get('misc', [0, 0, 0])
                     msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
@@ -937,7 +937,7 @@ class AgentV2:
                         self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
                         self.score += r2
                         self.step_count += 1
-                        if done or trunc or self.step_count > 15000:
+                        if done or trunc or self.step_count > 50000:
                             raise AgentFinished()
                         misc = obs.get('misc', [0, 0, 0])
                         msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
@@ -949,7 +949,7 @@ class AgentV2:
                             self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
                             self.score += r3
                             self.step_count += 1
-                            if done or trunc or self.step_count > 15000:
+                            if done or trunc or self.step_count > 50000:
                                 raise AgentFinished()
                             misc = obs.get('misc', [0, 0, 0])
                             msg = bytes(obs['message']).rstrip(b'\x00').decode('latin-1', errors='replace').strip()
@@ -973,7 +973,7 @@ class AgentV2:
 
             # Main loop
             while True:
-                if self.step_count > 15000:
+                if self.step_count > 50000:
                     raise AgentFinished()
                 try:
                     total_s = int(self.search_count.sum())
