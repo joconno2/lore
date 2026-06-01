@@ -93,12 +93,24 @@ class AgentV2:
         self.resistances = {"cold resistance"}
         self.has_excalibur = False
         self._prev_depth = 1
+        self._raw_bl = None
         self.inventory = {}
         self.inv_oclasses = {}
 
     # ================================================================
     # Core: step / update (AutoAscend agent.py:365-430)
     # ================================================================
+
+    def _env_step(self, idx):
+        """Raw env.step with blstats copy."""
+        obs, reward, done, truncated, info = self.env.step(idx)
+        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+        bl = obs.get('blstats')
+        if bl is not None:
+            self._raw_bl = bl.copy()
+        self.score += reward
+        self.step_count += 1
+        return done or truncated
 
     def step(self, action, gen=None):
         """Send action to env, handle prompts iteratively.
@@ -117,12 +129,7 @@ class AgentV2:
         if idx is None:
             return
 
-        obs, reward, done, truncated, info = self.env.step(idx)
-        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-        self.score += reward
-        self.step_count += 1
-
-        if done or truncated:
+        if self._env_step(idx):
             self._parse_blstats()
             raise AgentFinished()
 
@@ -143,11 +150,7 @@ class AgentV2:
                     else:
                         next_idx = self._val2idx.get(int(next_action))
                     if next_idx is not None:
-                        obs, reward, done, truncated, info = self.env.step(next_idx)
-                        self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                        self.score += reward
-                        self.step_count += 1
-                        if done or truncated:
+                        if self._env_step(next_idx):
                             self._parse_blstats()
                             raise AgentFinished()
                         continue
@@ -156,33 +159,21 @@ class AgentV2:
 
             # xwaitingforspace
             if misc[0]:
-                obs, reward, done, truncated, info = self.env.step(self._val2idx.get(32, 0))
-                self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                self.score += reward
-                self.step_count += 1
-                if done or truncated:
+                if self._env_step(self._val2idx.get(32, 0)):
                     self._parse_blstats()
                     raise AgentFinished()
                 continue
 
             # --More--
             if '--More--' in self.message:
-                obs, reward, done, truncated, info = self.env.step(self._val2idx.get(32, 0))
-                self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                self.score += reward
-                self.step_count += 1
-                if done or truncated:
+                if self._env_step(self._val2idx.get(32, 0)):
                     self._parse_blstats()
                     raise AgentFinished()
                 continue
 
             # Text entry: ESC
             if misc[1]:
-                obs, reward, done, truncated, info = self.env.step(self._val2idx.get(27, 0))
-                self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
-                self.score += reward
-                self.step_count += 1
-                if done or truncated:
+                if self._env_step(self._val2idx.get(27, 0)):
                     self._parse_blstats()
                     raise AgentFinished()
                 continue
@@ -233,15 +224,9 @@ class AgentV2:
         self._parse_messages()
 
     def _parse_blstats(self):
-        bl = self.obs.get('blstats') if self.obs else None
+        bl = self._raw_bl
         if bl is not None and len(bl) >= 26:
-            vals = [int(v) for v in bl[:26]]
-            self.blstats = BLStats(*vals)
-            if self.step_count <= 5 and self.verbose:
-                print(f"  BLSTATS: depth={vals[12]} xl={vals[18]} time={vals[20]} hp={vals[10]}")
-        elif self.blstats is None:
-            # Default blstats for safety
-            self.blstats = BLStats(0,0,0,0,0,0,0,0,0,0,16,16,1,0,0,0,10,0,1,0,1,0,0,0,1,0)
+            self.blstats = BLStats(*[int(v) for v in bl[:26]])
 
     def _update_maps(self):
         g = self.glyphs
@@ -579,6 +564,9 @@ class AgentV2:
         try:
             obs, info = self.env.reset(seed=self.seed)
             self.obs = {k: v.copy() if hasattr(v, 'copy') else v for k, v in obs.items()}
+            bl = obs.get('blstats')
+            if bl is not None:
+                self._raw_bl = bl.copy()
             self._update_game_state()
             # Clear any initial prompts
             try:
