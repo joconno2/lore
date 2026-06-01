@@ -25,7 +25,6 @@ def make_env(character="val-hum-fem-law"):
         character=character,
         max_episode_steps=10000,
         allow_all_yn_questions=True,
-        allow_all_modes=True,
         penalty_step=0.0,
     )
 
