@@ -481,9 +481,9 @@ class AgentV2:
                     name = dmap.get((dy,dx))
                     if name and name in self._name2idx:
                         self.step(self._name2idx[name])
+                        # If locked, skip this door (kick doesn't work reliably)
                         if 'locked' in self.message.lower():
-                            self.step(A.Command.KICK)
-                            self.step(self._name2idx[name])
+                            self.door_attempts[nr,nc] = 5  # mark as exhausted
                         return
 
         # 2. Go to nearest closed door
