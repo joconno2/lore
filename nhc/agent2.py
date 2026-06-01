@@ -549,9 +549,21 @@ class AgentV2:
         return False
 
     def explore(self):
-        """Explore current level: find frontier tiles, doors, stairs."""
+        """Explore current level: find frontier tiles, doors, stairs.
+        Also approaches visible hostile monsters as part of exploration."""
         py, px = self.blstats.y, self.blstats.x
         dis = self.bfs()
+
+        # Approach visible hostile monsters (explore + fight integration)
+        monsters = self.get_visible_monsters()
+        hostiles = [(d, r, c, name, mid) for d, r, c, name, mid in monsters
+                    if name not in PEACEFUL_NAMES and mid not in PEACEFUL_IDS
+                    and name not in NEVER_MELEE]
+        if hostiles and self.blstats.hp > self.blstats.max_hp * 0.3:
+            d, tr, tc, name, mid = hostiles[0]  # nearest
+            if dis[tr, tc] != -1 and d <= 15:
+                if self.go_to(tr, tc, dis):
+                    return
 
         # Adjacent closed door: walk into it
         for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
