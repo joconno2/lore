@@ -586,7 +586,7 @@ class AgentV2:
         # Prayer safety: 300 turns between prayers (AutoAscend uses 400-500)
         can_pray = (bl.time - self._last_prayer_turn) >= 300
 
-        # HP critical: pray at HP < max/3 or HP < 8 (more aggressive than AutoAscend)
+        # HP critical: pray at HP < max/3 or HP < 8
         if can_pray and (bl.hp < max(8, bl.max_hp // 3)):
             self._last_prayer_turn = bl.time
             self.step(A.Command.PRAY)
@@ -740,7 +740,10 @@ class AgentV2:
 
         # 0. On downstairs: descend if ready
         if self._on_stairs_down() and self.blstats.hp > self.blstats.max_hp * 0.5:
-            xl_ok = self.blstats.xl >= self.blstats.depth
+            if self.blstats.depth == 1:
+                xl_ok = self.blstats.xl >= 2
+            else:
+                xl_ok = self.blstats.xl >= self.blstats.depth + 1
             time_ok = self._level_turns > 30
             if xl_ok and time_ok:
                 self.step(A.MiscDirection.DOWN)
@@ -802,9 +805,11 @@ class AgentV2:
                 return
 
         # 3. Check if we should force descent
-        # Require XL >= depth for DL1-3 (basic readiness), XL >= depth+1 for DL4+
-        if self.blstats.depth <= 3:
-            xl_ready = self.blstats.xl >= self.blstats.depth
+        # Descent XL requirements: farm before descending
+        if self.blstats.depth == 1:
+            xl_ready = self.blstats.xl >= 2  # Farm DL1 to XL2
+        elif self.blstats.depth <= 3:
+            xl_ready = self.blstats.xl >= self.blstats.depth + 1
         else:
             xl_ready = self.blstats.xl >= self.blstats.depth + 1
         force_descend = self._level_turns > 80 and xl_ready
