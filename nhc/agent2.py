@@ -600,6 +600,37 @@ class AgentV2:
 
         return False
 
+    def eat_ground(self):
+        """Eat corpse/food from ground if standing on one."""
+        bl = self.blstats
+        if bl is None or bl.hunger < HUNGRY:
+            return False
+        if bl.time - self._last_eat_turn < 3:
+            return False
+        # Check if we just stepped on food (message contains "corpse" or "food")
+        msg = self.initial_message.lower() if hasattr(self, 'initial_message') else ''
+        if 'you see here' not in msg:
+            return False
+        if 'corpse' not in msg and 'food' not in msg and 'ration' not in msg:
+            return False
+        # Check if the corpse is safe (for corpses)
+        if 'corpse' in msg:
+            # Extract monster name from "You see here a X corpse"
+            parts = msg.split('you see here ')
+            if len(parts) > 1:
+                corpse_desc = parts[1].split(' corpse')[0]
+                # Remove article
+                for article in ['a ', 'an ', 'the ']:
+                    if corpse_desc.startswith(article):
+                        corpse_desc = corpse_desc[len(article):]
+                        break
+                if not self.food.is_corpse_safe(corpse_desc, self.resistances):
+                    return False
+        self._last_eat_turn = bl.time
+        # Send EAT. The yn handler will answer 'y' to "eat it?"
+        self.step(A.Command.EAT)
+        return True
+
     def eat(self):
         """Eat when hungry. Two-step: EAT command then food letter."""
         bl = self.blstats
@@ -1081,6 +1112,8 @@ class AgentV2:
                     if self.emergency():
                         continue
                     if self.fight():
+                        continue
+                    if self.eat_ground():
                         continue
                     if self.eat():
                         continue
