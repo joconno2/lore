@@ -349,26 +349,22 @@ class AgentV2:
 
         # Level change detection
         cur_key = (self.blstats.dungeon_number, self.blstats.level_number)
-        if cur_key != self._prev_level_key:
+        if self._prev_level_key is None:
+            # First observation: initialize without triggering level change logic
+            self._prev_level_key = cur_key
+        elif cur_key != self._prev_level_key:
             old_key = self._prev_level_key
             self._prev_level_key = cur_key
             self._peaceful_positions = set()
             self.food.on_level_change()
             # Record stair connections between levels
-            if old_key is not None:
-                lvl = self.current_level()
-                # If we went deeper, our position is an upstair on the new level
-                went_down = (cur_key[1] > old_key[1] if cur_key[0] == old_key[0]
-                             else cur_key[0] != old_key[0])
-                if went_down:
-                    lvl.stairs_up.add((self.blstats.y, self.blstats.x))
-                else:
-                    lvl.stairs_down.add((self.blstats.y, self.blstats.x))
-                # Record stair destination on old level
-                if old_key in self.levels:
-                    old_lvl = self.levels[old_key]
-                    # The position we departed from on old level had stairs
-                    # We can't know exact departure pos, but stair_dest is for future use
+            lvl = self.current_level()
+            went_down = (cur_key[1] > old_key[1] if cur_key[0] == old_key[0]
+                         else cur_key[0] != old_key[0])
+            if went_down:
+                lvl.stairs_up.add((self.blstats.y, self.blstats.x))
+            else:
+                lvl.stairs_down.add((self.blstats.y, self.blstats.x))
 
         # Track turns on this level
         if self.blstats.time != self._last_turn:
@@ -668,43 +664,17 @@ class AgentV2:
 
         return False
 
-    def pickup_and_equip(self):
-        """Pick up useful items and equip armor/weapons."""
+    def pickup_useful(self):
+        """Pick up food and gold from the ground."""
         msg = self.initial_message.lower() if hasattr(self, 'initial_message') else ''
         if 'you see here' not in msg:
             return False
-        if 'cursed' in msg:
-            return False
-        # Items worth picking up
         food_words = ['food ration', 'cram ration', 'lembas wafer', 'k-ration', 'c-ration']
-        armor_words = ['plate mail', 'chain mail', 'scale mail', 'ring mail', 'splint mail',
-                       'banded mail', 'studded leather', 'leather armor',
-                       'large shield', 'shield of reflection',
-                       'dwarvish iron helm', 'helm of',
-                       'cloak of', 'oilskin cloak', 'elven cloak',
-                       'gauntlets of', 'leather gloves',
-                       'speed boots', 'iron shoes', 'high boots', 'elven boots']
         has_food = any(w in msg for w in food_words)
         has_gold = 'gold piece' in msg
-        has_armor = any(w in msg for w in armor_words)
-        if not has_food and not has_gold and not has_armor:
+        if not has_food and not has_gold:
             return False
-        if self.blstats and self.blstats.carrying_capacity <= 0:
-            return False
-        # Pick it up
         self.step(A.Command.PICKUP)
-        # If we picked up armor, try to wear it
-        if has_armor:
-            self._parse_inventory()
-            armor_letter = self.equip.find_best_armor(self.inventory)
-            if armor_letter:
-                self.step(A.Command.WEAR)
-                a_idx = self._val2idx.get(ord(armor_letter))
-                if a_idx is not None:
-                    if self._env_step(a_idx):
-                        self._parse_blstats()
-                        raise AgentFinished()
-                    self._update_game_state()
         return True
 
     def eat_ground(self):
@@ -874,20 +844,10 @@ class AgentV2:
                 self.step(A.MiscDirection.DOWN)
                 return
 
-        # Excalibur: dip if on fountain, or navigate to fountain on current level
-        if not self.has_excalibur and self.blstats.xl >= 5 and self._fountains:
+        # Excalibur: only dip if already on fountain
+        if not self.has_excalibur and self.blstats.xl >= 5:
             if (py, px) in self._fountains:
                 self.dip_excalibur()
-                return
-            # Navigate to nearest fountain on this level
-            fight_dis = self._bfs_allow_hostiles()
-            best_fn, best_fnd = None, 999
-            for fy, fx in self._fountains:
-                d = fight_dis[fy, fx]
-                if d != -1 and d < best_fnd:
-                    best_fnd = d
-                    best_fn = (fy, fx)
-            if best_fn and self.step_toward(best_fn[0], best_fn[1], fight_dis):
                 return
 
         dis = self.bfs()
@@ -1239,7 +1199,7 @@ class AgentV2:
                         continue
                     if self.eat():
                         continue
-                    if self.pickup_and_equip():
+                    if self.pickup_useful():
                         continue
                     if self.dip_excalibur():
                         continue
