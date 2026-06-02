@@ -1004,10 +1004,10 @@ class AgentV2:
         # Descent XL requirements
         if self.blstats.depth == 1:
             xl_ready = self.blstats.xl >= 4  # Farm DL1 to XL4
-        elif self.blstats.depth <= 3:
-            xl_ready = self.blstats.xl >= self.blstats.depth + 1
+        elif self.blstats.depth <= 4:
+            xl_ready = self.blstats.xl >= self.blstats.depth  # XL >= depth
         else:
-            xl_ready = self.blstats.xl >= self.blstats.depth + 1
+            xl_ready = self.blstats.xl >= self.blstats.depth + 1  # Strict on deep levels
         force_descend = self._level_turns > 80 and xl_ready
 
         # 3a. Navigate to stairs if force_descend and stairs known (BEFORE frontier)
