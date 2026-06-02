@@ -598,21 +598,6 @@ class AgentV2:
             self.step(A.Command.PRAY)
             return True
 
-        # Elbereth: when HP critical and can't pray, engrave Elbereth and wait
-        if not can_pray and bl.hp < max(6, bl.max_hp // 4):
-            # Check for adjacent hostiles
-            adj_threats = sum(1 for d,r,c,n,m in self.get_monsters()
-                            if d <= 1 and n not in PEACEFUL_NAMES and m not in PEACEFUL_IDS
-                            and m not in self._peaceful_monster_ids)
-            if adj_threats > 0:
-                self._engrave_elbereth()
-                # Wait on Elbereth for a few turns to recover
-                for _ in range(min(5, adj_threats * 2)):
-                    self.step(A.Command.SEARCH)
-                    if self.blstats.hp >= self.blstats.max_hp * 0.6:
-                        break
-                return True
-
         return False
 
     def eat_ground(self):
@@ -795,23 +780,11 @@ class AgentV2:
                 self.step(A.MiscDirection.DOWN)
                 return
 
-        # Excalibur: navigate to fountain if conditions met
-        if not self.has_excalibur and self.blstats.xl >= 5 and self._fountains:
-            dis = self.bfs()
-            # Find nearest reachable fountain
-            best_f, best_fd = None, 999
-            for fy, fx in self._fountains:
-                d = dis[fy, fx]
-                if d != -1 and d < best_fd:
-                    best_fd = d
-                    best_f = (fy, fx)
-            if best_f:
-                if best_fd == 0:
-                    # On fountain, try dipping
-                    self.dip_excalibur()
-                    return
-                if self.step_toward(best_f[0], best_f[1], dis):
-                    return
+        # Excalibur: only dip if ALREADY on fountain (don't navigate to it)
+        if not self.has_excalibur and self.blstats.xl >= 5:
+            if (py, px) in self._fountains:
+                self.dip_excalibur()
+                return
 
         dis = self.bfs()
 

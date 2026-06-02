@@ -14,10 +14,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from nhc.agent2 import AgentV2, AgentFinished
 
 
+_env_registered = False
 def make_env(character="val-hum-fem-law"):
-    from nhc.elbereth_env import NetHackScoreEngrave
-    import gymnasium
-    gymnasium.register(id="NetHackScoreEngrave-v0", entry_point="nhc.elbereth_env:NetHackScoreEngrave")
+    global _env_registered
+    if not _env_registered:
+        from nhc.elbereth_env import NetHackScoreEngrave
+        import gymnasium
+        gymnasium.register(id="NetHackScoreEngrave-v0", entry_point="nhc.elbereth_env:NetHackScoreEngrave")
+        _env_registered = True
     return gym.make(
         "NetHackScoreEngrave-v0",
         observation_keys=(
