@@ -1106,7 +1106,7 @@ class AgentV2:
             if self.step_toward(best_s[0], best_s[1], dis):
                 return
 
-        # 6. Search at current position multiple times (secret doors need ~13 searches)
+        # 6. Search at current position
         search_rounds = min(3, max(1, 10 - self.search_count[py, px]))
         for _ in range(search_rounds):
             self.search_count[py, px] += 1
