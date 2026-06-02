@@ -774,6 +774,17 @@ class AgentV2:
 
         melee_adj = [x for x in adj if x[3] not in NEVER_MELEE]
 
+        # Elbereth: if HP < 30% and adjacent hostiles and can't pray, engrave
+        can_pray = (self.blstats.time - self._last_prayer_turn) >= 300
+        if len(melee_adj) >= 1 and self.blstats.hp < self.blstats.max_hp * 0.3 and not can_pray:
+            self._engrave_elbereth()
+            # Wait on Elbereth for monsters to flee (max 5 turns)
+            for _ in range(5):
+                if self.blstats.hp >= self.blstats.max_hp * 0.5:
+                    break
+                self.step(A.Command.SEARCH)
+            return True
+
         # Tactical: if HP < 40% and 2+ adjacent hostiles, retreat to corridor
         if len(melee_adj) >= 2 and self.blstats.hp < self.blstats.max_hp * 0.4:
             # Find direction with fewest monsters
@@ -1114,32 +1125,46 @@ class AgentV2:
             self.step(A.Command.SEARCH)
 
     def _engrave_elbereth(self):
-        """Engrave 'Elbereth' in the dust using fingers."""
-        # ENGRAVE command
-        self.step(A.Command.ENGRAVE)
-        # "What do you want to write with?" -> '-' (fingers)
+        """Engrave 'Elbereth' in the dust using fingers.
+        Uses raw _env_step to bypass prompt handling (like eat/dip)."""
+        # Step 1: ENGRAVE command -> "What do you want to write with?"
+        engrave_idx = self._val2idx.get(int(A.Command.ENGRAVE))
+        if engrave_idx is None:
+            return
+        if self._env_step(engrave_idx):
+            self._parse_blstats()
+            raise AgentFinished()
+
+        # Check for "add to current engraving?" yn prompt
+        misc = self.obs.get('misc', [0, 0, 0])
+        if misc[0] and 'add to' in bytes(self.obs.get('message', b'')).decode('latin-1', errors='replace').lower():
+            n_idx = self._val2idx.get(ord('n'))
+            if n_idx and self._env_step(n_idx):
+                self._parse_blstats()
+                raise AgentFinished()
+
+        # Step 2: '-' (fingers) -> "What do you want to write in the dust?"
         dash_idx = self._val2idx.get(ord('-'))
         if dash_idx is not None:
             if self._env_step(dash_idx):
                 self._parse_blstats()
                 raise AgentFinished()
-        # Handle "Do you want to add to the current engraving?" -> 'n'
-        misc = self.obs.get('misc', [0, 0, 0])
-        if misc[0]:
-            n_idx = self._val2idx.get(ord('n'))
-            if n_idx is not None:
-                if self._env_step(n_idx):
-                    self._parse_blstats()
-                    raise AgentFinished()
-        # "What do you want to write in the dust?" -> type Elbereth + Enter
-        for ch in 'Elbereth\r':
+
+        # Steps 3-10: Type E,l,b,e,r,e,t,h
+        for ch in 'Elbereth':
             ch_idx = self._val2idx.get(ord(ch))
             if ch_idx is not None:
                 if self._env_step(ch_idx):
                     self._parse_blstats()
                     raise AgentFinished()
-        # Clean up any remaining prompts
-        self.step(A.Command.ESC)
+
+        # Step 11: Enter to finish
+        cr_idx = self._val2idx.get(13)
+        if cr_idx is not None:
+            if self._env_step(cr_idx):
+                self._parse_blstats()
+                raise AgentFinished()
+
         self._update_game_state()
 
     def _on_stairs_down(self):
