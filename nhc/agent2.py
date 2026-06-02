@@ -334,9 +334,22 @@ class AgentV2:
         # Don't force locks
         if 'force the lock' in msg:
             return self._val2idx.get(ord('n'))
-        # Eat/dip/apply menus: ESC out (handled by two-step approach in eat()/dip())
-        if 'What do you want to eat' in msg or 'What do you want to dip' in msg:
+        # Menus that need ESC (handled by two-step approach)
+        if any(s in msg for s in ['What do you want to eat',
+                                   'What do you want to dip',
+                                   'What do you want to drop',
+                                   'What do you want to throw',
+                                   'What do you want to wield',
+                                   'What do you want to wear',
+                                   'What do you want to take off',
+                                   'What do you want to put on',
+                                   'What do you want to remove',
+                                   'What do you want to call',
+                                   'What do you want to use']):
             return self._val2idx.get(27)  # ESC
+        # Don't pray when unsafe
+        if 'Are you sure' in msg and 'pray' in msg:
+            return self._val2idx.get(ord('y'))
         # Default: yes
         return self._val2idx.get(ord('y'))
 
