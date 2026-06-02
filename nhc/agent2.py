@@ -774,13 +774,33 @@ class AgentV2:
 
         melee_adj = [x for x in adj if x[3] not in NEVER_MELEE]
 
+        # Tactical: if HP < 40% and 2+ adjacent hostiles, retreat to corridor
+        if len(melee_adj) >= 2 and self.blstats.hp < self.blstats.max_hp * 0.4:
+            # Find direction with fewest monsters
+            best_flee = None
+            best_threat = len(melee_adj)
+            for dy, dx in [(-1,0),(1,0),(0,-1),(0,1)]:
+                ny, nx = py + dy, px + dx
+                if 0 <= ny < MAP_H and 0 <= nx < MAP_W and self.walkable[ny, nx]:
+                    g = int(self.glyphs[ny, nx])
+                    if GLYPH_MON_OFF <= g < GLYPH_PET_OFF:
+                        continue  # Don't flee into a monster
+                    threat = sum(1 for _,r2,c2,_,_ in melee_adj
+                                if max(abs(r2-ny), abs(c2-nx)) <= 1)
+                    if threat < best_threat:
+                        best_threat = threat
+                        best_flee = (dy, dx)
+            if best_flee and best_threat < len(melee_adj):
+                self._move_dir(best_flee[0], best_flee[1])
+                return True
+
         # Melee the first adjacent hostile
         for d, r, c, n, m in melee_adj:
             dy, dx = r - py, c - px
             self._move_dir(dy, dx)
             return True
 
-        # Approach nearest reachable hostile within 8 BFS tiles
+        # Approach nearest reachable hostile (only when HP OK)
         if self.blstats.hp > self.blstats.max_hp * 0.3:
             fight_dis = self._bfs_allow_hostiles()
             best_mon = None
