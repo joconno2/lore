@@ -60,6 +60,32 @@ def _cmap(g):
     return g - GLYPH_CMAP_OFF if GLYPH_CMAP_OFF <= g < GLYPH_CMAP_OFF + 87 else -1
 
 
+DUNGEON_DOOM = 0
+DUNGEON_MINES = 2
+DUNGEON_SOKOBAN = 4
+
+
+class Level:
+    """Persistent per-level state. Survives when the agent leaves and returns."""
+    def __init__(self, dungeon_number, level_number):
+        self.dungeon_number = dungeon_number
+        self.level_number = level_number
+        self.seen = np.zeros((MAP_H, MAP_W), dtype=bool)
+        self.walkable = np.zeros((MAP_H, MAP_W), dtype=bool)
+        self.objects = np.full((MAP_H, MAP_W), -1, dtype=np.int16)
+        self.search_count = np.zeros((MAP_H, MAP_W), dtype=np.int32)
+        self.door_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
+        self.stairs_down = set()
+        self.stairs_up = set()
+        self.fountains = set()
+        self.turns_spent = 0
+        # Stair destinations: (y,x) -> (dungeon_number, level_number)
+        self.stair_dest = {}
+
+    def key(self):
+        return (self.dungeon_number, self.level_number)
+
+
 class AgentV2:
     def __init__(self, env, seed=None, verbose=False):
         self.env = env
@@ -92,23 +118,10 @@ class AgentV2:
         self.step_count = 0
         self._last_turn = -1
 
-        # Per-level maps
-        self.seen = np.zeros((MAP_H, MAP_W), dtype=bool)
-        self.walkable = np.zeros((MAP_H, MAP_W), dtype=bool)
-        self.objects = np.full((MAP_H, MAP_W), -1, dtype=np.int16)
-        self.search_count = np.zeros((MAP_H, MAP_W), dtype=np.int32)
-        self.door_attempts = np.zeros((MAP_H, MAP_W), dtype=np.int32)
-
-        # Level tracking
-        self._prev_depth = 1
+        # Multi-level state: persistent Level objects
+        self.levels = {}  # (dungeon_number, level_number) -> Level
         self._raw_bl = None
-        self._stairs_down = set()  # (y, x) positions of known downstairs on current level
-        self._stairs_up = set()   # (y, x) positions of known upstairs on current level
-        self._fountains = set()   # (y, x) positions of known fountains on current level
-        self._level_turns = 0   # turns spent on current level
-        # Multi-level state: remember fountains per level for Excalibur
-        self._fountain_levels = {}  # depth -> set of (y,x) fountain positions
-        self._upstairs_pos = {}     # depth -> set of (y,x) upstairs positions
+        self._prev_level_key = None
 
         # Inventory
         self.inventory = {}
@@ -130,6 +143,46 @@ class AgentV2:
         self._xwait_count = 0
         self._getlin_count = 0
         self._more_count = 0
+
+    def current_level(self):
+        """Get or create the Level object for the current dungeon position."""
+        if self.blstats is None:
+            # Fallback before first observation
+            key = (0, 1)
+        else:
+            key = (self.blstats.dungeon_number, self.blstats.level_number)
+        if key not in self.levels:
+            self.levels[key] = Level(*key)
+        return self.levels[key]
+
+    # Convenience accessors for current level maps
+    @property
+    def seen(self):
+        return self.current_level().seen
+    @property
+    def walkable(self):
+        return self.current_level().walkable
+    @property
+    def objects(self):
+        return self.current_level().objects
+    @property
+    def search_count(self):
+        return self.current_level().search_count
+    @property
+    def door_attempts(self):
+        return self.current_level().door_attempts
+    @property
+    def _stairs_down(self):
+        return self.current_level().stairs_down
+    @property
+    def _stairs_up(self):
+        return self.current_level().stairs_up
+    @property
+    def _fountains(self):
+        return self.current_level().fountains
+    @property
+    def _level_turns(self):
+        return self.current_level().turns_spent
 
     # ================================================================
     # Core: step / update
@@ -294,34 +347,32 @@ class AgentV2:
         if self.blstats is None:
             return
 
-        # Level change
-        if self.blstats.depth != self._prev_depth:
-            # Save current level's info before switching
-            old_depth = self._prev_depth
-            if self._fountains:
-                self._fountain_levels[old_depth] = self._fountains.copy()
-            if self._stairs_up:
-                self._upstairs_pos[old_depth] = self._stairs_up.copy()
-            # Reset for new level
-            self._prev_depth = self.blstats.depth
-            self.seen[:] = False
-            self.walkable[:] = False
-            self.objects[:] = -1
-            self.search_count[:] = 0
-            self.door_attempts[:] = 0
-            self._stairs_down = set()
-            self._stairs_up = set()
-            self._fountains = set()
-            self._level_turns = 0
+        # Level change detection
+        cur_key = (self.blstats.dungeon_number, self.blstats.level_number)
+        if cur_key != self._prev_level_key:
+            old_key = self._prev_level_key
+            self._prev_level_key = cur_key
             self._peaceful_positions = set()
             self.food.on_level_change()
-            # If we went deeper, our current position is an upstair
-            if self.blstats.depth > old_depth:
-                self._stairs_up.add((self.blstats.y, self.blstats.x))
+            # Record stair connections between levels
+            if old_key is not None:
+                lvl = self.current_level()
+                # If we went deeper, our position is an upstair on the new level
+                went_down = (cur_key[1] > old_key[1] if cur_key[0] == old_key[0]
+                             else cur_key[0] != old_key[0])
+                if went_down:
+                    lvl.stairs_up.add((self.blstats.y, self.blstats.x))
+                else:
+                    lvl.stairs_down.add((self.blstats.y, self.blstats.x))
+                # Record stair destination on old level
+                if old_key in self.levels:
+                    old_lvl = self.levels[old_key]
+                    # The position we departed from on old level had stairs
+                    # We can't know exact departure pos, but stair_dest is for future use
 
         # Track turns on this level
         if self.blstats.time != self._last_turn:
-            self._level_turns += 1
+            self.current_level().turns_spent += 1
             self._last_turn = self.blstats.time
 
         self.glyphs = self.obs['glyphs']
@@ -617,25 +668,43 @@ class AgentV2:
 
         return False
 
-    def pickup_food(self):
-        """Pick up food items from the ground for later eating."""
+    def pickup_and_equip(self):
+        """Pick up useful items and equip armor/weapons."""
         msg = self.initial_message.lower() if hasattr(self, 'initial_message') else ''
-        # Only pickup from single-item tiles (avoid menu from multi-item piles)
         if 'you see here' not in msg:
             return False
-        # Check for food items or gold worth picking up
-        food_words = ['food ration', 'cram ration', 'lembas wafer', 'melon',
-                      'apple', 'orange', 'pear', 'banana', 'candy bar',
-                      'egg', 'tin', 'tripe ration', 'k-ration', 'c-ration']
+        if 'cursed' in msg:
+            return False
+        # Items worth picking up
+        food_words = ['food ration', 'cram ration', 'lembas wafer', 'k-ration', 'c-ration']
+        armor_words = ['plate mail', 'chain mail', 'scale mail', 'ring mail', 'splint mail',
+                       'banded mail', 'studded leather', 'leather armor',
+                       'large shield', 'shield of reflection',
+                       'dwarvish iron helm', 'helm of',
+                       'cloak of', 'oilskin cloak', 'elven cloak',
+                       'gauntlets of', 'leather gloves',
+                       'speed boots', 'iron shoes', 'high boots', 'elven boots']
         has_food = any(w in msg for w in food_words)
         has_gold = 'gold piece' in msg
-        if not has_food and not has_gold:
+        has_armor = any(w in msg for w in armor_words)
+        if not has_food and not has_gold and not has_armor:
             return False
-        # Don't pick up if inventory is nearly full (carrying capacity check)
         if self.blstats and self.blstats.carrying_capacity <= 0:
             return False
-        # PICKUP command (value 44 = comma)
+        # Pick it up
         self.step(A.Command.PICKUP)
+        # If we picked up armor, try to wear it
+        if has_armor:
+            self._parse_inventory()
+            armor_letter = self.equip.find_best_armor(self.inventory)
+            if armor_letter:
+                self.step(A.Command.WEAR)
+                a_idx = self._val2idx.get(ord(armor_letter))
+                if a_idx is not None:
+                    if self._env_step(a_idx):
+                        self._parse_blstats()
+                        raise AgentFinished()
+                    self._update_game_state()
         return True
 
     def eat_ground(self):
@@ -805,10 +874,20 @@ class AgentV2:
                 self.step(A.MiscDirection.DOWN)
                 return
 
-        # Excalibur: only dip if ALREADY on fountain (don't navigate to it)
-        if not self.has_excalibur and self.blstats.xl >= 5:
+        # Excalibur: dip if on fountain, or navigate to fountain on current level
+        if not self.has_excalibur and self.blstats.xl >= 5 and self._fountains:
             if (py, px) in self._fountains:
                 self.dip_excalibur()
+                return
+            # Navigate to nearest fountain on this level
+            fight_dis = self._bfs_allow_hostiles()
+            best_fn, best_fnd = None, 999
+            for fy, fx in self._fountains:
+                d = fight_dis[fy, fx]
+                if d != -1 and d < best_fnd:
+                    best_fnd = d
+                    best_fn = (fy, fx)
+            if best_fn and self.step_toward(best_fn[0], best_fn[1], fight_dis):
                 return
 
         dis = self.bfs()
@@ -1160,7 +1239,7 @@ class AgentV2:
                         continue
                     if self.eat():
                         continue
-                    if self.pickup_food():
+                    if self.pickup_and_equip():
                         continue
                     if self.dip_excalibur():
                         continue
