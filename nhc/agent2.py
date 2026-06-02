@@ -680,16 +680,51 @@ class AgentV2:
         return False
 
     def pickup_useful(self):
-        """Pick up food and gold from the ground."""
+        """Pick up food, gold, and safe armor from the ground."""
         msg = self.initial_message.lower() if hasattr(self, 'initial_message') else ''
         if 'you see here' not in msg:
             return False
+        if 'cursed' in msg:
+            return False
+
         food_words = ['food ration', 'cram ration', 'lembas wafer', 'k-ration', 'c-ration']
+        # Only pickup armor marked uncursed or blessed (safe to wear)
+        safe_armor = ('uncursed' in msg or 'blessed' in msg) and any(
+            w in msg for w in ['mail', 'armor', 'helm', 'cloak', 'gloves',
+                               'gauntlets', 'boots', 'shoes', 'jacket'])
         has_food = any(w in msg for w in food_words)
         has_gold = 'gold piece' in msg
-        if not has_food and not has_gold:
+
+        if not has_food and not has_gold and not safe_armor:
             return False
-        self.step(A.Command.PICKUP)
+
+        # Pickup via raw _env_step (avoids prompt handler eating the pickup menu)
+        pickup_idx = self._val2idx.get(int(A.Command.PICKUP))
+        if pickup_idx is None:
+            return False
+        if self._env_step(pickup_idx):
+            self._parse_blstats()
+            raise AgentFinished()
+        self._update_game_state()
+
+        # If we picked up armor, try to wear it
+        if safe_armor:
+            self._parse_inventory()
+            armor_letter = self.equip.find_best_armor(self.inventory)
+            if armor_letter:
+                # WEAR via raw _env_step (same pattern as EAT/DIP)
+                wear_idx = self._val2idx.get(int(A.Command.WEAR))
+                if wear_idx is not None:
+                    if self._env_step(wear_idx):
+                        self._parse_blstats()
+                        raise AgentFinished()
+                    # Send armor letter
+                    a_idx = self._val2idx.get(ord(armor_letter))
+                    if a_idx is not None:
+                        if self._env_step(a_idx):
+                            self._parse_blstats()
+                            raise AgentFinished()
+                    self._update_game_state()
         return True
 
     def eat_corpse_after_kill(self):
