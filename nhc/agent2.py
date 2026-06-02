@@ -102,9 +102,13 @@ class AgentV2:
         # Level tracking
         self._prev_depth = 1
         self._raw_bl = None
-        self._stairs_down = set()  # (y, x) positions of known downstairs
-        self._fountains = set()   # (y, x) positions of known fountains
+        self._stairs_down = set()  # (y, x) positions of known downstairs on current level
+        self._stairs_up = set()   # (y, x) positions of known upstairs on current level
+        self._fountains = set()   # (y, x) positions of known fountains on current level
         self._level_turns = 0   # turns spent on current level
+        # Multi-level state: remember fountains per level for Excalibur
+        self._fountain_levels = {}  # depth -> set of (y,x) fountain positions
+        self._upstairs_pos = {}     # depth -> set of (y,x) upstairs positions
 
         # Inventory
         self.inventory = {}
@@ -292,6 +296,13 @@ class AgentV2:
 
         # Level change
         if self.blstats.depth != self._prev_depth:
+            # Save current level's info before switching
+            old_depth = self._prev_depth
+            if self._fountains:
+                self._fountain_levels[old_depth] = self._fountains.copy()
+            if self._stairs_up:
+                self._upstairs_pos[old_depth] = self._stairs_up.copy()
+            # Reset for new level
             self._prev_depth = self.blstats.depth
             self.seen[:] = False
             self.walkable[:] = False
@@ -299,10 +310,14 @@ class AgentV2:
             self.search_count[:] = 0
             self.door_attempts[:] = 0
             self._stairs_down = set()
+            self._stairs_up = set()
             self._fountains = set()
             self._level_turns = 0
             self._peaceful_positions = set()
             self.food.on_level_change()
+            # If we went deeper, our current position is an upstair
+            if self.blstats.depth > old_depth:
+                self._stairs_up.add((self.blstats.y, self.blstats.x))
 
         # Track turns on this level
         if self.blstats.time != self._last_turn:
@@ -335,6 +350,8 @@ class AgentV2:
                     # Accumulate stairs and fountains (persist until level change)
                     if cm in _STAIRS_DOWN:
                         self._stairs_down.add((r, c))
+                    if cm in _STAIRS_UP:
+                        self._stairs_up.add((r, c))
                     if cm in _FOUNTAIN:
                         self._fountains.add((r, c))
                 elif cm in _WALL:
