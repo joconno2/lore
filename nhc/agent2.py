@@ -1038,7 +1038,7 @@ class AgentV2:
             except AgentFinished:
                 raise
 
-            # Disable autopickup (match AutoAscend)
+            # Disable autopickup (items cause inventory issues and encumbrance)
             try:
                 self.step(A.Command.AUTOPICKUP)
                 if 'Autopickup: ON' in self.message:
