@@ -277,14 +277,9 @@ class AgentV2:
         # Don't force locks
         if 'force the lock' in msg:
             return self._val2idx.get(ord('n'))
-        # Eat menu: respond with food item letter
-        if 'What do you want to eat' in msg:
-            for letter, item in self.inventory.items():
-                oc = self.inv_oclasses.get(letter, -1)
-                if oc == FOOD_CLASS and 'cursed' not in item.lower() and 'corpse' not in item.lower():
-                    return self._val2idx.get(ord(letter))
-            # No food: cancel
-            return self._val2idx.get(ord('q'))
+        # Eat/dip/apply menus: ESC out (handled by two-step approach in eat()/dip())
+        if 'What do you want to eat' in msg or 'What do you want to dip' in msg:
+            return self._val2idx.get(27)  # ESC
         # Default: yes
         return self._val2idx.get(ord('y'))
 
@@ -404,12 +399,14 @@ class AgentV2:
         if "your sword has a bright" in msg or "excalibur" in msg:
             self.has_excalibur = True
 
-        # Kill tracking for corpse eating
+        # Kill tracking
+        self._last_kill_name = None
         for prefix in ["you kill the ", "you kill ", "you destroy the ", "you destroy "]:
             if prefix in msg:
                 name = msg.split(prefix, 1)[1].split("!")[0].split(".")[0].strip()
                 py, px = self.blstats.y, self.blstats.x
                 self.food.on_kill(name, py, px, self.blstats.time, self.resistances)
+                self._last_kill_name = name
                 break
 
     # ================================================================
@@ -644,27 +641,46 @@ class AgentV2:
             return False
         py, px = self.blstats.y, self.blstats.x
 
-        # Adjacent monsters: melee them
+        # Adjacent monsters
         adj = [(d,r,c,n,m) for d,r,c,n,m in mons if d <= 1]
+
+        # Flee from instakill monsters
         for d, r, c, n, m in adj:
             if n in INSTAKILL:
-                # Flee
                 dy, dx = py - r, px - c
                 self._move_dir(dy, dx)
                 return True
-            if n in NEVER_MELEE:
-                continue
-            # Melee
+
+        # If HP critical and multiple adjacent hostiles, flee
+        melee_adj = [x for x in adj if x[3] not in NEVER_MELEE]
+        if len(melee_adj) >= 3 and self.blstats.hp < self.blstats.max_hp * 0.2:
+            # Run away from the centroid of threats
+            avg_y = sum(r for _,r,c,n,m in melee_adj) / len(melee_adj)
+            avg_x = sum(c for _,r,c,n,m in melee_adj) / len(melee_adj)
+            dy = -1 if avg_y > py else (1 if avg_y < py else 0)
+            dx = -1 if avg_x > px else (1 if avg_x < px else 0)
+            if dy != 0 or dx != 0:
+                self._move_dir(dy, dx)
+                return True
+
+        # Melee the first adjacent hostile
+        for d, r, c, n, m in melee_adj:
             dy, dx = r - py, c - px
             self._move_dir(dy, dx)
             return True
 
-        # Approach nearest within 15 tiles if HP is OK
-        if mons[0][0] <= 15 and self.blstats.hp > self.blstats.max_hp * 0.3:
-            dis = self.bfs()
-            d, r, c, n, m = mons[0]
-            if dis[r, c] != -1:
-                if self.step_toward(r, c, dis):
+        # Approach nearest reachable hostile within 8 BFS tiles
+        if self.blstats.hp > self.blstats.max_hp * 0.3:
+            fight_dis = self._bfs_allow_hostiles()
+            best_mon = None
+            best_d = 999
+            for d, r, c, n, m in mons:
+                fd = fight_dis[r, c]
+                if fd != -1 and fd <= 12 and fd < best_d:
+                    best_d = fd
+                    best_mon = (r, c)
+            if best_mon:
+                if self.step_toward(best_mon[0], best_mon[1], fight_dis):
                     return True
         return False
 
@@ -701,8 +717,21 @@ class AgentV2:
         self.step(A.Command.DIP)
         sword_idx = self._val2idx.get(ord(sword_letter))
         if sword_idx is not None:
-            self._env_step(sword_idx)
+            if self._env_step(sword_idx):
+                self._parse_blstats()
+                raise AgentFinished()
+            # Handle follow-up prompts
+            self.step(A.Command.ESC)  # clear any remaining prompts
             self._update_game_state()
+        # Check if Excalibur was created
+        self._parse_inventory()
+        if any('Excalibur' in s for s in self.inventory.values()):
+            self.has_excalibur = True
+        # Remove fountain if it dried up
+        if (py, px) in self._fountains:
+            g = int(self.glyphs[py, px]) if self.glyphs is not None else 0
+            if _cmap(g) not in _FOUNTAIN:
+                self._fountains.discard((py, px))
         return True
 
     def explore(self):
