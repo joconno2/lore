@@ -600,6 +600,27 @@ class AgentV2:
 
         return False
 
+    def pickup_food(self):
+        """Pick up food items from the ground for later eating."""
+        msg = self.initial_message.lower() if hasattr(self, 'initial_message') else ''
+        # Only pickup from single-item tiles (avoid menu from multi-item piles)
+        if 'you see here' not in msg:
+            return False
+        # Check for food items or gold worth picking up
+        food_words = ['food ration', 'cram ration', 'lembas wafer', 'melon',
+                      'apple', 'orange', 'pear', 'banana', 'candy bar',
+                      'egg', 'tin', 'tripe ration', 'k-ration', 'c-ration']
+        has_food = any(w in msg for w in food_words)
+        has_gold = 'gold piece' in msg
+        if not has_food and not has_gold:
+            return False
+        # Don't pick up if inventory is nearly full (carrying capacity check)
+        if self.blstats and self.blstats.carrying_capacity <= 0:
+            return False
+        # PICKUP command (value 44 = comma)
+        self.step(A.Command.PICKUP)
+        return True
+
     def eat_ground(self):
         """Eat corpse/food from ground if standing on one."""
         bl = self.blstats
@@ -775,7 +796,7 @@ class AgentV2:
                 xl_ok = self.blstats.xl >= 2
             else:
                 xl_ok = self.blstats.xl >= self.blstats.depth + 1
-            time_ok = self._level_turns > 30
+            time_ok = self._level_turns > 50
             if xl_ok and time_ok:
                 self.step(A.MiscDirection.DOWN)
                 return
@@ -824,9 +845,9 @@ class AgentV2:
                 return
 
         # 3. Check if we should force descent
-        # Descent XL requirements: farm before descending
+        # Descent XL requirements
         if self.blstats.depth == 1:
-            xl_ready = self.blstats.xl >= 2  # Farm DL1 to XL2
+            xl_ready = self.blstats.xl >= 2
         elif self.blstats.depth <= 3:
             xl_ready = self.blstats.xl >= self.blstats.depth + 1
         else:
@@ -1133,6 +1154,8 @@ class AgentV2:
                     if self.eat_ground():
                         continue
                     if self.eat():
+                        continue
+                    if self.pickup_food():
                         continue
                     if self.dip_excalibur():
                         continue
