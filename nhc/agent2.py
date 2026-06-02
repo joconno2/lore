@@ -37,7 +37,7 @@ _WALL = frozenset(range(1, 12))
 _DOOR = frozenset({12, 13, 14, 15, 16})
 _STAIRS_DOWN = frozenset({24, 26})  # dnstair, dnladder
 _STAIRS_UP = frozenset({22, 25})    # upstair, upladder
-_FOUNTAIN = frozenset({29})
+_FOUNTAIN = frozenset({31})
 
 # Hunger states
 SATIATED = 0
