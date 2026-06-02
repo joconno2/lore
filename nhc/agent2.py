@@ -890,8 +890,18 @@ class AgentV2:
                                 adj += 1
                 if adj == 0:
                     continue
-                # Search priority: wall bonus - quadratic search penalty - distance
-                p = adj * 50 - self.search_count[r, c] ** 2 - dis[r, c] * 2
+                # Dead-end detection: count walkable neighbors
+                walkable_neighbors = 0
+                for dy3 in (-1, 0, 1):
+                    for dx3 in (-1, 0, 1):
+                        if dy3 == 0 and dx3 == 0:
+                            continue
+                        nr2, nc2 = r + dy3, c + dx3
+                        if 0 <= nr2 < MAP_H and 0 <= nc2 < MAP_W and self.walkable[nr2, nc2]:
+                            walkable_neighbors += 1
+                # Dead ends (1 neighbor) and corridors with many walls get huge priority
+                dead_end_bonus = 200 if walkable_neighbors <= 1 else 0
+                p = adj * 50 + dead_end_bonus - self.search_count[r, c] ** 2 - dis[r, c] * 2
                 if p > best_sp:
                     best_sp = p
                     best_s = (r, c)
