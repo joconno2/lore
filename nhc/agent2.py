@@ -676,13 +676,14 @@ class AgentV2:
         if bl.xl < 5:
             return False
 
-        # Check if standing on fountain
+        # Check if standing on fountain (use tracked positions like stairs)
         py, px = bl.y, bl.x
-        g_here = int(self.glyphs[py, px])
-        cm_here = _cmap(g_here)
-        obj_here = int(self.objects[py, px]) if self.objects[py, px] != -1 else -1
-        cm_obj = _cmap(obj_here) if obj_here != -1 else -1
-        on_fountain = cm_here in _FOUNTAIN or cm_obj in _FOUNTAIN
+        on_fountain = (py, px) in self._fountains
+        if not on_fountain:
+            # Also check glyphs as backup
+            g_here = int(self.glyphs[py, px])
+            obj_here = int(self.objects[py, px]) if self.objects[py, px] != -1 else -1
+            on_fountain = _cmap(g_here) in _FOUNTAIN or _cmap(obj_here) in _FOUNTAIN
 
         if not on_fountain:
             return False
