@@ -598,6 +598,21 @@ class AgentV2:
             self.step(A.Command.PRAY)
             return True
 
+        # Elbereth: when HP critical and can't pray, engrave Elbereth and wait
+        if not can_pray and bl.hp < max(6, bl.max_hp // 4):
+            # Check for adjacent hostiles
+            adj_threats = sum(1 for d,r,c,n,m in self.get_monsters()
+                            if d <= 1 and n not in PEACEFUL_NAMES and m not in PEACEFUL_IDS
+                            and m not in self._peaceful_monster_ids)
+            if adj_threats > 0:
+                self._engrave_elbereth()
+                # Wait on Elbereth for a few turns to recover
+                for _ in range(min(5, adj_threats * 2)):
+                    self.step(A.Command.SEARCH)
+                    if self.blstats.hp >= self.blstats.max_hp * 0.6:
+                        break
+                return True
+
         return False
 
     def eat_ground(self):
@@ -1027,6 +1042,35 @@ class AgentV2:
         else:
             # Can't move closer, search to advance turn
             self.step(A.Command.SEARCH)
+
+    def _engrave_elbereth(self):
+        """Engrave 'Elbereth' in the dust using fingers."""
+        # ENGRAVE command
+        self.step(A.Command.ENGRAVE)
+        # "What do you want to write with?" -> '-' (fingers)
+        dash_idx = self._val2idx.get(ord('-'))
+        if dash_idx is not None:
+            if self._env_step(dash_idx):
+                self._parse_blstats()
+                raise AgentFinished()
+        # Handle "Do you want to add to the current engraving?" -> 'n'
+        misc = self.obs.get('misc', [0, 0, 0])
+        if misc[0]:
+            n_idx = self._val2idx.get(ord('n'))
+            if n_idx is not None:
+                if self._env_step(n_idx):
+                    self._parse_blstats()
+                    raise AgentFinished()
+        # "What do you want to write in the dust?" -> type Elbereth + Enter
+        for ch in 'Elbereth\r':
+            ch_idx = self._val2idx.get(ord(ch))
+            if ch_idx is not None:
+                if self._env_step(ch_idx):
+                    self._parse_blstats()
+                    raise AgentFinished()
+        # Clean up any remaining prompts
+        self.step(A.Command.ESC)
+        self._update_game_state()
 
     def _on_stairs_down(self):
         """Check if player is standing on downstairs."""
