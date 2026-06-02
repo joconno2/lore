@@ -740,8 +740,8 @@ class AgentV2:
 
         # 0. On downstairs: descend if ready
         if self._on_stairs_down() and self.blstats.hp > self.blstats.max_hp * 0.5:
-            xl_ok = self.blstats.xl >= self.blstats.depth + 1
-            time_ok = self._level_turns > 50
+            xl_ok = self.blstats.xl >= self.blstats.depth
+            time_ok = self._level_turns > 30
             if xl_ok and time_ok:
                 self.step(A.MiscDirection.DOWN)
                 return
@@ -802,9 +802,12 @@ class AgentV2:
                 return
 
         # 3. Check if we should force descent
-        # Don't descend too early: require XL >= depth + 1 (farm each level)
-        xl_ready = self.blstats.xl >= self.blstats.depth + 1
-        force_descend = self._level_turns > 100 and xl_ready
+        # Require XL >= depth for DL1-3 (basic readiness), XL >= depth+1 for DL4+
+        if self.blstats.depth <= 3:
+            xl_ready = self.blstats.xl >= self.blstats.depth
+        else:
+            xl_ready = self.blstats.xl >= self.blstats.depth + 1
+        force_descend = self._level_turns > 80 and xl_ready
 
         # 3a. Navigate to stairs if force_descend and stairs known (BEFORE frontier)
         if force_descend and self._stairs_down and self.blstats.hp > self.blstats.max_hp * 0.3:
@@ -882,8 +885,7 @@ class AgentV2:
                                 adj += 1
                 if adj == 0:
                     continue
-                # Higher wall bonus and lower search penalty to find secret doors
-                # Secret doors need ~13 searches on average (1/7 chance per search)
+                # Search priority: wall bonus - quadratic search penalty - distance
                 p = adj * 50 - self.search_count[r, c] ** 2 - dis[r, c] * 2
                 if p > best_sp:
                     best_sp = p
