@@ -703,17 +703,7 @@ class AgentV2:
                 self._move_dir(dy, dx)
                 return True
 
-        # If HP critical and multiple adjacent hostiles, flee
         melee_adj = [x for x in adj if x[3] not in NEVER_MELEE]
-        if len(melee_adj) >= 3 and self.blstats.hp < self.blstats.max_hp * 0.2:
-            # Run away from the centroid of threats
-            avg_y = sum(r for _,r,c,n,m in melee_adj) / len(melee_adj)
-            avg_x = sum(c for _,r,c,n,m in melee_adj) / len(melee_adj)
-            dy = -1 if avg_y > py else (1 if avg_y < py else 0)
-            dx = -1 if avg_x > px else (1 if avg_x < px else 0)
-            if dy != 0 or dx != 0:
-                self._move_dir(dy, dx)
-                return True
 
         # Melee the first adjacent hostile
         for d, r, c, n, m in melee_adj:
