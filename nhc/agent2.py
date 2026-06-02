@@ -476,14 +476,16 @@ class AgentV2:
         if "your sword has a bright" in msg or "excalibur" in msg:
             self.has_excalibur = True
 
-        # Kill tracking
+        # Kill tracking with corpse position
         self._last_kill_name = None
+        self._last_kill_dir = (0, 0)
         for prefix in ["you kill the ", "you kill ", "you destroy the ", "you destroy "]:
             if prefix in msg:
                 name = msg.split(prefix, 1)[1].split("!")[0].split(".")[0].strip()
                 py, px = self.blstats.y, self.blstats.x
                 self.food.on_kill(name, py, px, self.blstats.time, self.resistances)
                 self._last_kill_name = name
+                self._last_kill_dir = self._last_move_dir
                 break
 
     # ================================================================
@@ -688,6 +690,38 @@ class AgentV2:
         if not has_food and not has_gold:
             return False
         self.step(A.Command.PICKUP)
+        return True
+
+    def eat_corpse_after_kill(self):
+        """Step onto a fresh kill's corpse and eat it."""
+        if self._last_kill_name is None:
+            return False
+        bl = self.blstats
+        if bl is None:
+            return False
+        name = self._last_kill_name
+        dy, dx = self._last_kill_dir
+        self._last_kill_name = None  # consume the kill info
+        # Only eat when hungry (corpse stepping costs too many turns for intrinsics)
+        if bl.hunger < HUNGRY:
+            return False
+        if not self.food.is_corpse_safe(name, self.resistances):
+            return False
+        if dy == 0 and dx == 0:
+            return False
+        # Step onto corpse tile
+        py, px = bl.y, bl.x
+        cy, cx = py + dy, px + dx
+        if not (0 <= cy < MAP_H and 0 <= cx < MAP_W):
+            return False
+        self._move_dir(dy, dx)
+        # Check if message confirms corpse on ground
+        msg_low = self.initial_message.lower() if hasattr(self, 'initial_message') else ''
+        if 'corpse' not in msg_low and 'you see here' not in msg_low:
+            return True  # moved but no corpse visible, don't eat
+        # Send EAT - yn handler answers 'y' to "eat it?"
+        self.step(A.Command.EAT)
+        self._last_eat_turn = bl.time
         return True
 
     def eat_ground(self):
