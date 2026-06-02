@@ -949,10 +949,10 @@ class AgentV2:
         """Explore: open doors, go to frontier, find stairs, search, descend."""
         py, px = self.blstats.y, self.blstats.x
 
-        # 0. On downstairs: descend if ready
+        # 0. On downstairs: descend (lower XL gate than force_descend)
         if self._on_stairs_down() and self.blstats.hp > self.blstats.max_hp * 0.5:
-            xl_ok = self.blstats.xl >= 4 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth + 1
-            time_ok = self._level_turns > 50
+            xl_ok = self.blstats.xl >= 2 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth
+            time_ok = self._level_turns > 30
             if xl_ok and time_ok:
                 self.step(A.MiscDirection.DOWN)
                 return
@@ -1300,8 +1300,8 @@ class AgentV2:
             while True:
                 try:
                     # Check descent after every action
-                    if self._on_stairs_down() and self._level_turns > 50:
-                        xl_ok = self.blstats.xl >= 4 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth + 1
+                    if self._on_stairs_down() and self._level_turns > 30:
+                        xl_ok = self.blstats.xl >= 2 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth
                         if xl_ok and self.blstats.hp > self.blstats.max_hp * 0.5:
                             self.step(A.MiscDirection.DOWN)
                             continue
