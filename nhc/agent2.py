@@ -1025,7 +1025,7 @@ class AgentV2:
         # 3. Check if we should force descent
         # Descent XL requirements
         if self.blstats.depth == 1:
-            xl_ready = self.blstats.xl >= 4  # Farm DL1 to XL4
+            xl_ready = self.blstats.xl >= 3  # Farm DL1 to XL3
         elif self.blstats.depth <= 4:
             xl_ready = self.blstats.xl >= self.blstats.depth  # XL >= depth
         else:
