@@ -693,10 +693,10 @@ class AgentV2:
             return False
 
         food_words = ['food ration', 'cram ration', 'lembas wafer', 'k-ration', 'c-ration']
-        # Only pickup armor marked uncursed or blessed (safe to wear)
-        safe_armor = ('uncursed' in msg or 'blessed' in msg) and any(
-            w in msg for w in ['mail', 'armor', 'helm', 'cloak', 'gloves',
-                               'gauntlets', 'boots', 'shoes', 'jacket'])
+        # Pickup armor: uncursed/blessed/unidentified (skip only explicitly cursed)
+        armor_words = ['mail', 'armor', 'helm', 'cloak', 'gloves',
+                       'gauntlets', 'boots', 'shoes', 'jacket']
+        safe_armor = any(w in msg for w in armor_words)
         has_food = any(w in msg for w in food_words)
         has_gold = 'gold piece' in msg
 
