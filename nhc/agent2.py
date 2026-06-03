@@ -1073,21 +1073,6 @@ class AgentV2:
                     if best_f and dis[best_f[0], best_f[1]] == best_fd:
                         break
         if best_f:
-            # If current position is adjacent to walls and low search count, search first
-            adj_walls = 0
-            for dy2 in (-1, 0, 1):
-                for dx2 in (-1, 0, 1):
-                    if dy2 == 0 and dx2 == 0:
-                        continue
-                    nr, nc = py + dy2, px + dx2
-                    if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
-                        cm2 = _cmap(int(self.glyphs[nr, nc]))
-                        if cm2 in _WALL or cm2 == 0:
-                            adj_walls += 1
-            if adj_walls > 0 and self.search_count[py, px] < 5 and best_fd > 2:
-                self.search_count[py, px] += 1
-                self.step(A.Command.SEARCH)
-                return
             if self.step_toward(best_f[0], best_f[1], dis):
                 return
 
