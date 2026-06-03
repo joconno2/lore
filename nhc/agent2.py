@@ -17,6 +17,7 @@ from nle.nethack import actions as A
 from nhc.food import FoodManager
 from nhc.equipment import EquipmentManager
 from nhc.fight import assess_monster, NEVER_MELEE, INSTAKILL, PEACEFUL_NAMES, PEACEFUL_IDS
+from nhc.sokoban import match_sokoban_level
 
 BLStats = namedtuple('BLStats',
     'x y str_pct str dex con int wis cha score '
@@ -81,6 +82,10 @@ class Level:
         self.turns_spent = 0
         # Stair destinations: (y,x) -> (dungeon_number, level_number)
         self.stair_dest = {}
+        self.soko_solution = None
+        self.soko_offset = (0, 0)
+        self.soko_step = 0
+        self.soko_matched = False
 
     def key(self):
         return (self.dungeon_number, self.level_number)
@@ -949,6 +954,23 @@ class AgentV2:
         """Explore: open doors, go to frontier, find stairs, search, descend."""
         py, px = self.blstats.y, self.blstats.x
 
+        # Sokoban: solve puzzle if in Sokoban dungeon
+        if self.blstats.dungeon_number == DUNGEON_SOKOBAN:
+            if self._solve_sokoban():
+                return
+            # After solving, go upstairs to next Sokoban level
+            lvl = self.current_level()
+            if lvl.soko_solution is not None and lvl.soko_step >= len(lvl.soko_solution):
+                if self._stairs_up:
+                    fight_dis = self._bfs_allow_hostiles()
+                    for uy, ux in self._stairs_up:
+                        if (py, px) == (uy, ux):
+                            self.step(A.MiscDirection.UP)
+                            return
+                        if fight_dis[uy, ux] != -1:
+                            self.step_toward(uy, ux, fight_dis)
+                            return
+
         # 0. On downstairs: descend (lower XL gate than force_descend)
         if self._on_stairs_down() and self.blstats.hp > self.blstats.max_hp * 0.5:
             xl_ok = self.blstats.xl >= 2 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth
@@ -1237,6 +1259,49 @@ class AgentV2:
                 raise AgentFinished()
 
         self._update_game_state()
+
+    def _solve_sokoban(self):
+        """Execute one step of the Sokoban puzzle solution."""
+        lvl = self.current_level()
+        if not lvl.soko_matched:
+            lvl.soko_matched = True
+            wall_mask = np.zeros((MAP_H, MAP_W), dtype=bool)
+            for r in range(MAP_H):
+                for c in range(MAP_W):
+                    if _cmap(int(self.glyphs[r, c])) in _WALL:
+                        wall_mask[r, c] = True
+            result = match_sokoban_level(wall_mask)
+            if result:
+                lvl.soko_solution, off_y, off_x = result
+                lvl.soko_offset = (off_y, off_x)
+                lvl.soko_step = 0
+
+        if lvl.soko_solution is None or lvl.soko_step >= len(lvl.soko_solution):
+            return False
+
+        (by, bx), (dy, dx) = lvl.soko_solution[lvl.soko_step]
+        off_y, off_x = lvl.soko_offset
+        game_by, game_bx = by + off_y, bx + off_x
+        push_y, push_x = game_by - dy, game_bx - dx
+        py, px = self.blstats.y, self.blstats.x
+
+        # Check boulder still there
+        if 0 <= game_by < MAP_H and 0 <= game_bx < MAP_W:
+            if int(self.glyphs[game_by, game_bx]) != GLYPH_OBJ_OFF + 447:
+                lvl.soko_step += 1
+                return True
+
+        if (py, px) != (push_y, push_x):
+            dis = self.bfs()
+            if dis[push_y, push_x] == -1:
+                lvl.soko_step += 1
+                return True
+            self.step_toward(push_y, push_x, dis)
+            return True
+
+        self._move_dir(dy, dx)
+        lvl.soko_step += 1
+        return True
 
     def _on_stairs_down(self):
         """Check if player is standing on downstairs."""
