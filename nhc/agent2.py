@@ -442,6 +442,16 @@ class AgentV2:
         self.walkable[py, px] = True
         self.seen[py, px] = True
 
+        # Also detect stairs from chars observation (more reliable than glyph CMAP)
+        chars = self.obs.get('chars')
+        if chars is not None:
+            ys, xs = (chars == ord('>')).nonzero()
+            for y, x in zip(ys, xs):
+                self._stairs_down.add((int(y), int(x)))
+            ys, xs = (chars == ord('<')).nonzero()
+            for y, x in zip(ys, xs):
+                self._stairs_up.add((int(y), int(x)))
+
     def _parse_inventory(self):
         inv_strs = self.obs.get('inv_strs')
         inv_letters = self.obs.get('inv_letters')
@@ -676,7 +686,7 @@ class AgentV2:
             self.step(A.Command.PRAY)
             return True
 
-        # Fainting from hunger: pray
+        # Weak/fainting from hunger: pray (earlier than FAINTING to avoid death)
         if can_pray and bl.hunger >= FAINTING:
             self._last_prayer_turn = bl.time
             self.step(A.Command.PRAY)

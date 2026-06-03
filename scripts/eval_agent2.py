@@ -25,7 +25,7 @@ def make_env(character="val-hum-fem-law"):
     return gym.make(
         "NetHackScoreEngrave-v0",
         observation_keys=(
-            "glyphs", "blstats", "message", "misc", "specials",
+            "glyphs", "blstats", "message", "misc", "specials", "chars",
             "inv_glyphs", "inv_strs", "inv_letters", "inv_oclasses",
         ),
         actions=nethack.ACTIONS,
