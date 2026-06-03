@@ -1333,9 +1333,14 @@ class AgentV2:
                     if self.dip_excalibur():
                         continue
                     self.explore()
-                except RuntimeError:
-                    self.step(A.Command.SEARCH)
+                except RuntimeError as e:
+                    if 'finished' in str(e).lower():
+                        break
+                    try:
+                        self.step(A.Command.SEARCH)
+                    except (AgentFinished, RuntimeError):
+                        break
 
-        except AgentFinished:
+        except (AgentFinished, RuntimeError):
             pass
         return self.score
