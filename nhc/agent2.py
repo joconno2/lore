@@ -1008,7 +1008,9 @@ class AgentV2:
             xl_ready = self.blstats.xl >= self.blstats.depth  # XL >= depth
         else:
             xl_ready = self.blstats.xl >= self.blstats.depth + 1  # Strict on deep levels
-        force_descend = self._level_turns > 80 and xl_ready
+        # Descend faster on deeper levels (already strong enough)
+        descent_timer = max(30, 100 - self.blstats.depth * 15)
+        force_descend = self._level_turns > descent_timer and xl_ready
 
         # 3a. Navigate to stairs if force_descend and stairs known (BEFORE frontier)
         if force_descend and self._stairs_down and self.blstats.hp > self.blstats.max_hp * 0.3:
