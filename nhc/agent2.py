@@ -942,32 +942,6 @@ class AgentV2:
             self._move_dir(dy, dx)
             return True
 
-        # Corridor fighting: if 3+ visible hostiles and in open area, retreat to corridor
-        if len(mons) >= 3 and self.blstats.hp < self.blstats.max_hp * 0.7:
-            # Count walkable neighbors (corridor = 1-2 neighbors, room = 3+)
-            my_neighbors = sum(1 for dy in (-1,0,1) for dx in (-1,0,1)
-                              if (dy or dx) and 0 <= py+dy < MAP_H and 0 <= px+dx < MAP_W
-                              and self.walkable[py+dy, px+dx])
-            if my_neighbors >= 4:  # In open room, should retreat to corridor
-                dis = self.bfs()
-                best_corridor = None
-                best_cd = 999
-                for r in range(MAP_H):
-                    for c in range(MAP_W):
-                        if dis[r, c] == -1 or dis[r, c] >= best_cd or dis[r, c] == 0:
-                            continue
-                        if not self.walkable[r, c]:
-                            continue
-                        cn = sum(1 for dy2 in (-1,0,1) for dx2 in (-1,0,1)
-                                if (dy2 or dx2) and 0 <= r+dy2 < MAP_H and 0 <= c+dx2 < MAP_W
-                                and self.walkable[r+dy2, c+dx2])
-                        if cn <= 2:  # Corridor tile
-                            best_cd = dis[r, c]
-                            best_corridor = (r, c)
-                if best_corridor and best_cd <= 8:
-                    if self.step_toward(best_corridor[0], best_corridor[1], dis):
-                        return True
-
         # Approach nearest reachable hostile (only when HP OK)
         if self.blstats.hp > self.blstats.max_hp * 0.3:
             fight_dis = self._bfs_allow_hostiles()
