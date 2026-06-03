@@ -692,28 +692,55 @@ class AgentV2:
             self.step(A.Command.PRAY)
             return True
 
+        # Last resort: quaff a potion when HP critical and can't pray
+        if not can_pray and bl.hp < max(6, bl.max_hp // 4):
+            for letter, item in self.inventory.items():
+                oc = self.inv_oclasses.get(letter, -1)
+                if oc == POTION_CLASS:
+                    # Quaff it (might be healing, might not)
+                    quaff_idx = self._val2idx.get(int(A.Command.QUAFF))
+                    if quaff_idx is not None:
+                        if self._env_step(quaff_idx):
+                            self._parse_blstats()
+                            raise AgentFinished()
+                        p_idx = self._val2idx.get(ord(letter))
+                        if p_idx is not None:
+                            if self._env_step(p_idx):
+                                self._parse_blstats()
+                                raise AgentFinished()
+                        self._update_game_state()
+                        return True
+
         return False
 
     def pickup_useful(self):
-        """Pick up food, gold, and safe armor from the ground."""
+        """Pick up useful items from ground: food, gold, armor, weapons, potions."""
         msg = self.initial_message.lower() if hasattr(self, 'initial_message') else ''
         if 'you see here' not in msg:
             return False
         if 'cursed' in msg:
             return False
 
-        food_words = ['food ration', 'cram ration', 'lembas wafer', 'k-ration', 'c-ration']
-        # Pickup armor: uncursed/blessed/unidentified (skip only explicitly cursed)
-        armor_words = ['mail', 'armor', 'helm', 'cloak', 'gloves',
-                       'gauntlets', 'boots', 'shoes', 'jacket']
-        safe_armor = any(w in msg for w in armor_words)
-        has_food = any(w in msg for w in food_words)
-        has_gold = 'gold piece' in msg
+        # Categories worth picking up
+        food_kw = ['food ration', 'cram ration', 'lembas wafer', 'k-ration', 'c-ration',
+                    'tripe ration', 'tin']
+        armor_kw = ['mail', 'armor', 'helm', 'cloak', 'gloves', 'gauntlets',
+                     'boots', 'shoes', 'jacket', 'shield']
+        weapon_kw = ['long sword', 'katana', 'silver saber', 'broadsword', 'scimitar',
+                      'battle-axe', 'morning star', 'war hammer']
+        potion_kw = ['potion']
+        gold_kw = ['gold piece']
 
-        if not has_food and not has_gold and not safe_armor:
+        is_food = any(w in msg for w in food_kw)
+        is_armor = any(w in msg for w in armor_kw)
+        is_weapon = any(w in msg for w in weapon_kw)
+        is_potion = any(w in msg for w in potion_kw)
+        is_gold = any(w in msg for w in gold_kw)
+
+        if not any([is_food, is_armor, is_weapon, is_potion, is_gold]):
             return False
 
-        # Pickup via raw _env_step (avoids prompt handler eating the pickup menu)
+        # Pickup via raw _env_step
         pickup_idx = self._val2idx.get(int(A.Command.PICKUP))
         if pickup_idx is None:
             return False
@@ -722,25 +749,45 @@ class AgentV2:
             raise AgentFinished()
         self._update_game_state()
 
-        # If we picked up armor, try to wear it
-        if safe_armor:
-            self._parse_inventory()
-            armor_letter = self.equip.find_best_armor(self.inventory)
-            if armor_letter:
-                # WEAR via raw _env_step (same pattern as EAT/DIP)
-                wear_idx = self._val2idx.get(int(A.Command.WEAR))
-                if wear_idx is not None:
-                    if self._env_step(wear_idx):
+        # Auto-equip: wear armor, wield weapons
+        if is_armor or is_weapon:
+            self._auto_equip()
+        return True
+
+    def _auto_equip(self):
+        """Equip best available armor and weapons from inventory."""
+        self._parse_inventory()
+
+        # Wear armor for empty slots
+        armor_letter = self.equip.find_best_armor(self.inventory)
+        if armor_letter:
+            wear_idx = self._val2idx.get(int(A.Command.WEAR))
+            if wear_idx is not None:
+                if self._env_step(wear_idx):
+                    self._parse_blstats()
+                    raise AgentFinished()
+                a_idx = self._val2idx.get(ord(armor_letter))
+                if a_idx is not None:
+                    if self._env_step(a_idx):
                         self._parse_blstats()
                         raise AgentFinished()
-                    # Send armor letter
-                    a_idx = self._val2idx.get(ord(armor_letter))
-                    if a_idx is not None:
-                        if self._env_step(a_idx):
-                            self._parse_blstats()
-                            raise AgentFinished()
-                    self._update_game_state()
-        return True
+                self._update_game_state()
+
+        # Wield better weapon
+        self._parse_inventory()
+        weapon_letter = self.equip.find_best_weapon(self.inventory)
+        if weapon_letter:
+            wield_idx = self._val2idx.get(int(A.Command.WIELD))
+            if wield_idx is not None:
+                if self._env_step(wield_idx):
+                    self._parse_blstats()
+                    raise AgentFinished()
+                w_idx = self._val2idx.get(ord(weapon_letter))
+                if w_idx is not None:
+                    if self._env_step(w_idx):
+                        self._parse_blstats()
+                        raise AgentFinished()
+                self._update_game_state()
 
     def eat_corpse_after_kill(self):
         """Step onto a fresh kill's corpse and eat it."""
@@ -894,6 +941,32 @@ class AgentV2:
             dy, dx = r - py, c - px
             self._move_dir(dy, dx)
             return True
+
+        # Corridor fighting: if 3+ visible hostiles and in open area, retreat to corridor
+        if len(mons) >= 3 and self.blstats.hp < self.blstats.max_hp * 0.7:
+            # Count walkable neighbors (corridor = 1-2 neighbors, room = 3+)
+            my_neighbors = sum(1 for dy in (-1,0,1) for dx in (-1,0,1)
+                              if (dy or dx) and 0 <= py+dy < MAP_H and 0 <= px+dx < MAP_W
+                              and self.walkable[py+dy, px+dx])
+            if my_neighbors >= 4:  # In open room, should retreat to corridor
+                dis = self.bfs()
+                best_corridor = None
+                best_cd = 999
+                for r in range(MAP_H):
+                    for c in range(MAP_W):
+                        if dis[r, c] == -1 or dis[r, c] >= best_cd or dis[r, c] == 0:
+                            continue
+                        if not self.walkable[r, c]:
+                            continue
+                        cn = sum(1 for dy2 in (-1,0,1) for dx2 in (-1,0,1)
+                                if (dy2 or dx2) and 0 <= r+dy2 < MAP_H and 0 <= c+dx2 < MAP_W
+                                and self.walkable[r+dy2, c+dx2])
+                        if cn <= 2:  # Corridor tile
+                            best_cd = dis[r, c]
+                            best_corridor = (r, c)
+                if best_corridor and best_cd <= 8:
+                    if self.step_toward(best_corridor[0], best_corridor[1], dis):
+                        return True
 
         # Approach nearest reachable hostile (only when HP OK)
         if self.blstats.hp > self.blstats.max_hp * 0.3:
