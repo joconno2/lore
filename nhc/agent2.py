@@ -1124,7 +1124,7 @@ class AgentV2:
         if self._on_stairs_down() and self.blstats.hp > self.blstats.max_hp * 0.5:
             xl_ok = self.blstats.xl >= 2 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth
             # Don't descend too early: explore level first to find all stairs
-            descent_timer = max(30, 100 - self.blstats.depth * 15)
+            descent_timer = max(40, 200 - self.blstats.depth * 30)
             time_ok = self._level_turns > descent_timer
             if xl_ok and time_ok:
                 self.step(A.MiscDirection.DOWN)
@@ -1182,7 +1182,7 @@ class AgentV2:
         else:
             xl_ready = self.blstats.xl >= self.blstats.depth + 1  # Strict on deep levels
         # Descend faster on deeper levels (already strong enough)
-        descent_timer = max(30, 100 - self.blstats.depth * 15)
+        descent_timer = max(40, 200 - self.blstats.depth * 30)
         force_descend = self._level_turns > descent_timer and xl_ready
 
         # 3a. Navigate to stairs if force_descend and stairs known (BEFORE frontier)
@@ -1528,7 +1528,7 @@ class AgentV2:
             while True:
                 try:
                     # Check descent after every action
-                    if self._on_stairs_down() and self._level_turns > max(30, 100 - self.blstats.depth * 15):
+                    if self._on_stairs_down() and self._level_turns > max(40, 200 - self.blstats.depth * 30):
                         xl_ok = self.blstats.xl >= 2 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth
                         if xl_ok and self.blstats.hp > self.blstats.max_hp * 0.5:
                             self.step(A.MiscDirection.DOWN)
