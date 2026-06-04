@@ -1010,9 +1010,10 @@ class AgentV2:
             fight_dis = self._bfs_allow_hostiles()
             # Reduce approach range when stuck (no stairs, 200+ turns) to allow searching
             approach_range = 12
-            # Reduce range when stuck: no stairs, no reachable frontier, 200+ turns
-            if (not self._stairs_down and self._level_turns > 200
-                    and not self._has_frontier()):
+            # Reduce range when stuck: no stairs, extensive search, 500+ turns
+            total_searches = int(self.search_count.sum())
+            if (not self._stairs_down and self._level_turns > 500
+                    and total_searches > 100):
                 approach_range = 6
             best_mon = None
             best_d = 999
