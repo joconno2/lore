@@ -1123,7 +1123,9 @@ class AgentV2:
         # 0. On downstairs: descend (lower XL gate than force_descend)
         if self._on_stairs_down() and self.blstats.hp > self.blstats.max_hp * 0.5:
             xl_ok = self.blstats.xl >= 2 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth
-            time_ok = self._level_turns > 30
+            # Don't descend too early: explore level first to find all stairs
+            descent_timer = max(30, 100 - self.blstats.depth * 15)
+            time_ok = self._level_turns > descent_timer
             if xl_ok and time_ok:
                 self.step(A.MiscDirection.DOWN)
                 return
@@ -1517,7 +1519,7 @@ class AgentV2:
             while True:
                 try:
                     # Check descent after every action
-                    if self._on_stairs_down() and self._level_turns > 30:
+                    if self._on_stairs_down() and self._level_turns > max(30, 100 - self.blstats.depth * 15):
                         xl_ok = self.blstats.xl >= 2 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth
                         if xl_ok and self.blstats.hp > self.blstats.max_hp * 0.5:
                             self.step(A.MiscDirection.DOWN)
