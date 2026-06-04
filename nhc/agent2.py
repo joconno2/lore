@@ -1010,8 +1010,8 @@ class AgentV2:
             fight_dis = self._bfs_allow_hostiles()
             # Reduce approach range when stuck (no stairs, 200+ turns) to allow searching
             approach_range = 12
-            # Only reduce range when truly stuck: no stairs, no frontier, 500+ turns
-            if (not self._stairs_down and self._level_turns > 500
+            # Reduce range when stuck: no stairs, no reachable frontier, 200+ turns
+            if (not self._stairs_down and self._level_turns > 200
                     and not self._has_frontier()):
                 approach_range = 6
             best_mon = None
@@ -1532,11 +1532,12 @@ class AgentV2:
         return cm_obj in _STAIRS_DOWN
 
     def _has_frontier(self):
-        """Check if there are unexplored tiles adjacent to explored walkable tiles."""
+        """Check if there are REACHABLE unexplored tiles adjacent to walkable tiles."""
+        dis = self.bfs()
         for r in range(MAP_H):
             for c in range(MAP_W):
-                if not self.walkable[r, c]:
-                    continue
+                if not self.walkable[r, c] or dis[r, c] == -1:
+                    continue  # Skip unreachable tiles
                 for dy in (-1, 0, 1):
                     for dx in (-1, 0, 1):
                         if dy == 0 and dx == 0:
