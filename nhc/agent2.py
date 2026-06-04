@@ -66,6 +66,11 @@ DUNGEON_DOOM = 0
 DUNGEON_MINES = 2
 DUNGEON_SOKOBAN = 4
 
+# Milestone progression (based on AutoAscend global_logic.py)
+MILESTONE_FARM_DL1 = 0       # Stay on DL1 until XL >= 3
+MILESTONE_DESCEND = 1        # Explore + descend main dungeon
+MILESTONE_PUSH_DEEP = 2      # Push as deep as possible for score
+
 
 class Level:
     """Persistent per-level state. Survives when the agent leaves and returns."""
@@ -149,6 +154,9 @@ class AgentV2:
         self._xwait_count = 0
         self._getlin_count = 0
         self._more_count = 0
+
+        # Milestone system (AutoAscend-style progression)
+        self.milestone = MILESTONE_FARM_DL1
 
     def current_level(self):
         """Get or create the Level object for the current dungeon position."""
@@ -1122,12 +1130,27 @@ class AgentV2:
                             self.step_toward(uy, ux, fight_dis)
                             return
 
-        # 0. On downstairs: descend (lower XL gate than force_descend)
+        # Update milestones
+        if self.milestone == MILESTONE_FARM_DL1 and self.blstats.xl >= 3:
+            self.milestone = MILESTONE_DESCEND
+        elif self.milestone == MILESTONE_DESCEND and self.blstats.depth >= 5:
+            self.milestone = MILESTONE_PUSH_DEEP
+
+        # 0. On downstairs: descend based on milestone
         if self._on_stairs_down() and self.blstats.hp > self.blstats.max_hp * 0.5:
-            xl_ok = self.blstats.xl >= 2 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth
-            # Don't descend too early: explore level first to find all stairs
             descent_timer = max(40, 200 - self.blstats.depth * 30)
             time_ok = self._level_turns > descent_timer
+
+            if self.milestone == MILESTONE_FARM_DL1:
+                # Don't descend until XL5 (thorough DL1 farming)
+                xl_ok = self.blstats.xl >= 5
+            elif self.milestone == MILESTONE_DESCEND:
+                # Descend freely once past DL1 farming
+                xl_ok = self.blstats.xl >= self.blstats.depth
+            else:
+                # Push deep: minimal gating
+                xl_ok = True
+
             if xl_ok and time_ok:
                 self.step(A.MiscDirection.DOWN)
                 return
@@ -1175,15 +1198,13 @@ class AgentV2:
             if self.step_toward(best_door[0], best_door[1], dis):
                 return
 
-        # 3. Check if we should force descent
-        # Descent XL requirements
-        if self.blstats.depth == 1:
-            xl_ready = self.blstats.xl >= 3  # Farm DL1 to XL3
-        elif self.blstats.depth <= 4:
-            xl_ready = self.blstats.xl >= self.blstats.depth  # XL >= depth
+        # 3. Check if we should force descent (milestone-aware)
+        if self.milestone == MILESTONE_FARM_DL1:
+            xl_ready = self.blstats.xl >= 3
+        elif self.milestone == MILESTONE_DESCEND:
+            xl_ready = self.blstats.xl >= self.blstats.depth
         else:
-            xl_ready = self.blstats.xl >= self.blstats.depth + 1  # Strict on deep levels
-        # Descend faster on deeper levels (already strong enough)
+            xl_ready = True
         descent_timer = max(40, 200 - self.blstats.depth * 30)
         force_descend = self._level_turns > descent_timer and xl_ready
 
@@ -1553,7 +1574,12 @@ class AgentV2:
                 try:
                     # Check descent after every action
                     if self._on_stairs_down() and self._level_turns > max(40, 200 - self.blstats.depth * 30):
-                        xl_ok = self.blstats.xl >= 2 if self.blstats.depth == 1 else self.blstats.xl >= self.blstats.depth
+                        if self.milestone == MILESTONE_FARM_DL1:
+                            xl_ok = self.blstats.xl >= 5
+                        elif self.milestone == MILESTONE_DESCEND:
+                            xl_ok = self.blstats.xl >= self.blstats.depth
+                        else:
+                            xl_ok = True
                         if xl_ok and self.blstats.hp > self.blstats.max_hp * 0.5:
                             self.step(A.MiscDirection.DOWN)
                             continue
