@@ -1231,7 +1231,6 @@ class AgentV2:
                             walkable_neighbors += 1
                 # Dead ends (1 neighbor) and corridors with many walls get huge priority
                 dead_end_bonus = 200 if walkable_neighbors <= 1 else 0
-                # sqrt penalty: allows 13+ searches per tile (secret doors need ~13 avg)
                 sc = self.search_count[r, c]
                 p = adj * 50 + dead_end_bonus - int(sc * sc**0.5) - dis[r, c] * 2
                 if p > best_sp:
