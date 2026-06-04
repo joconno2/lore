@@ -423,9 +423,11 @@ class AgentV2:
                 elif cm in _WALL:
                     self.seen[r, c] = True
                     self.walkable[r, c] = False
+                    self.objects[r, c] = v  # Store wall glyphs (like AutoAscend)
                 elif cm in _CLOSED_DOOR:
                     self.seen[r, c] = True
                     self.walkable[r, c] = False
+                    self.objects[r, c] = v  # Store door glyphs
                 elif v == GLYPH_OBJ_OFF + 447:  # boulder
                     self.seen[r, c] = True
                     self.walkable[r, c] = False
@@ -1257,8 +1259,11 @@ class AgentV2:
                             continue
                         nr, nc = r + dy2, c + dx2
                         if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
-                            obj = int(self.objects[nr, nc]) if self.objects[nr, nc] != -1 else int(self.glyphs[nr, nc])
-                            cm2 = _cmap(obj)
+                            # Use stored objects (like AutoAscend) for stable wall/stone detection
+                            obj_val = int(self.objects[nr, nc])
+                            if obj_val == -1:
+                                obj_val = int(self.glyphs[nr, nc])
+                            cm2 = _cmap(obj_val)
                             if cm2 == 0:
                                 stones += 1
                             elif cm2 in _WALL:
