@@ -1227,6 +1227,25 @@ class AgentV2:
                         break
         if best_f:
             if self.step_toward(best_f[0], best_f[1], dis):
+                # After reaching frontier target, search if near walls (like AutoAscend)
+                ny, nx = self.blstats.y, self.blstats.x
+                if self.search_count[ny, nx] < 3:
+                    adj_wall = False
+                    for dy2 in (-1, 0, 1):
+                        for dx2 in (-1, 0, 1):
+                            if dy2 == 0 and dx2 == 0:
+                                continue
+                            nr2, nc2 = ny + dy2, nx + dx2
+                            if 0 <= nr2 < MAP_H and 0 <= nc2 < MAP_W:
+                                cm2 = _cmap(int(self.glyphs[nr2, nc2]))
+                                if cm2 in _WALL or cm2 == 0:
+                                    adj_wall = True
+                                    break
+                        if adj_wall:
+                            break
+                    if adj_wall:
+                        self.search_count[ny, nx] += 1
+                        self.step(A.Command.SEARCH)
                 return
 
         # 4. No frontier: navigate to stairs
