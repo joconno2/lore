@@ -884,7 +884,11 @@ class AgentV2:
         return True
 
     def fight(self):
-        """Fight or approach visible hostile monsters."""
+        """Priority-based combat system (based on AutoAscend fight_heur.py).
+
+        Evaluates all possible actions (melee, elbereth, wait, flee, approach)
+        with numeric priorities and executes the highest-priority action.
+        """
         mons = [(d,r,c,n,m) for d,r,c,n,m in self.get_monsters()
                 if n not in PEACEFUL_NAMES and m not in PEACEFUL_IDS
                 and m not in self._peaceful_monster_ids
@@ -892,33 +896,66 @@ class AgentV2:
         if not mons:
             return False
         py, px = self.blstats.y, self.blstats.x
+        hp_ratio = self.blstats.hp / max(1, self.blstats.max_hp)
+        can_pray = (self.blstats.time - self._last_prayer_turn) >= 300
 
         # Adjacent monsters
         adj = [(d,r,c,n,m) for d,r,c,n,m in mons if d <= 1]
 
-        # Flee from instakill monsters
+        # Build list of (priority, action) pairs
+        actions = []
+
+        # === INSTAKILL FLEE (highest priority) ===
         for d, r, c, n, m in adj:
             if n in INSTAKILL:
                 dy, dx = py - r, px - c
-                self._move_dir(dy, dx)
-                return True
+                actions.append((100, ('flee', dy, dx)))
 
-        melee_adj = [x for x in adj if x[3] not in NEVER_MELEE]
+        # === MELEE ACTIONS ===
+        for d, r, c, n, m in adj:
+            if n in NEVER_MELEE:
+                continue
+            if n in INSTAKILL:
+                continue
+            dy, dx = r - py, c - px
+            # Priority based on AutoAscend's melee_monster_priority
+            pri = 1
+            if self.blstats.hp > 8:
+                pri += 15
+            mlevel = nh.permonst(m).mlevel if m < NUMMONS else 0
+            if n in {'floating eye', 'blue jelly', 'brown mold', 'gas spore', 'acid blob'}:
+                pri -= 100  # ONLY_RANGED_SLOW
+                if n == 'floating eye':
+                    pri -= 10
+            if n in {'yellow light', 'gas spore', 'flaming sphere', 'freezing sphere', 'shocking sphere'}:
+                pri -= 17  # EXPLODING
+            actions.append((pri, ('melee', dy, dx)))
 
-        # Elbereth: if HP < 30% and adjacent hostiles and can't pray, engrave
-        can_pray = (self.blstats.time - self._last_prayer_turn) >= 300
-        if len(melee_adj) >= 1 and self.blstats.hp < self.blstats.max_hp * 0.3 and not can_pray:
-            self._engrave_elbereth()
-            # Wait on Elbereth for monsters to flee (max 5 turns)
-            for _ in range(5):
-                if self.blstats.hp >= self.blstats.max_hp * 0.5:
-                    break
-                self.step(A.Command.SEARCH)
-            return True
+        # === ELBERETH ===
+        if adj and self.blstats.hp < 30 and not can_pray:
+            adj_threat = 0
+            for d, r, c, n, m in adj:
+                if n in NEVER_MELEE or n in {'floating eye', 'blue jelly', 'brown mold', 'acid blob'}:
+                    continue
+                adj_threat += 1.0
+                mlevel = nh.permonst(m).mlevel if m < NUMMONS else 0
+                if mlevel > self.blstats.xl + 3:
+                    adj_threat += 2.0
+            if adj_threat > 0:
+                elb_pri = -15 + 20 * adj_threat * (1 - hp_ratio**0.5)
+                actions.append((elb_pri, ('elbereth',)))
 
-        # Tactical: if HP < 40% and 2+ adjacent hostiles, retreat to corridor
-        if len(melee_adj) >= 2 and self.blstats.hp < self.blstats.max_hp * 0.4:
-            # Find direction with fewest monsters
+        # === WAIT ON ELBERETH ===
+        # If we're on Elbereth (from previous turn), wait with high priority
+        if self.initial_message and 'elbereth' in self.initial_message.lower():
+            wait_pri = 30 - hp_ratio * 40
+            actions.append((wait_pri, ('wait',)))
+            # Suppress melee while on Elbereth (would erase it)
+            actions = [(p - 100 if a[0] == 'melee' else p, a) for p, a in actions]
+
+        # === FLEE (tactical retreat) ===
+        melee_adj = [x for x in adj if x[3] not in NEVER_MELEE and x[3] not in INSTAKILL]
+        if len(melee_adj) >= 2 and hp_ratio < 0.4:
             best_flee = None
             best_threat = len(melee_adj)
             for dy, dx in [(-1,0),(1,0),(0,-1),(0,1)]:
@@ -926,24 +963,18 @@ class AgentV2:
                 if 0 <= ny < MAP_H and 0 <= nx < MAP_W and self.walkable[ny, nx]:
                     g = int(self.glyphs[ny, nx])
                     if GLYPH_MON_OFF <= g < GLYPH_PET_OFF:
-                        continue  # Don't flee into a monster
+                        continue
                     threat = sum(1 for _,r2,c2,_,_ in melee_adj
                                 if max(abs(r2-ny), abs(c2-nx)) <= 1)
                     if threat < best_threat:
                         best_threat = threat
                         best_flee = (dy, dx)
-            if best_flee and best_threat < len(melee_adj):
-                self._move_dir(best_flee[0], best_flee[1])
-                return True
+            if best_flee:
+                flee_pri = 5 + (1 - hp_ratio) * 15
+                actions.append((flee_pri, ('flee', best_flee[0], best_flee[1])))
 
-        # Melee the first adjacent hostile
-        for d, r, c, n, m in melee_adj:
-            dy, dx = r - py, c - px
-            self._move_dir(dy, dx)
-            return True
-
-        # Approach nearest reachable hostile (only when HP OK)
-        if self.blstats.hp > self.blstats.max_hp * 0.3:
+        # === APPROACH (distant monsters) ===
+        if not adj and self.blstats.hp > self.blstats.max_hp * 0.3:
             fight_dis = self._bfs_allow_hostiles()
             best_mon = None
             best_d = 999
@@ -953,9 +984,31 @@ class AgentV2:
                     best_d = fd
                     best_mon = (r, c)
             if best_mon:
-                if self.step_toward(best_mon[0], best_mon[1], fight_dis):
-                    return True
-        return False
+                actions.append((0, ('approach', best_mon[0], best_mon[1])))
+
+        if not actions:
+            return False
+
+        # Execute highest priority action
+        actions.sort(key=lambda x: -x[0])
+        _, best = actions[0]
+
+        if best[0] == 'melee':
+            self._move_dir(best[1], best[2])
+        elif best[0] == 'flee':
+            self._move_dir(best[1], best[2])
+        elif best[0] == 'elbereth':
+            self._engrave_elbereth()
+            for _ in range(3):
+                if self.blstats.hp >= self.blstats.max_hp * 0.5:
+                    break
+                self.step(A.Command.SEARCH)
+        elif best[0] == 'wait':
+            self.step(A.Command.SEARCH)
+        elif best[0] == 'approach':
+            fight_dis = self._bfs_allow_hostiles()
+            self.step_toward(best[1], best[2], fight_dis)
+        return True
 
     def dip_excalibur(self):
         """Dip long sword in fountain for Excalibur."""
