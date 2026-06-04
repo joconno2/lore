@@ -1243,37 +1243,46 @@ class AgentV2:
                 if self.step_toward(best_s[0], best_s[1], fight_dis):
                     return
 
-        # 5. Search near walls (find hidden doors/passages)
-        best_s, best_sp = None, -999
+        # 5. Search near walls (AutoAscend to_search_func port)
+        best_s, best_sp = None, float('-inf')
         for r in range(MAP_H):
             for c in range(MAP_W):
                 if not self.walkable[r, c] or dis[r, c] == -1:
                     continue
-                adj = 0
+                stones = 0
+                walls = 0
                 for dy2 in (-1, 0, 1):
                     for dx2 in (-1, 0, 1):
                         if dy2 == 0 and dx2 == 0:
                             continue
                         nr, nc = r + dy2, c + dx2
                         if 0 <= nr < MAP_H and 0 <= nc < MAP_W:
-                            cm2 = _cmap(int(self.glyphs[nr, nc]))
-                            if cm2 in _WALL or cm2 == 0 or not self.seen[nr, nc]:
-                                adj += 1
-                if adj == 0:
+                            obj = int(self.objects[nr, nc]) if self.objects[nr, nc] != -1 else int(self.glyphs[nr, nc])
+                            cm2 = _cmap(obj)
+                            if cm2 == 0:
+                                stones += 1
+                            elif cm2 in _WALL:
+                                walls += 1
+                if stones == 0 and walls == 0:
                     continue
-                # Dead-end detection: count walkable neighbors
-                walkable_neighbors = 0
-                for dy3 in (-1, 0, 1):
-                    for dx3 in (-1, 0, 1):
-                        if dy3 == 0 and dx3 == 0:
-                            continue
-                        nr2, nc2 = r + dy3, c + dx3
-                        if 0 <= nr2 < MAP_H and 0 <= nc2 < MAP_W and self.walkable[nr2, nc2]:
-                            walkable_neighbors += 1
-                # Dead ends (1 neighbor) and corridors with many walls get huge priority
-                dead_end_bonus = 200 if walkable_neighbors <= 1 else 0
+
                 sc = self.search_count[r, c]
-                p = adj * 50 + dead_end_bonus - int(sc * sc**0.5) - dis[r, c] * 2
+                p = -1.0 - sc * sc * 2  # AutoAscend: search_count^2 * 2
+
+                # Door with 3+ adjacent stones (connects room to hidden corridor)
+                obj_here = int(self.objects[r, c]) if self.objects[r, c] != -1 else -1
+                if _cmap(obj_here) in _DOOR and stones >= 3:
+                    p += 250
+
+                # Dead end: <= 1 walkable cardinal neighbor
+                cardinal_w = sum(1 for dy3, dx3 in [(-1,0),(1,0),(0,-1),(0,1)]
+                                if 0 <= r+dy3 < MAP_H and 0 <= c+dx3 < MAP_W
+                                and self.walkable[r+dy3, c+dx3])
+                if cardinal_w <= 1:
+                    p += 250
+
+                p -= dis[r, c] * 2
+
                 if p > best_sp:
                     best_sp = p
                     best_s = (r, c)
@@ -1282,8 +1291,8 @@ class AgentV2:
             if self.step_toward(best_s[0], best_s[1], dis):
                 return
 
-        # 6. Search at current position
-        search_rounds = min(3, max(1, 10 - self.search_count[py, px]))
+        # 6. Search at current position (5 times like AutoAscend)
+        search_rounds = min(5, max(1, 12 - self.search_count[py, px]))
         for _ in range(search_rounds):
             self.search_count[py, px] += 1
             self.step(A.Command.SEARCH)
