@@ -51,6 +51,7 @@ FAINTING = 4
 FOOD_CLASS = 7
 WEAPON_CLASS = 3
 POTION_CLASS = 10
+WAND_CLASS = 9
 
 
 class AgentFinished(Exception):
@@ -729,15 +730,17 @@ class AgentV2:
         weapon_kw = ['long sword', 'katana', 'silver saber', 'broadsword', 'scimitar',
                       'battle-axe', 'morning star', 'war hammer']
         potion_kw = ['potion']
+        wand_kw = ['wand']
         gold_kw = ['gold piece']
 
         is_food = any(w in msg for w in food_kw)
         is_armor = any(w in msg for w in armor_kw)
         is_weapon = any(w in msg for w in weapon_kw)
         is_potion = any(w in msg for w in potion_kw)
+        is_wand = any(w in msg for w in wand_kw)
         is_gold = any(w in msg for w in gold_kw)
 
-        if not any([is_food, is_armor, is_weapon, is_potion, is_gold]):
+        if not any([is_food, is_armor, is_weapon, is_potion, is_wand, is_gold]):
             return False
 
         # Pickup via raw _env_step
@@ -973,6 +976,25 @@ class AgentV2:
                 flee_pri = 5 + (1 - hp_ratio) * 15
                 actions.append((flee_pri, ('flee', best_flee[0], best_flee[1])))
 
+        # === ZAP WAND at distant monster in a line ===
+        if not adj:
+            wand_letter = None
+            for letter, item in self.inventory.items():
+                if self.inv_oclasses.get(letter, -1) == WAND_CLASS:
+                    wand_letter = letter
+                    break
+            if wand_letter:
+                for d, r, c, n, m in mons:
+                    if d > 7 or d <= 1:
+                        continue
+                    dy, dx = r - py, c - px
+                    if dy != 0 and dx != 0 and abs(dy) != abs(dx):
+                        continue
+                    ndy = (1 if dy > 0 else -1) if dy != 0 else 0
+                    ndx = (1 if dx > 0 else -1) if dx != 0 else 0
+                    actions.append((3, ('zap', wand_letter, ndy, ndx)))
+                    break
+
         # === APPROACH (distant monsters) ===
         if not adj and self.blstats.hp > self.blstats.max_hp * 0.3:
             fight_dis = self._bfs_allow_hostiles()
@@ -1005,6 +1027,23 @@ class AgentV2:
                 self.step(A.Command.SEARCH)
         elif best[0] == 'wait':
             self.step(A.Command.SEARCH)
+        elif best[0] == 'zap':
+            # Three-step zap: ZAP -> wand letter -> direction
+            zap_idx = self._val2idx.get(int(A.Command.ZAP))
+            if zap_idx is not None:
+                if self._env_step(zap_idx):
+                    self._parse_blstats(); raise AgentFinished()
+                w_idx = self._val2idx.get(ord(best[1]))
+                if w_idx is not None:
+                    if self._env_step(w_idx):
+                        self._parse_blstats(); raise AgentFinished()
+                    dmap = {(-1,0):'N',(1,0):'S',(0,1):'E',(0,-1):'W',
+                            (-1,1):'NE',(1,1):'SE',(1,-1):'SW',(-1,-1):'NW'}
+                    dname = dmap.get((best[2], best[3]))
+                    if dname and dname in self._name2idx:
+                        if self._env_step(self._name2idx[dname]):
+                            self._parse_blstats(); raise AgentFinished()
+                self._update_game_state()
         elif best[0] == 'approach':
             fight_dis = self._bfs_allow_hostiles()
             self.step_toward(best[1], best[2], fight_dis)
