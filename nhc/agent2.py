@@ -698,7 +698,7 @@ class AgentV2:
             return True
 
         # Weak/fainting from hunger: pray (earlier than FAINTING to avoid death)
-        if can_pray and bl.hunger >= FAINTING:
+        if can_pray and bl.hunger >= WEAK:  # Pray at WEAK, not FAINTING (safety margin)
             self._last_prayer_turn = bl.time
             self.step(A.Command.PRAY)
             return True
