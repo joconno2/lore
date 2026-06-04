@@ -897,17 +897,25 @@ class AgentV2:
         return True
 
     def fight(self):
-        """Priority-based combat system (based on AutoAscend fight_heur.py).
+        """Priority-based combat system (based on AutoAscend fight2).
 
-        Evaluates all possible actions (melee, elbereth, wait, flee, approach)
-        with numeric priorities and executes the highest-priority action.
+        Loops until all nearby monsters are dead, like AutoAscend's fight2.
+        Re-evaluates each turn but stays in combat mode.
         """
-        mons = [(d,r,c,n,m) for d,r,c,n,m in self.get_monsters()
-                if n not in PEACEFUL_NAMES and m not in PEACEFUL_IDS
-                and m not in self._peaceful_monster_ids
-                and (r, c) not in self._peaceful_positions]
-        if not mons:
-            return False
+        wait_counter = 0
+        acted = False
+        for _round in range(50):  # Safety limit
+            mons = [(d,r,c,n,m) for d,r,c,n,m in self.get_monsters()
+                    if n not in PEACEFUL_NAMES and m not in PEACEFUL_IDS
+                    and m not in self._peaceful_monster_ids
+                    and (r, c) not in self._peaceful_positions]
+            if not mons or all(d > 7 for d,_,_,_,_ in mons):
+                if wait_counter > 0:
+                    self.step(A.Command.SEARCH)
+                    wait_counter -= 1
+                    continue
+                break
+            acted = True
         py, px = self.blstats.y, self.blstats.x
         hp_ratio = self.blstats.hp / max(1, self.blstats.max_hp)
         can_pray = (self.blstats.time - self._last_prayer_turn) >= 300
@@ -1064,7 +1072,16 @@ class AgentV2:
         elif best[0] == 'approach':
             fight_dis = self._bfs_allow_hostiles()
             self.step_toward(best[1], best[2], fight_dis)
-        return True
+            wait_counter = 3  # Wait a bit after moving for monsters to come
+
+            # Check emergency between rounds
+            bl = self.blstats
+            can_pray_now = (bl.time - self._last_prayer_turn) >= 300
+            if can_pray_now and bl.hp < max(8, bl.max_hp // 3):
+                self._last_prayer_turn = bl.time
+                self.step(A.Command.PRAY)
+
+        return acted
 
     def dip_excalibur(self):
         """Dip long sword in fountain for Excalibur."""
