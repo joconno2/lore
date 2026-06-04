@@ -1008,11 +1008,15 @@ class AgentV2:
         # === APPROACH (distant monsters) ===
         if not adj and self.blstats.hp > self.blstats.max_hp * 0.3:
             fight_dis = self._bfs_allow_hostiles()
+            # Reduce approach range when stuck (no stairs, 200+ turns) to allow searching
+            approach_range = 12
+            if not self._stairs_down and self._level_turns > 200:
+                approach_range = 6  # Fight nearby, but prioritize searching
             best_mon = None
             best_d = 999
             for d, r, c, n, m in mons:
                 fd = fight_dis[r, c]
-                if fd != -1 and fd <= 12 and fd < best_d:
+                if fd != -1 and fd <= approach_range and fd < best_d:
                     best_d = fd
                     best_mon = (r, c)
             if best_mon:
