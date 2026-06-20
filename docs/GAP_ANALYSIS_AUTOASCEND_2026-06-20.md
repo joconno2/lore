@@ -58,6 +58,32 @@ games.
    try/except wrapper that ESCs and continues recovers ~free score. Worth doing
    but it is code-hardening, not oracle work.
 
+## Intervention #1 result: Sokoban crash patch (lore_patches.py)
+
+Runtime monkeypatch (no base edit) routing the Sokoban-solver desync into
+AutoAscend's own abandon path. 50 ep, same seeds:
+
+| | baseline | patched |
+|---|---|---|
+| mean | 14,283 | 15,850 (+11%) |
+| median | 9,139 | 9,139 |
+| max | 74,792 | 78,302 |
+| AssertionError crashes | 5 | 2 |
+| milestone reach | caps at SOLVE_SOKOBAN | 4 reach FIND_MINES_END |
+
+First episodes to advance past Sokoban. Recovered 3/5 deep crashes (one seed
+24k->78k). Residual: 2 different brittle asserts (turn-inactivity, chest-open) ~1
+episode each -- diminishing. Median unmoved: crashes were never the median run's
+problem. Architecture (wrap, don't edit) validated.
+
+## Next oracle target (from this data)
+
+- Tactical instadeath veto: **white unicorn kills 6/50 (12%)**, petrification 3.
+  High-frequency, knowledge-dependent, doesn't require reaching the deep game.
+  Best first oracle target.
+- Strategic endgame: still 0 past Mines End. Bigger ceiling, but needs the agent
+  to reliably get deep first.
+
 ## Implication for the design
 
 The thesis holds with data: AutoAscend's weakness is the absent endgame (0/50
