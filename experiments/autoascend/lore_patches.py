@@ -23,6 +23,59 @@ def _bump(name):
     COUNTERS[name] = COUNTERS.get(name, 0) + 1
 
 
+def apply_crash_recovery(max_recover=300):
+    """PEAK lever: AutoAscend's deepest runs die to its OWN AssertionError crashes
+    (5 of the top-10 deepest seeds). Convert any non-panic crash into a recovery
+    MOVE -- relocate + advance a turn so the deterministic crash path isn't
+    immediately re-selected and the cyclic-panic guard never trips. Keeps the
+    peak runs alive through the base's bugs. Cap prevents true infinite spin."""
+    import random as _random
+    from autoascend.agent import Agent
+    from autoascend.exceptions import AgentPanic, AgentFinished
+
+    orig = Agent.handle_exception
+    dirs = ["n", "s", "e", "w", "ne", "nw", "se", "sw"]
+
+    def _recover_move(self):
+        c = self.__dict__.get("_lore_crash", 0)
+        order = dirs[c % 8:] + dirs[:c % 8]  # rotate escape dir by crash count
+        for d in order:
+            try:
+                self.move(d)
+                return True
+            except Exception:
+                continue
+        try:
+            self.search(1)
+            return True
+        except Exception:
+            return False
+
+    def safe_handle(self, exc):
+        if isinstance(exc, (KeyboardInterrupt, AgentFinished, SystemExit)):
+            raise exc
+        if isinstance(exc, AgentPanic):
+            return orig(self, exc)
+        # non-panic crash -> recover instead of dying
+        d = int(getattr(self.blstats, "depth", 0)) if getattr(self, "blstats", None) else 0
+        if self.__dict__.get("_lore_crash_depth") != d:
+            self.__dict__["_lore_crash_depth"] = d
+            self.__dict__["_lore_crash"] = 0  # reset per depth (progress made)
+        c = self.__dict__.get("_lore_crash", 0) + 1
+        self.__dict__["_lore_crash"] = c
+        _bump("crash_recover")
+        if c > max_recover:
+            raise exc
+        try:
+            self.all_panics.append(exc)
+        except Exception:
+            pass
+        _recover_move(self)
+
+    Agent.handle_exception = safe_handle
+    return ["crash_recovery (recover-move, cap=%d)" % max_recover]
+
+
 def apply():
     # Operate on the Strategy object the original method returns, not its
     # internals -- robust to however many decorators are stacked on it.
@@ -384,3 +437,39 @@ def apply_anti_starvation():
 
     Agent.emergency_strategy = emergency_strategy
     return ["anti_starvation (emergency at WEAK)"]
+
+
+def apply_decode_hardening():
+    """The deepest runs hit a non-utf8 byte in a message -> bytes.decode() crash
+    -> Cyclic Panic (killed the 107k/DL26 run). Sanitize obs byte arrays (clip
+    >127 to space) only on the rare decode failure, then re-parse."""
+    import numpy as np
+    from autoascend.agent import Agent
+    orig = Agent.get_message_and_popup
+
+    def safe(self, obs):
+        try:
+            return orig(self, obs)
+        except UnicodeDecodeError:
+            o = dict(obs)
+            for k in ("message", "tty_chars"):
+                if k in o:
+                    a = np.array(o[k]); a[a > 127] = 32; o[k] = a
+            _bump("decode_sanitize")
+            return orig(self, o)
+
+    Agent.get_message_and_popup = safe
+
+    # Per-step status-line decodes (character.py) crash strict-utf8 on a non-utf8
+    # byte deep -> this was the real recurring crash (Cyclic Panic ['utf-8']).
+    try:
+        from autoascend.character import Character
+        def _mk(tok):
+            return property(lambda self: tok in bytes(
+                self.agent.last_observation["tty_chars"][-1]).decode("utf-8", "replace"))
+        for nm, tok in [("confusion", "Conf"), ("stun", "Stun"),
+                        ("hallu", "Hallu"), ("blind", "Blind")]:
+            setattr(Character, nm, _mk(tok))
+    except Exception:
+        pass
+    return ["decode_hardening (msg + status utf8 sanitize)"]
