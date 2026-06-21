@@ -473,3 +473,34 @@ def apply_decode_hardening():
     except Exception:
         pass
     return ["decode_hardening (msg + status utf8 sanitize)"]
+
+
+def apply_obs_sanitize():
+    """Global decode fix: clip >127 bytes in the obs text arrays at the single
+    point they enter the agent (Agent.update), so EVERY downstream bytes.decode()
+    (message, tty, inv_strs, glyph char map) is safe. The deep 'utf-8' Cyclic
+    Panic came from a non-utf8 byte the per-site patches kept missing."""
+    import numpy as np
+    from autoascend.agent import Agent
+    orig = Agent.update
+    KEYS = ("message", "tty_chars", "inv_strs", "chars", "inv_letters")
+
+    def safe_update(self, observation, *a, **k):
+        try:
+            o = observation
+            copied = False
+            for key in KEYS:
+                arr = o.get(key) if hasattr(o, "get") else None
+                if arr is not None and getattr(arr, "dtype", None) == np.uint8 and (arr > 127).any():
+                    if not copied:
+                        o = dict(o); copied = True
+                    a2 = arr.copy(); a2[a2 > 127] = 32; o[key] = a2
+            if copied:
+                _bump("obs_sanitize")
+                observation = o
+        except Exception:
+            pass
+        return orig(self, observation, *a, **k)
+
+    Agent.update = safe_update
+    return ["obs_sanitize (clip >127 in obs text arrays)"]
