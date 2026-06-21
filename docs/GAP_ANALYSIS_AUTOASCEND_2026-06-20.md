@@ -112,6 +112,36 @@ unknown names; a swallowing try/except hid it and produced false "didn't fire"
 nulls twice. Always verify telemetry before trusting a null. Fixed via
 lore_patches.COUNTERS.
 
+## ROOT CAUSE of deep-run deaths: starvation death-spiral (Jun 21, via tracing)
+
+Diagnosed seed 107 (74k, DL14, the best run) by tracing actions+messages to death.
+The "Petrified by a cockatrice" end_reason is proximate; the real killer is
+**starvation**:
+
+```
+turn 65632  "You faint from lack of food"
+turn 65656  "You are too disoriented for this"   (can't act)
+turn 65657  kills a naga hatchling but can't eat it (fainting)
+turn 65684  "You faint from lack of food"
+turn 65705  petrified while incapacitated
+```
+
+This is why all 3 petrification hooks (melee veto, heatmap repulsion) did nothing
+-- the agent isn't choosing to engage anything; it's incapacitated by hunger and
+can't avoid anything. Identical scores under every petrification intervention
+confirmed zero behavioral effect.
+
+**Scale:** 15/50 deaths explicitly mention faint/starvation (undercounts -- "faint
+then killed by X" logs as a monster death). Among deep deaths (DL>=8, the high
+scores): 107/143/106/103 all die "while fainted"/"while praying". Starvation is
+the single biggest non-crash killer, and it kills the runs that matter most.
+
+**Mechanism:** AutoAscend emergency-eats/prays only at FAINTING (agent.py:1436,
+1445). By then it's disoriented and can't act. With no inventory food and prayer
+on cooldown (~400-1000 turn limit), it enters a faint loop and dies. It acts one
+hunger-stage too late. Fix direction: act at WEAK (before disorientation) +
+better food sourcing/conservation on long runs. Highest-value target.
+
 ## Implication for the design
 
 The thesis holds with data: AutoAscend's weakness is the absent endgame (0/50
