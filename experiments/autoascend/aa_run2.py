@@ -24,16 +24,16 @@ for seed in seeds:
     except BaseException as e:
         env.end_reason = f"harness_exc: {repr(e)[:160]}"
     s = env.get_summary()
-    vetoes = {k: v for k, v in s.items() if "lore_veto" in str(k)}
     r = {"seed": seed, "score": s.get("score"), "level_num": s.get("level_num"),
          "xl": s.get("experience_level"), "turns": s.get("turns"),
-         "end_reason": str(s.get("end_reason"))[:90], "vetoes": vetoes,
+         "end_reason": str(s.get("end_reason"))[:90],
          "t": round(time.time()-t0, 1)}
     rows.append(r)
     print(r, flush=True)
     try: env.env.close()
     except Exception: pass
 
-json.dump({"mock": MOCK, "rows": rows}, open(OUT, "w"), indent=2, default=str)
+json.dump({"mock": MOCK, "rows": rows, "counters": dict(lore_patches.COUNTERS)}, open(OUT, "w"), indent=2, default=str)
 petrified = sum(1 for r in rows if "Petrified" in r["end_reason"])
+print("COUNTERS", dict(lore_patches.COUNTERS), flush=True)
 print("SUMMARY mock=", MOCK, "petrified=", petrified, "/", len(rows), flush=True)

@@ -78,9 +78,11 @@ def _parse_descent(text):
 
 
 def _mock_descent(state):
+    # Conservative policy: only descend with a real XP cushion for the depth and
+    # healthy HP. Tunable to test whether cautious descent timing helps at all.
     xl = state.get("xl", 1); depth = max(1, state.get("depth", 1))
     hp_frac = state.get("hp", 1) / max(1, state.get("max_hp", 1))
-    if xl >= 2 * depth and hp_frac >= 0.6:
+    if xl >= 2.5 * depth + 1 and hp_frac >= 0.7:
         return {"decision": "DESCEND", "reason": "strong enough for depth"}
     return {"decision": "BUILD", "reason": "underleveled/hurt for depth"}
 

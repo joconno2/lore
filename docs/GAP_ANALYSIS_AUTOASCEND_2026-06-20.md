@@ -84,6 +84,34 @@ problem. Architecture (wrap, don't edit) validated.
 - Strategic endgame: still 0 past Mines End. Bigger ceiling, but needs the agent
   to reliably get deep first.
 
+## Intervention results (Jun 20-21) and the action-injection wall
+
+Two interventions beyond the sokoban patch were built and measured. Both taught
+the same architectural lesson.
+
+- **Descent gate (oracle-gated descent timing): DEAD LEVER.** 50-ep, conservative
+  policy: mean 15,850 -> 6,325 (-60%), depth 5.7 -> 2.6. AutoAscend's descent
+  pacing is already near-optimal; forcing it to linger halves depth and starves
+  it (11 faint deaths). Also the hold-via-AgentPanic mechanism is unsafe: 29/50
+  died of Cyclic Panic (5 consecutive panics). Abandoned. Takeaway: the oracle
+  must not re-tune decisions the base already makes well.
+
+- **Petrification melee veto: FIRES but INSUFFICIENT.** Telemetry confirms it
+  fires every time (veto_query=veto_fired=103 over 3 eps), so the earlier "wrong
+  layer" call was the telemetry bug, not the hook. But 2/3 still petrified:
+  vetoing the agent's melee doesn't stop the cockatrice's OWN adjacency attack.
+  Stopping a bad action != taking the good one.
+
+**Architectural wall:** veto/priority hooks are easy (return a low priority) but
+insufficient. Effective tactical interventions require ACTIVE action injection --
+make the agent flee / keep distance / engrave Elbereth / fire ranged -- into
+AutoAscend's action loop. That is the real next build for tactical instadeaths.
+
+**Telemetry lesson:** AutoAscend's StatsLogger.log_event raises KeyError on
+unknown names; a swallowing try/except hid it and produced false "didn't fire"
+nulls twice. Always verify telemetry before trusting a null. Fixed via
+lore_patches.COUNTERS.
+
 ## Implication for the design
 
 The thesis holds with data: AutoAscend's weakness is the absent endgame (0/50
