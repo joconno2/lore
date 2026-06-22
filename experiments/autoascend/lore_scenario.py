@@ -26,6 +26,13 @@ def install_teleport(target_depth):
         # resync: one normal agent step (ESC) so its state reflects the new level
         import autoascend.agent as _ag
         agent.step(_ag.A.Command.ESC)
+        # clear stale level tracking: init recorded a bogus DL1 stair_destination
+        # (-> PLANE) before the jump; wipe it so the agent rebuilds fresh for the
+        # teleported level and cross-level pathing doesn't reference dead state.
+        try:
+            agent.levels.clear()
+        except Exception:
+            pass
         try:
             lore_patches.COUNTERS["scenario_depth"] = int(agent.blstats.depth)
         except Exception:
