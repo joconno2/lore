@@ -12,15 +12,24 @@ def install_teleport(target_depth):
     orig = _gl.GlobalLogic.global_strategy
 
     def _do_teleport(agent):
-        # ^V (Ctrl-V, char 22) -> "To what level...?" getlin -> digits -> enter
-        agent.step("\x16")
+        # ^V isn't in AutoAscend's action space, so issue the wizard level-teleport
+        # at the LOW-LEVEL nethack (raw keypresses), then resync the agent with one
+        # normal step. low-level env: gym_env.unwrapped.env (NLE issues keypresses
+        # via self.env.step(keypress)).
+        genv = agent.env.env
+        low = genv.unwrapped.env
+        low.step(22)                       # ^V
         for ch in str(int(target_depth)):
-            agent.step(ch)
-        agent.step("\r")
-        # clear any --More--
-        for _ in range(2):
-            if "More" in (agent.single_message or ""):
-                agent.step("\r")
+            low.step(ord(ch))              # digits
+        low.step(13)                       # enter
+        low.step(13); low.step(13)         # clear any --More--
+        # resync: one normal agent step (ESC) so its state reflects the new level
+        import autoascend.agent as _ag
+        agent.step(_ag.A.Command.ESC)
+        try:
+            lore_patches.COUNTERS["scenario_depth"] = int(agent.blstats.depth)
+        except Exception:
+            pass
 
     def patched(self):
         if not getattr(self.agent, "_lore_tp_done", False):
