@@ -18,7 +18,7 @@ import json
 import os
 import urllib.request
 
-ACTIONS = ["FIGHT", "RANGED", "AVOID", "FLEE", "ELBERETH", "PRAY"]
+ACTIONS = ["FIGHT", "RANGED", "AVOID", "FLEE", "ELBERETH", "PRAY", "EAT"]
 
 SYSTEM = (
     "You are a NetHack 3.6 tactical advisor for an expert bot. Given a threat, "
@@ -30,6 +30,9 @@ SYSTEM = (
     "- Floating eye ('e'): NEVER melee (paralysis death). RANGED or AVOID.\n"
     "- Fast hard-hitters that outpace you (unicorns 'u', etc.) at low HP: do not "
     "trade blows you can lose. ELBERETH to scare, or PRAY if HP critical.\n"
+    "- Hunger: at WEAK or FAINTING, act NOW before disorientation -- EAT if food "
+    "is available, else PRAY (the god feeds a starving supplicant). Waiting until "
+    "fainting is often fatal (you become too disoriented to act).\n"
     "Reply ONLY with compact JSON: {\"action\": <one of the set>, "
     "\"reason\": <short>}. No prose."
 )
@@ -132,6 +135,10 @@ def _parse(text):
 
 def _mock(state):
     """Deterministic 'perfect knowledge' oracle for mechanism testing."""
+    # Hunger emergency takes priority -- act at weak/fainting before disorientation.
+    hunger = str(state.get("hunger", "")).lower()
+    if hunger in ("weak", "fainting"):
+        return {"action": "EAT", "reason": "hunger emergency: eat or pray before fainting"}
     g = (state.get("threat_name") or "").lower()
     if "cockatrice" in g or "chickatrice" in g:
         return {"action": "RANGED" if state.get("has_ranged") else "AVOID", "reason": "petrification risk"}
