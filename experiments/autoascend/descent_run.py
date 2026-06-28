@@ -8,7 +8,8 @@ KIT=["12 blessed potions of gain level","12 blessed potions of gain level",
      "blessed +3 gray dragon scale mail","blessed +2 long sword",
      "blessed ring of free action","blessed ring of fire resistance",
      "blessed amulet of reflection",
-     "4 blessed killer bee corpses","4 blessed kobold corpses"]
+     "4 blessed killer bee corpses","4 blessed kobold corpses",
+     "blessed wand of digging (0:8)","blessed wand of digging (0:8)"]
 if lore:
     lore_scenario.install_descent(target, wishes=KIT)
 else:
@@ -62,6 +63,12 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "tp_depth":C.get("tp_depth"),"max_depth":C.get("max_depth"),"descents":C.get("descents"),
           "descend_iters":C.get("descend_iters"),"stairs_seen":C.get("stairs_seen"),"descend_err":C.get("descend_err"),
           "jewelry":C.get("equipped_jewelry"),"ac_equip":C.get("ac_after_equip"),"eaten":C.get("corpses_eaten"),
+          "explore1_ran":C.get("explore1_ran"),"search_ran":C.get("search_ran"),
+          "pre_wear":C.get("pre_wear"),"pre_eat":C.get("pre_eat"),"pre_fight2":C.get("pre_fight2"),
+          "pre_engulf":C.get("pre_engulf"),"pre_emergency":C.get("pre_emergency"),
+          "downstair_glyphs":C.get("downstair_glyphs"),"explored_cells":C.get("explored_cells"),"dungeon_num":C.get("dungeon_num"),
+          "digs":C.get("digs"),"dig_fail":C.get("dig_fail"),"dig_panic":C.get("dig_panic"),"wands_seen":C.get("wands_seen"),
+          "zap_msg":C.get("zap_msg"),
           "death":death,
           "t":round(time.time()-t0),"xl_after":C.get("xl_after"),"wishes":C.get("wishes")},
           open(OUT,"w"), default=str)

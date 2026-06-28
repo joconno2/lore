@@ -298,6 +298,10 @@ def install_descent(target_depth, wishes=()):
     from autoascend import utils as _u
 
     from autoascend.exceptions import AgentPanic, AgentFinished
+    from autoascend import exceptions as _gl_exc
+    from autoascend.agent import flatten_items
+    from autoascend import objects as _O
+    import nle.nethack as _nh2
 
     def descent_global(self):
         agent = self.agent
@@ -327,8 +331,11 @@ def install_descent(target_depth, wishes=()):
                     except Exception:
                         break
                 lore_patches.COUNTERS["xl_before_tp"] = int(agent.blstats.experience_level)
-                _eat_for_intrinsics(agent) # poison resistance from wished corpses
-                _equip_endgame(agent)      # wear armor + put on amulet/rings on safe DL1
+                import os as _os
+                if _os.environ.get("LORE_NO_EAT") != "1":
+                    _eat_for_intrinsics(agent)  # poison res from wished corpses
+                if _os.environ.get("LORE_NO_EQUIP") != "1":
+                    _equip_endgame(agent)       # wear armor + put on amulet/rings
                 _do_teleport(agent, target_depth)
                 lore_patches._bump("scenario_teleport")
                 lore_patches.COUNTERS["tp_depth"] = int(agent.blstats.depth)
@@ -352,6 +359,89 @@ def install_descent(target_depth, wishes=()):
                 d = int(agent.blstats.depth)
                 if d > lore_patches.COUNTERS.get("max_depth", 0):
                     lore_patches.COUNTERS["max_depth"] = d
+                # diagnostic: is a downstair glyph mapped, and how much explored?
+                try:
+                    lvl = agent.current_level()
+                    nd = int(_u.isin(lvl.objects, G.STAIR_DOWN).sum())
+                    lore_patches.COUNTERS["downstair_glyphs"] = max(
+                        lore_patches.COUNTERS.get("downstair_glyphs", 0), nd)
+                    lore_patches.COUNTERS["explored_cells"] = int(lvl.was_on.sum())
+                    lore_patches.COUNTERS["dungeon_num"] = int(lvl.dungeon_number)
+                except Exception:
+                    pass
+                # 0) DIG-DOWN: zap a wand of digging downward to fall to the next
+                #    level. Bypasses Gehennom's broken stair navigation entirely
+                #    (the agent gets stuck in a ~17-cell pocket and never maps the
+                #    downstair). Real NetHack descent technique. Primary in Gehennom.
+                try:
+                    lore_patches.COUNTERS["dig_block_ran"] = \
+                        lore_patches.COUNTERS.get("dig_block_ran", 0) + 1
+                    try:
+                        import autoascend.agent as _agz0
+                        agent.step(_agz0.A.Command.ESC)   # clear any stale prompt
+                        agent.inventory.update()          # fresh letters post-teleport
+                    except Exception:
+                        pass
+                    # Read the wand letter straight from the raw observation
+                    # (inv_oclasses/inv_letters) -- robust to AutoAscend's item
+                    # object identity. We only wished digging wands.
+                    # find a wand letter from the raw observation (wished wands
+                    # show as unidentified; we only wished digging wands).
+                    def _wand_letter():
+                        lt = None
+                        for oc, l in zip(agent.last_observation['inv_oclasses'],
+                                         agent.last_observation['inv_letters']):
+                            if int(oc) == _nh2.WAND_CLASS and int(l) != 0:
+                                lt = chr(int(l))
+                        return lt
+                    letter = _wand_letter()
+                    lore_patches.COUNTERS["wands_seen"] = 1 if letter else 0
+                    if letter is not None:
+                        before = int(agent.blstats.depth)
+                        import autoascend.agent as _agz
+                        # Zap a wand of digging downward via the agent's tracked
+                        # interface with the KNOWN letter (agent.zap's get_letter
+                        # desyncs on wished wands; the direction prompt wants the
+                        # '>' CHAR, not the DOWN action). Digging makes a PIT first
+                        # then a HOLE -> re-zap until depth drops or charges run out.
+                        for _zi in range(6):
+                            lt2 = _wand_letter()
+                            if lt2 is None:
+                                break
+                            with agent.atom_operation():
+                                agent.step(_agz.A.Command.ZAP)
+                                agent.type_text(lt2)
+                                agent.type_text('>')
+                            lore_patches.COUNTERS["zap_msg"] = str(agent.message)[:120]
+                            if int(agent.blstats.depth) > before:
+                                break
+                        if int(agent.blstats.depth) > before:
+                            lore_patches.COUNTERS["digs"] = \
+                                lore_patches.COUNTERS.get("digs", 0) + 1
+                            lore_patches.COUNTERS["descents"] = \
+                                lore_patches.COUNTERS.get("descents", 0) + 1
+                            try:
+                                agent.levels.clear()  # fresh map for the new level
+                            except Exception:
+                                pass
+                            continue
+                        else:
+                            # no charge / dig failed -> stop trying the wand
+                            lore_patches.COUNTERS["dig_fail"] = \
+                                lore_patches.COUNTERS.get("dig_fail", 0) + 1
+                except AgentFinished:
+                    raise
+                except AgentPanic:
+                    lore_patches.COUNTERS["dig_panic"] = \
+                        lore_patches.COUNTERS.get("dig_panic", 0) + 1
+                except RuntimeError:
+                    raise
+                except _gl_exc.AgentChangeStrategy:
+                    raise                       # control-flow signal, must propagate
+                except BaseException as _de:
+                    lore_patches.COUNTERS["dig_exc"] = \
+                        lore_patches.COUNTERS.get("dig_exc", 0) + 1
+                    lore_patches.COUNTERS["dig_exc_msg"] = repr(_de)[:120]
                 # 1) try AutoAscend's own stair primitive: go to a discovered,
                 #    unexplored DOWNstair and take it (battle-tested navigation).
                 took = False
@@ -382,18 +472,41 @@ def install_descent(target_depth, wishes=()):
                 # explore1/search raise AgentFinished on death -> propagate.
                 e = agent.exploration.explore1(0)
                 if e.check_condition():
+                    lore_patches.COUNTERS["explore1_ran"] = \
+                        lore_patches.COUNTERS.get("explore1_ran", 0) + 1
                     e.run()
                 else:
+                    lore_patches.COUNTERS["search_ran"] = \
+                        lore_patches.COUNTERS.get("search_ran", 0) + 1
                     agent.search(1)
+
+        def _count(strat, name):
+            """Wrap a Strategy to bump COUNTERS['pre_<name>'] each time it actually
+            ACTIVATES (condition True -> body runs), so we see which preempt eats
+            control while descend starves."""
+            orig_factory = strat.strategy
+            def f():
+                gen = orig_factory()
+                cond = next(gen)
+                yield cond
+                if not cond:
+                    return
+                lore_patches.COUNTERS["pre_" + name] = \
+                    lore_patches.COUNTERS.get("pre_" + name, 0) + 1
+                try:
+                    next(gen); assert 0
+                except StopIteration as _e:
+                    return _e.value
+            return Strategy(f, strat.config)
 
         return (
             descend(self)
-            .preempt(agent, [agent.inventory.wear_best_stuff()])
-            .preempt(agent, [agent.eat_corpses_from_ground(only_below_me=True)
-                             .condition(lambda: agent.blstats.hunger_state >= Hunger.NOT_HUNGRY)])
-            .preempt(agent, [agent.fight2()])
-            .preempt(agent, [agent.engulfed_fight()])
-            .preempt(agent, [agent.emergency_strategy()])
+            .preempt(agent, [_count(agent.inventory.wear_best_stuff(), "wear")])
+            .preempt(agent, [_count(agent.eat_corpses_from_ground(only_below_me=True)
+                             .condition(lambda: agent.blstats.hunger_state >= Hunger.NOT_HUNGRY), "eat")])
+            .preempt(agent, [_count(agent.fight2(), "fight2")])
+            .preempt(agent, [_count(agent.engulfed_fight(), "engulf")])
+            .preempt(agent, [_count(agent.emergency_strategy(), "emergency")])
         )
 
     _gl.GlobalLogic.global_strategy = descent_global
