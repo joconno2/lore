@@ -528,7 +528,36 @@ def install_descent(target_depth, wishes=()):
             "EXPLORE": prim_explore, "FIGHT": prim_fight, "FLEE": prim_flee,
             "PRAY": prim_pray, "ELBERETH": prim_elbereth,
         }
-        MOCK = _os2.environ.get("LORE_ORACLE_MOCK", "0") == "1"
+        # ABLATION SWITCH (set LORE_POLICY): which decides the descent action.
+        #   llm        - oracle.query_endgame with corpus knowledge (default)
+        #   llm_nocorpus - oracle, knowledge="" (isolates whether the wiki helps)
+        #   mock       - oracle perfect-knowledge controller (upper bound)
+        #   hardcoded  - fixed dig->stairs->explore, NO LLM (the dumb baseline the
+        #                LLM must beat; this is what reached DL27-28)
+        POLICY = _os2.environ.get("LORE_POLICY", "llm")
+        MOCK = POLICY == "mock" or _os2.environ.get("LORE_ORACLE_MOCK", "0") == "1"
+        USE_CORPUS = POLICY != "llm_nocorpus"
+        lore_patches.COUNTERS["policy"] = POLICY
+
+        def _decide_action():
+            if POLICY == "hardcoded":
+                # fixed priority, no LLM. returns the action label; dispatch runs it.
+                st = _build_state()
+                if st["has_dig_wand"] and not st["level_no_dig"]:
+                    return "DIG_DOWN"
+                if st["have_downstair"]:
+                    return "DESCEND_STAIRS"
+                return "EXPLORE"
+            try:
+                state = _build_state()
+                knowledge = _oracle.retrieve_knowledge(state) if USE_CORPUS else ""
+                decision = _oracle.query_endgame(state, knowledge, mock=MOCK)
+                return decision.get("action") or "EXPLORE"
+            except AgentFinished:
+                raise
+            except Exception as _oe:
+                lore_patches.COUNTERS["oracle_err"] = repr(_oe)[:90]
+                return "EXPLORE"
 
         @Strategy.wrap
         def descend(s):
@@ -539,22 +568,28 @@ def install_descent(target_depth, wishes=()):
                 d = int(agent.blstats.depth)
                 if d > lore_patches.COUNTERS.get("max_depth", 0):
                     lore_patches.COUNTERS["max_depth"] = d
+                # SURVIVAL-WEIGHTED metric: record the game-turn when each depth is
+                # FIRST reached. Downstream scalar = deepest depth still alive >=K
+                # turns later (final_turns - first_reach[d] >= K). Suicide-digging
+                # to a deep level then dying fast does NOT count that depth;
+                # efficient descent that survives DOES. Not gameable by either
+                # reckless digging or by loitering shallow.
+                try:
+                    fr = "firstreach_%d" % d
+                    if fr not in lore_patches.COUNTERS:
+                        lore_patches.COUNTERS[fr] = int(agent.blstats.time)
+                except Exception:
+                    pass
                 try:
                     lore_patches.COUNTERS["explored_cells"] = int(agent.current_level().was_on.sum())
                     lore_patches.COUNTERS["dungeon_num"] = int(agent.current_level().dungeon_number)
                 except Exception:
                     pass
-                # --- THE LLM DRIVES: build state, retrieve wiki knowledge, decide. ---
+                # --- decide the action (policy-dependent), then execute it ---
                 try:
-                    state = _build_state()
-                    knowledge = _oracle.retrieve_knowledge(state)
-                    decision = _oracle.query_endgame(state, knowledge, mock=MOCK)
-                    action = decision.get("action") or "EXPLORE"
+                    action = _decide_action()
                 except AgentFinished:
                     raise
-                except Exception as _oe:
-                    lore_patches.COUNTERS["oracle_err"] = repr(_oe)[:90]
-                    action = "EXPLORE"     # oracle unreachable -> safe default
                 lore_patches.COUNTERS["oracle_" + str(action)] = \
                     lore_patches.COUNTERS.get("oracle_" + str(action), 0) + 1
                 lore_patches.COUNTERS["last_action"] = str(action)
