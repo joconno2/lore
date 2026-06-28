@@ -19,6 +19,35 @@ def _do_wish(agent, item):
     low.step(13); low.step(13)         # clear --More--
 
 
+def _spawn_monsters(agent, names):
+    """Wizard ^G (create monster, keycode 7) -- spawn named monsters next to the
+    agent for a CONTROLLED knowledge-gated threat test. ^G prompts 'Create what
+    kind of monster?' (getlin); the monster appears adjacent."""
+    import autoascend.agent as _A
+    low = agent.env.env.unwrapped.env
+    spawned = 0
+    for nm in names:
+        low.step(7)                      # ^G
+        for ch in nm:
+            low.step(ord(ch))
+        low.step(13)                     # submit name
+        low.step(13)                     # clear any --More--
+        spawned += 1
+    try:
+        r = agent.env.env.unwrapped.env
+        lore_patches.COUNTERS["spawn_msg"] = bytes(
+            agent.last_observation['message']).decode('latin1').strip('\x00').strip()[:80] \
+            if False else lore_patches.COUNTERS.get("spawn_msg", "")
+    except Exception:
+        pass
+    try:
+        agent.step(_A.A.Command.ESC)
+        agent.inventory.update()
+    except Exception:
+        pass
+    lore_patches.COUNTERS["spawned"] = spawned
+
+
 def _eat_for_intrinsics(agent):
     """Eat wished corpses on the safe start level to gain intrinsic resistances
     (real gameplay prep, not a wizard cheat): killer-bee/kobold corpses confer
@@ -302,6 +331,78 @@ def install_scenario(target_depth, wishes=()):
 
     _gl.GlobalLogic.global_strategy = scenario_global
     return ["scenario_global(DL%d, bounded-local)" % target_depth]
+
+
+def install_threat(target_depth, wishes=(), spawn=()):
+    """Knowledge-gated THREAT scenario: place a vulnerable char (armor for AC but
+    BARE HANDS, no ranged) at a depth, spawn instant-death threats (cockatrice /
+    floating eye) via ^G, and run AutoAscend's NATIVE combat. Arms (set externally
+    via apply_oracle_veto): base AA | mock-veto | llm-veto. Metric = survival
+    (turns alive). This is where wiki knowledge should matter: meleeing a
+    cockatrice barehanded = petrification death; floating eye = paralysis death."""
+    from autoascend import global_logic as _gl
+    from autoascend.strategy import Strategy
+    from autoascend.glyph import Hunger
+
+    def threat_global(self):
+        agent = self.agent
+        if not getattr(agent, "_lore_tp_done", False):
+            agent.__dict__["_lore_tp_done"] = True
+            try:
+                import autoascend.agent as _ag3
+                import nle.nethack as _nh
+                for it in wishes:
+                    _do_wish(agent, it)
+                try:
+                    agent.step(_ag3.A.Command.ESC); agent.inventory.update()
+                except Exception:
+                    pass
+                for _ in range(40):                 # quaff gain-level potions
+                    pot = None
+                    for it in _ag3.flatten_items(agent.inventory.items):
+                        if getattr(it, "category", None) == _nh.POTION_CLASS:
+                            pot = it; break
+                    if pot is None:
+                        break
+                    try:
+                        agent.inventory.quaff(pot)
+                    except Exception:
+                        break
+                try:                                # wear armor (AC), no gloves
+                    s = agent.inventory.wear_best_stuff()
+                    if s.check_condition():
+                        s.run()
+                except Exception:
+                    pass
+                lore_patches.COUNTERS["xl_after"] = int(agent.blstats.experience_level)
+                _do_teleport(agent, target_depth)
+                lore_patches.COUNTERS["tp_depth"] = int(agent.blstats.depth)
+                if spawn:
+                    _spawn_monsters(agent, spawn)
+            except Exception:
+                lore_patches._bump("scenario_teleport_fail")
+
+        @Strategy.wrap
+        def survive(s):
+            yield True
+            while 1:
+                e = agent.exploration.explore1(0)
+                if e.check_condition():
+                    e.run()
+                else:
+                    agent.search(1)
+
+        return (
+            survive(self)
+            .preempt(agent, [agent.eat_corpses_from_ground(only_below_me=True)
+                             .condition(lambda: agent.blstats.hunger_state >= Hunger.NOT_HUNGRY)])
+            .preempt(agent, [agent.fight2()])
+            .preempt(agent, [agent.engulfed_fight()])
+            .preempt(agent, [agent.emergency_strategy()])
+        )
+
+    _gl.GlobalLogic.global_strategy = threat_global
+    return ["threat_global(DL%d, spawn=%s)" % (target_depth, list(spawn))]
 
 
 def install_descent(target_depth, wishes=()):

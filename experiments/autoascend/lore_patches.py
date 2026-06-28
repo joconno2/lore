@@ -129,33 +129,60 @@ def apply():
 # melee, return a strongly negative priority so AutoAscend falls back to ranged
 # or avoidance. Only flagged monsters trigger a query, so queries stay rare.
 
-_PETRIFIERS = ("cockatrice", "chickatrice")
+# Knowledge-gated threats: meleeing these barehanded/at-melee is an instant or
+# near-instant death the wiki warns about but a damage-greedy bot may walk into.
+_DANGEROUS = ("cockatrice", "chickatrice", "floating eye")
 _NON_MELEE_ACTIONS = {"RANGED", "AVOID", "FLEE", "ELBERETH", "PRAY"}
 
 
 def apply_oracle_veto(mock=True, base_url=None, model=None):
+    """The LLM oracle gates AutoAscend's melee decision at knowledge-dependent
+    threats. When the oracle (given the real threat + the char's ranged/gloves
+    state) says anything but FIGHT, veto the melee so AA falls back to ranged/
+    avoid. This is the knowledge-gated decision the descent null pointed us to."""
     import oracle as _oracle
     from autoascend.combat import fight_heur as _fh
 
     orig = _fh.melee_monster_priority
 
+    def _has_gloves(agent):
+        try:
+            return agent.inventory.items.gloves is not None
+        except Exception:
+            return False
+
+    def _has_ranged(agent):
+        try:
+            from autoascend.item import flatten_items as _fi
+            import nle.nethack as _nh
+            for it in _fi(agent.inventory.items):
+                if getattr(it, "category", None) == _nh.WAND_CLASS:
+                    return True
+                if hasattr(it, "is_launcher") and it.is_launcher():
+                    return True
+            return False
+        except Exception:
+            return False
+
     def patched_melee_priority(agent, monsters, monster):
         try:
             _, y, x, mon, _ = monster
             name = (mon.mname or "").lower()
-            if any(p in name for p in _PETRIFIERS):
+            if any(p in name for p in _DANGEROUS):
                 bl = agent.blstats
                 state = {
                     "role": str(getattr(agent, "character", ""))[:3],
                     "xl": int(bl.experience_level), "hp": int(bl.hitpoints),
                     "max_hp": int(bl.max_hitpoints), "depth": int(bl.depth),
                     "threat_name": name, "threat_dist": 1,
-                    "has_ranged": False, "has_gloves": False, "can_elbereth": True,
+                    "has_ranged": _has_ranged(agent), "has_gloves": _has_gloves(agent),
+                    "can_elbereth": True,
                 }
                 d = _oracle.query_threat(state, base_url=base_url, model=model, mock=mock)
+                _bump("veto_query")
                 _bump("veto_query_" + name.replace(" ", "_"))
                 if d.get("action") in _NON_MELEE_ACTIONS:
-                    _bump("veto_fired_" + name.replace(" ", "_"))
+                    _bump("veto_fired")
                     return -1000  # veto melee; AutoAscend falls back to ranged/avoid
         except Exception:
             pass
