@@ -9,6 +9,7 @@ KIT=["12 blessed potions of gain level","12 blessed potions of gain level",
      "blessed ring of free action","blessed ring of fire resistance",
      "blessed amulet of reflection",
      "4 blessed killer bee corpses","4 blessed kobold corpses",
+     "blessed wand of digging (0:8)","blessed wand of digging (0:8)",
      "blessed wand of digging (0:8)","blessed wand of digging (0:8)"]
 if lore:
     lore_scenario.install_descent(target, wishes=KIT)

@@ -419,6 +419,25 @@ def install_descent(target_depth, wishes=()):
                     if letter is not None:
                         before = int(agent.blstats.depth)
                         import autoascend.agent as _agz
+                        # Step off any staircase first: a dig beam zapped down from
+                        # a stair BOUNCES (it doesn't dig). ^V often lands the agent
+                        # ON the up-stair, which is why the first dig failed.
+                        try:
+                            y0, x0 = agent.blstats.y, agent.blstats.x
+                            lvl0 = agent.current_level()
+                            if lvl0.objects[y0, x0] in G.STAIR_UP or \
+                                    lvl0.objects[y0, x0] in G.STAIR_DOWN:
+                                bf = agent.bfs()
+                                for ny, nx in agent.neighbors(y0, x0):
+                                    if bf[ny, nx] != -1 and lvl0.walkable[ny, nx] and \
+                                            lvl0.objects[ny, nx] not in G.STAIR_UP and \
+                                            lvl0.objects[ny, nx] not in G.STAIR_DOWN:
+                                        agent.move(ny, nx)
+                                        lore_patches.COUNTERS["stepped_off_stair"] = \
+                                            lore_patches.COUNTERS.get("stepped_off_stair", 0) + 1
+                                        break
+                        except Exception:
+                            pass
                         # Zap a wand of digging downward via the agent's tracked
                         # interface with the KNOWN letter (agent.zap's get_letter
                         # desyncs on wished wands; the direction prompt wants the
