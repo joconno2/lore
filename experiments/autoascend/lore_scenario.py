@@ -321,7 +321,9 @@ def install_descent(target_depth, wishes=()):
     from autoascend import exceptions as _gl_exc
     from autoascend.agent import flatten_items
     from autoascend import objects as _O
+    from autoascend.glyph import MON as _MON
     import nle.nethack as _nh2
+    import oracle as _oracle
 
     def descent_global(self):
         agent = self.agent
@@ -370,6 +372,164 @@ def install_descent(target_depth, wishes=()):
                 except Exception:
                     pass
 
+        # ---- primitives = the LLM's action space (each returns/raises normally) --
+        import autoascend.agent as _agz
+        import os as _os2
+
+        def _wand_letter():
+            for oc, l in zip(agent.last_observation['inv_oclasses'],
+                             agent.last_observation['inv_letters']):
+                if int(oc) == _nh2.WAND_CLASS and int(l) != 0:
+                    return chr(int(l))
+            return None
+
+        def _step_off_stair():
+            y0, x0 = agent.blstats.y, agent.blstats.x
+            lvl0 = agent.current_level()
+            if lvl0.objects[y0, x0] in G.STAIR_UP or lvl0.objects[y0, x0] in G.STAIR_DOWN:
+                bf = agent.bfs()
+                for ny, nx in agent.neighbors(y0, x0):
+                    if bf[ny, nx] != -1 and lvl0.walkable[ny, nx] and \
+                            lvl0.objects[ny, nx] not in G.STAIR_UP and \
+                            lvl0.objects[ny, nx] not in G.STAIR_DOWN:
+                        agent.move(ny, nx)
+                        break
+
+        def prim_dig_down():
+            """zap wand of digging down -> fall a level. returns True if descended."""
+            try:
+                agent.step(_agz.A.Command.ESC); agent.inventory.update()
+            except Exception:
+                pass
+            if _wand_letter() is None:
+                return False
+            before = int(agent.blstats.depth)
+            try:
+                _step_off_stair()
+            except Exception:
+                pass
+            for _zi in range(6):
+                lt2 = _wand_letter()
+                if lt2 is None:
+                    break
+                with agent.atom_operation():
+                    agent.step(_agz.A.Command.ZAP); agent.type_text(lt2); agent.type_text('>')
+                lore_patches.COUNTERS["zap_msg"] = str(agent.message)[:120]
+                if 'too hard' in agent.message:
+                    lore_patches.COUNTERS["level_no_dig"] = int(agent.blstats.depth)
+                    break
+                if int(agent.blstats.depth) > before:
+                    break
+            if int(agent.blstats.depth) > before:
+                lore_patches.COUNTERS["digs"] = lore_patches.COUNTERS.get("digs", 0) + 1
+                try:
+                    agent.levels.clear()
+                except Exception:
+                    pass
+                return True
+            lore_patches.COUNTERS["dig_fail"] = lore_patches.COUNTERS.get("dig_fail", 0) + 1
+            return False
+
+        def prim_descend_stairs():
+            """travel to a known downstair and take it. returns True if descended."""
+            st = agent.exploration.explore_stairs(agent.exploration.go_to_strategy, down=True)
+            if st.check_condition():
+                before = agent.current_level().key()
+                st.run()
+                if agent.current_level().key() != before:
+                    lore_patches.COUNTERS["stair_descents"] = \
+                        lore_patches.COUNTERS.get("stair_descents", 0) + 1
+                    return True
+            return False
+
+        def prim_explore():
+            e = agent.exploration.explore1(0)
+            if e.check_condition():
+                e.run()
+            else:
+                agent.search(1)
+
+        def prim_fight():
+            f = agent.fight2()
+            if f.check_condition():
+                f.run()
+            else:
+                prim_explore()
+
+        def prim_flee():
+            # move toward the up-stair / away; fall back to a random open step
+            try:
+                bf = agent.bfs()
+                lvl0 = agent.current_level()
+                ups = list(zip(*((_u.isin(lvl0.objects, G.STAIR_UP)) & (bf != -1)).nonzero()))
+                if ups:
+                    agent.go_to(*ups[0]); return
+            except Exception:
+                pass
+            try:
+                for ny, nx in agent.neighbors(agent.blstats.y, agent.blstats.x):
+                    if agent.current_level().walkable[ny, nx]:
+                        agent.move(ny, nx); return
+            except Exception:
+                pass
+            prim_explore()
+
+        def prim_pray():
+            try:
+                agent.pray()
+            except Exception:
+                prim_explore()
+
+        def prim_elbereth():
+            try:
+                agent.engrave_elbereth()
+            except Exception:
+                prim_explore()
+
+        def _adjacent_threats():
+            names = []
+            try:
+                y, x = agent.blstats.y, agent.blstats.x
+                for ny, nx in agent.neighbors(y, x):
+                    g = int(agent.glyphs[ny, nx])
+                    if _nh2.glyph_is_monster(g):
+                        try:
+                            names.append(_MON.permonst(g).mname)
+                        except Exception:
+                            names.append("monster")
+            except Exception:
+                pass
+            return names
+
+        def _build_state():
+            lvl = agent.current_level()
+            try:
+                on_stair = lvl.objects[agent.blstats.y, agent.blstats.x] in G.STAIR_DOWN \
+                           or lvl.objects[agent.blstats.y, agent.blstats.x] in G.STAIR_UP
+            except Exception:
+                on_stair = False
+            return {
+                "depth": int(agent.blstats.depth),
+                "dungeon": int(lvl.dungeon_number),
+                "xl": int(agent.blstats.experience_level),
+                "hp": int(agent.blstats.hitpoints),
+                "max_hp": int(agent.blstats.max_hitpoints),
+                "ac": int(agent.blstats.armor_class),
+                "hunger": int(agent.blstats.hunger_state),
+                "has_dig_wand": _wand_letter() is not None,
+                "on_stair": bool(on_stair),
+                "have_downstair": int(_u.isin(lvl.objects, G.STAIR_DOWN).sum()) > 0,
+                "level_no_dig": lore_patches.COUNTERS.get("level_no_dig") == int(agent.blstats.depth),
+                "adjacent_threats": _adjacent_threats(),
+            }
+
+        DISPATCH = {
+            "DIG_DOWN": prim_dig_down, "DESCEND_STAIRS": prim_descend_stairs,
+            "EXPLORE": prim_explore, "FIGHT": prim_fight, "FLEE": prim_flee,
+            "PRAY": prim_pray, "ELBERETH": prim_elbereth,
+        }
+        MOCK = _os2.environ.get("LORE_ORACLE_MOCK", "0") == "1"
+
         @Strategy.wrap
         def descend(s):
             yield True
@@ -379,145 +539,42 @@ def install_descent(target_depth, wishes=()):
                 d = int(agent.blstats.depth)
                 if d > lore_patches.COUNTERS.get("max_depth", 0):
                     lore_patches.COUNTERS["max_depth"] = d
-                # diagnostic: is a downstair glyph mapped, and how much explored?
                 try:
-                    lvl = agent.current_level()
-                    nd = int(_u.isin(lvl.objects, G.STAIR_DOWN).sum())
-                    lore_patches.COUNTERS["downstair_glyphs"] = max(
-                        lore_patches.COUNTERS.get("downstair_glyphs", 0), nd)
-                    lore_patches.COUNTERS["explored_cells"] = int(lvl.was_on.sum())
-                    lore_patches.COUNTERS["dungeon_num"] = int(lvl.dungeon_number)
+                    lore_patches.COUNTERS["explored_cells"] = int(agent.current_level().was_on.sum())
+                    lore_patches.COUNTERS["dungeon_num"] = int(agent.current_level().dungeon_number)
                 except Exception:
                     pass
-                # 0) DIG-DOWN: zap a wand of digging downward to fall to the next
-                #    level. Bypasses Gehennom's broken stair navigation entirely
-                #    (the agent gets stuck in a ~17-cell pocket and never maps the
-                #    downstair). Real NetHack descent technique. Primary in Gehennom.
+                # --- THE LLM DRIVES: build state, retrieve wiki knowledge, decide. ---
                 try:
-                    lore_patches.COUNTERS["dig_block_ran"] = \
-                        lore_patches.COUNTERS.get("dig_block_ran", 0) + 1
-                    try:
-                        import autoascend.agent as _agz0
-                        agent.step(_agz0.A.Command.ESC)   # clear any stale prompt
-                        agent.inventory.update()          # fresh letters post-teleport
-                    except Exception:
-                        pass
-                    # Read the wand letter straight from the raw observation
-                    # (inv_oclasses/inv_letters) -- robust to AutoAscend's item
-                    # object identity. We only wished digging wands.
-                    # find a wand letter from the raw observation (wished wands
-                    # show as unidentified; we only wished digging wands).
-                    def _wand_letter():
-                        lt = None
-                        for oc, l in zip(agent.last_observation['inv_oclasses'],
-                                         agent.last_observation['inv_letters']):
-                            if int(oc) == _nh2.WAND_CLASS and int(l) != 0:
-                                lt = chr(int(l))
-                        return lt
-                    letter = _wand_letter()
-                    lore_patches.COUNTERS["wands_seen"] = 1 if letter else 0
-                    if letter is not None:
-                        before = int(agent.blstats.depth)
-                        import autoascend.agent as _agz
-                        # Step off any staircase first: a dig beam zapped down from
-                        # a stair BOUNCES (it doesn't dig). ^V often lands the agent
-                        # ON the up-stair, which is why the first dig failed.
-                        try:
-                            y0, x0 = agent.blstats.y, agent.blstats.x
-                            lvl0 = agent.current_level()
-                            if lvl0.objects[y0, x0] in G.STAIR_UP or \
-                                    lvl0.objects[y0, x0] in G.STAIR_DOWN:
-                                bf = agent.bfs()
-                                for ny, nx in agent.neighbors(y0, x0):
-                                    if bf[ny, nx] != -1 and lvl0.walkable[ny, nx] and \
-                                            lvl0.objects[ny, nx] not in G.STAIR_UP and \
-                                            lvl0.objects[ny, nx] not in G.STAIR_DOWN:
-                                        agent.move(ny, nx)
-                                        lore_patches.COUNTERS["stepped_off_stair"] = \
-                                            lore_patches.COUNTERS.get("stepped_off_stair", 0) + 1
-                                        break
-                        except Exception:
-                            pass
-                        # Zap a wand of digging downward via the agent's tracked
-                        # interface with the KNOWN letter (agent.zap's get_letter
-                        # desyncs on wished wands; the direction prompt wants the
-                        # '>' CHAR, not the DOWN action). Digging makes a PIT first
-                        # then a HOLE -> re-zap until depth drops or charges run out.
-                        for _zi in range(6):
-                            lt2 = _wand_letter()
-                            if lt2 is None:
-                                break
-                            with agent.atom_operation():
-                                agent.step(_agz.A.Command.ZAP)
-                                agent.type_text(lt2)
-                                agent.type_text('>')
-                            lore_patches.COUNTERS["zap_msg"] = str(agent.message)[:120]
-                            if int(agent.blstats.depth) > before:
-                                break
-                        if int(agent.blstats.depth) > before:
-                            lore_patches.COUNTERS["digs"] = \
-                                lore_patches.COUNTERS.get("digs", 0) + 1
-                            lore_patches.COUNTERS["descents"] = \
-                                lore_patches.COUNTERS.get("descents", 0) + 1
-                            try:
-                                agent.levels.clear()  # fresh map for the new level
-                            except Exception:
-                                pass
-                            continue
-                        else:
-                            # no charge / dig failed -> stop trying the wand
-                            lore_patches.COUNTERS["dig_fail"] = \
-                                lore_patches.COUNTERS.get("dig_fail", 0) + 1
+                    state = _build_state()
+                    knowledge = _oracle.retrieve_knowledge(state)
+                    decision = _oracle.query_endgame(state, knowledge, mock=MOCK)
+                    action = decision.get("action") or "EXPLORE"
                 except AgentFinished:
                     raise
-                except AgentPanic:
-                    lore_patches.COUNTERS["dig_panic"] = \
-                        lore_patches.COUNTERS.get("dig_panic", 0) + 1
-                except RuntimeError:
+                except Exception as _oe:
+                    lore_patches.COUNTERS["oracle_err"] = repr(_oe)[:90]
+                    action = "EXPLORE"     # oracle unreachable -> safe default
+                lore_patches.COUNTERS["oracle_" + str(action)] = \
+                    lore_patches.COUNTERS.get("oracle_" + str(action), 0) + 1
+                lore_patches.COUNTERS["last_action"] = str(action)
+                # execute the LLM's chosen action via the primitive (action space)
+                try:
+                    descended = DISPATCH.get(action, prim_explore)()
+                    if descended:
+                        lore_patches.COUNTERS["descents"] = \
+                            lore_patches.COUNTERS.get("descents", 0) + 1
+                except AgentFinished:
                     raise
                 except _gl_exc.AgentChangeStrategy:
-                    raise                       # control-flow signal, must propagate
-                except BaseException as _de:
-                    lore_patches.COUNTERS["dig_exc"] = \
-                        lore_patches.COUNTERS.get("dig_exc", 0) + 1
-                    lore_patches.COUNTERS["dig_exc_msg"] = repr(_de)[:120]
-                # 1) try AutoAscend's own stair primitive: go to a discovered,
-                #    unexplored DOWNstair and take it (battle-tested navigation).
-                took = False
-                try:
-                    st = agent.exploration.explore_stairs(
-                        agent.exploration.go_to_strategy, down=True)
-                    if st.check_condition():
-                        lore_patches.COUNTERS["stairs_seen"] = \
-                            lore_patches.COUNTERS.get("stairs_seen", 0) + 1
-                        before = agent.current_level().key()
-                        st.run()
-                        if agent.current_level().key() != before:
-                            lore_patches.COUNTERS["descents"] = \
-                                lore_patches.COUNTERS.get("descents", 0) + 1
-                        took = True
-                except AgentFinished:
-                    raise                       # death: let main() end the game
-                except AgentPanic:
-                    # recoverable navigation hiccup (monster, blocked path) --
-                    # AutoAscend re-plans on the next loop. Count it, carry on.
-                    lore_patches.COUNTERS["descend_err"] = \
-                        lore_patches.COUNTERS.get("descend_err", 0) + 1
+                    raise
                 except RuntimeError:
-                    raise                       # finished-env / cyclic panic: propagate
-                if took:
-                    continue
-                # 2) no known downstair -> explore this level to discover one.
-                # explore1/search raise AgentFinished on death -> propagate.
-                e = agent.exploration.explore1(0)
-                if e.check_condition():
-                    lore_patches.COUNTERS["explore1_ran"] = \
-                        lore_patches.COUNTERS.get("explore1_ran", 0) + 1
-                    e.run()
-                else:
-                    lore_patches.COUNTERS["search_ran"] = \
-                        lore_patches.COUNTERS.get("search_ran", 0) + 1
-                    agent.search(1)
+                    raise
+                except AgentPanic:
+                    lore_patches.COUNTERS["act_panic"] = \
+                        lore_patches.COUNTERS.get("act_panic", 0) + 1
+                except BaseException as _ae:
+                    lore_patches.COUNTERS["act_exc"] = repr(_ae)[:90]
 
         def _count(strat, name):
             """Wrap a Strategy to bump COUNTERS['pre_<name>'] each time it actually

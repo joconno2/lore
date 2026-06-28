@@ -152,6 +152,125 @@ def _mock(state):
     return {"action": "FIGHT", "reason": "default"}
 
 
+# ---------------------------------------------------------------------------
+# Endgame oracle: the LLM DRIVES the endgame descent. AutoAscend's GO_DOWN is an
+# unimplemented TODO; the LORE primitives (dig, stairs, fight, flee, ...) are the
+# action SPACE, and this query -- fed the wiki strategy corpus -- chooses the
+# action at each step. The decision is the LLM's, not a hardcoded heuristic.
+# ---------------------------------------------------------------------------
+ENDGAME_ACTIONS = ["DIG_DOWN", "DESCEND_STAIRS", "EXPLORE", "FIGHT", "FLEE", "PRAY", "ELBERETH"]
+
+ENDGAME_SYSTEM = (
+    "You are the strategic controller of an expert NetHack 3.6 bot whose GOAL is "
+    "to descend as deep as possible toward the endgame: the bottom of the Dungeons "
+    "of Doom (the Castle), then Gehennom (entered past the Castle), down to the "
+    "Vibrating Square for the invocation, the Sanctum for the Amulet, then up the "
+    "Elemental and Astral planes to ascend. The bot is already strong (high XL, "
+    "good armor, key resistances). Your job at each step is to pick the SINGLE best "
+    "action to make safe downward progress.\n"
+    "Action set:\n"
+    "  DIG_DOWN       - zap a wand of digging downward to fall a level (fastest "
+    "descent; only if a wand is held AND the level is diggable -- special levels "
+    "like the Castle and some Gehennom levels are no-dig).\n"
+    "  DESCEND_STAIRS - travel to the down-stair and take it (use when digging is "
+    "blocked, or to use a known stair).\n"
+    "  EXPLORE        - explore the current level to reveal stairs/items/threats.\n"
+    "  FIGHT          - kill an adjacent threat blocking progress.\n"
+    "  FLEE           - retreat from a deadly situation (surrounded, low HP).\n"
+    "  PRAY           - emergency prayer (HP critical / starving).\n"
+    "  ELBERETH       - engrave Elbereth to scare attackers and buy time.\n"
+    "Use the provided KNOWLEDGE (NetHack wiki strategy) to decide. Prefer fast "
+    "descent (DIG_DOWN) when safe and possible; switch to DESCEND_STAIRS when "
+    "digging is blocked; handle threats only when they actually endanger progress.\n"
+    "Reply ONLY with compact JSON: {\"action\": <one of the set>, \"reason\": <short>}."
+)
+
+
+def query_endgame(state, knowledge="", base_url=None, model=None, mock=False):
+    """LLM picks the next endgame-descent action. state: depth, dungeon, xl, hp,
+    max_hp, ac, hunger, has_dig_wand, on_stair, last_dig_result, adjacent_threats,
+    have_downstair. knowledge: relevant wiki-corpus text (retrieval; EC-tunable)."""
+    if mock:
+        return _mock_endgame(state)
+    base_url = base_url or os.environ.get("LORE_ORACLE_URL", "http://localhost:8000/v1")
+    model = model or os.environ.get("LORE_ORACLE_MODEL", "served-model")
+    user = ""
+    if knowledge:
+        user += "KNOWLEDGE (NetHack wiki strategy):\n" + knowledge.strip() + "\n\n"
+    user += "Current state:\n" + json.dumps(state, indent=2) + "\nChoose one action."
+    resp = _post(base_url.rstrip("/") + "/chat/completions", {
+        "model": model,
+        "messages": [{"role": "system", "content": ENDGAME_SYSTEM},
+                     {"role": "user", "content": user}],
+        "temperature": 0.0, "max_tokens": 100,
+    })
+    return _parse_endgame(resp["choices"][0]["message"]["content"].strip())
+
+
+def _parse_endgame(text):
+    s = text.find("{"); e = text.rfind("}")
+    if s != -1 and e != -1:
+        try:
+            obj = json.loads(text[s:e + 1])
+            act = str(obj.get("action", "")).upper()
+            if act in ENDGAME_ACTIONS:
+                return {"action": act, "reason": obj.get("reason", ""), "raw": text}
+        except Exception:
+            pass
+    return {"action": None, "reason": "parse_fail", "raw": text}
+
+
+def _mock_endgame(state):
+    """Perfect-knowledge endgame controller (upper bound for mechanism testing)."""
+    hp_frac = state.get("hp", 1) / max(1, state.get("max_hp", 1))
+    if hp_frac < 0.25:
+        return {"action": "PRAY", "reason": "hp critical"}
+    if state.get("adjacent_threats"):
+        return {"action": "FIGHT" if hp_frac > 0.5 else "FLEE", "reason": "threat adjacent"}
+    if state.get("has_dig_wand") and not state.get("level_no_dig"):
+        return {"action": "DIG_DOWN", "reason": "fast descent"}
+    if state.get("have_downstair"):
+        return {"action": "DESCEND_STAIRS", "reason": "dig blocked, use stair"}
+    return {"action": "EXPLORE", "reason": "find the downstair"}
+
+
+def retrieve_knowledge(state, corpus_path=None, max_chars=3500):
+    """Naive retrieval: return corpus lines relevant to the current situation.
+    This is the seam the EC search will optimize (which chunks, how ranked). For
+    now: keyword-match on depth/dungeon/threat against the strategy corpus."""
+    path = corpus_path or os.environ.get(
+        "LORE_CORPUS", "/workspace/ASCENSION_STRATEGY.md")
+    try:
+        text = open(path).read()
+    except Exception:
+        return ""
+    terms = set()
+    dungeon = str(state.get("dungeon", "")).lower()
+    if state.get("depth", 0) >= 25 or "gehennom" in dungeon:
+        terms |= {"gehennom", "castle", "vibrating", "invocation", "amulet",
+                  "demon", "dig", "valley", "sanctum", "plane"}
+    else:
+        terms |= {"descend", "dig", "depth", "stair", "dungeon"}
+    for t in (state.get("adjacent_threats") or []):
+        terms.add(str(t).lower())
+    # paragraph-level keyword match
+    paras = [p.strip() for p in text.split("\n\n") if p.strip()]
+    scored = []
+    for p in paras:
+        pl = p.lower()
+        score = sum(1 for t in terms if t in pl)
+        if score:
+            scored.append((score, p))
+    scored.sort(key=lambda x: -x[0])
+    out, total = [], 0
+    for _, p in scored:
+        if total + len(p) > max_chars:
+            break
+        out.append(p)
+        total += len(p)
+    return "\n\n".join(out)
+
+
 # synthetic death-states drawn from the gap analysis
 TEST_STATES = [
     {"name": "cockatrice_DL14", "role": "Val", "xl": 10, "hp": 80, "max_hp": 110,
