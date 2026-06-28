@@ -67,7 +67,7 @@ def _equip_endgame(agent):
     unused. Wear armor via AA's routine, then PUT ON amulet + rings via raw 'P'
     keypresses. Without this the char lands in Gehennom at ~AC10, unprotected."""
     import nle.nethack as _nh
-    low = agent.env.env.unwrapped.env
+    import autoascend.agent as _A
     # 1) armor (gray dragon scale mail etc.) via AutoAscend's own routine
     try:
         agent.inventory.update()
@@ -76,40 +76,60 @@ def _equip_endgame(agent):
             s.run()
     except Exception:
         pass
-    # 2) amulet + rings via raw PUTON. 'P' (80) -> "What do you want to put on?"
-    #    -> item letter -> (rings only) "Which finger?" r/l. Re-fetch each time.
     try:
-        agent.step(__import__("autoascend.agent", fromlist=["A"]).A.Command.ESC)
+        agent.step(_A.A.Command.ESC)
         agent.inventory.update()
     except Exception:
         pass
-    from autoascend.agent import flatten_items
-    worn = 0
-    finger = ord('r')
-    for cat in (_nh.AMULET_CLASS, _nh.RING_CLASS, _nh.RING_CLASS):
-        item = None
-        for it in flatten_items(agent.inventory.items):
-            if getattr(it, "category", None) == cat and not getattr(it, "equipped", False):
-                # skip an already-worn item of same letter by checking 'at use'
-                item = it
-                break
-        if item is None:
-            continue
-        try:
-            letter = agent.inventory.items.get_letter(item)
-        except Exception:
-            letter = None
-        if letter is None:
-            continue
-        low.step(80)                       # P (put on)
-        low.step(ord(letter))              # which item
-        if cat == _nh.RING_CLASS:
-            low.step(finger)               # right then left finger
-            finger = ord('l')
-        low.step(13); low.step(13)         # clear prompts/--More--
-        worn += 1
+    # 2) amulet + rings via the TRACKED interface (atom_operation + type_text),
+    #    modelled on AutoAscend's own wear(). The old raw low.step('P')+letter
+    #    sequence desynced and CORRUPTED inventory (destroyed wished wands). Read
+    #    letters from the raw observation (wished items are unidentified, so
+    #    get_letter/flatten_items are unreliable).
+    amulets, rings = [], []
     try:
-        agent.step(__import__("autoascend.agent", fromlist=["A"]).A.Command.ESC)
+        obs = agent.last_observation
+        for oc, lt in zip(obs['inv_oclasses'], obs['inv_letters']):
+            if int(lt) == 0:
+                continue
+            c, l = int(oc), chr(int(lt))
+            if c == _nh.AMULET_CLASS:
+                amulets.append(l)
+            elif c == _nh.RING_CLASS:
+                rings.append(l)
+    except Exception:
+        pass
+    worn = 0
+    for l in amulets[:1]:                       # one amulet slot (reflection)
+        try:
+            with agent.atom_operation():
+                agent.step(_A.A.Command.PUTON)
+                agent.type_text(l)
+            worn += 1
+        except Exception:
+            pass
+    lore_patches.COUNTERS["ring_count"] = len(rings)
+    # Rings via RAW keypresses: AutoAscend's agent.step ASSERTS on ring messages
+    # ("...on right hand") -- it has no ring logic. Raw low.step bypasses that.
+    # Correct letters (from obs) mean no inventory corruption; worst case a stray
+    # move if a finger prompt doesn't appear. P, letter, finger, clear.
+    low = agent.env.env.unwrapped.env
+    for l, finger in zip(rings[:2], ['r', 'l']):
+        try:
+            low.step(ord('P'))             # PUTON
+            low.step(ord(l))               # ring letter
+            low.step(ord(finger))          # answer "Which ring-finger?" (or stray move)
+            low.step(13)                   # clear --More--
+            worn += 1
+        except Exception as _re:
+            lore_patches.COUNTERS["ring_err"] = repr(_re)[:90]
+    try:
+        agent.step(_A.A.Command.ESC)
+        agent.inventory.update()
+    except Exception:
+        pass
+    try:
+        agent.step(_A.A.Command.ESC)
         agent.inventory.update()
     except Exception:
         pass

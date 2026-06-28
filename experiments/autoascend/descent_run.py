@@ -69,6 +69,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "downstair_glyphs":C.get("downstair_glyphs"),"explored_cells":C.get("explored_cells"),"dungeon_num":C.get("dungeon_num"),
           "digs":C.get("digs"),"dig_fail":C.get("dig_fail"),"dig_panic":C.get("dig_panic"),"wands_seen":C.get("wands_seen"),
           "zap_msg":C.get("zap_msg"),
+          "ring_count":C.get("ring_count"),"ring_m1":C.get("ring_m1"),"ring_m2":C.get("ring_m2"),"ring_err":C.get("ring_err"),
           "death":death,
           "t":round(time.time()-t0),"xl_after":C.get("xl_after"),"wishes":C.get("wishes")},
           open(OUT,"w"), default=str)
