@@ -54,6 +54,11 @@ def apply_crash_recovery(max_recover=300):
     def safe_handle(self, exc):
         if isinstance(exc, (KeyboardInterrupt, AgentFinished, SystemExit)):
             raise exc
+        # The env is finished (agent died): stepping it again raises this
+        # RuntimeError. Recovering from it just re-steps the dead env -> the
+        # cyclic-panic guard trips and masks the real death. Treat as terminal.
+        if isinstance(exc, RuntimeError) and "finished" in str(exc):
+            raise AgentFinished()
         if isinstance(exc, AgentPanic):
             return orig(self, exc)
         # non-panic crash -> recover instead of dying

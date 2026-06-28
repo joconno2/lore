@@ -113,50 +113,39 @@ def install_scenario(target_depth, wishes=()):
         if not getattr(agent, "_lore_tp_done", False):
             agent.__dict__["_lore_tp_done"] = True
             try:
-                # Wish on the SAFE start level (DL1) -- wishing among DL15 monsters
-                # got the agent killed mid-keypress. Clear residual prompt state
-                # after wishing so the ^V teleport fires cleanly.
+                # ALL setup on the SAFE start level (DL1), THEN teleport. Doing
+                # the wish/level-up at the deep target got the agent killed mid-
+                # keypress (defenseless) and left flaky XL. Order: wish -> quaff
+                # gain-level (level up safely) -> teleport down already strong.
+                import autoascend.agent as _ag3
+                import nle.nethack as _nh
                 for it in wishes:
                     _do_wish(agent, it)
                 lore_patches.COUNTERS["wishes"] = len(wishes)
+                # Resync inventory, then quaff every wished potion (gain-level,
+                # unidentified -> match by POTION category). Re-fetch each time.
+                try:
+                    agent.step(_ag3.A.Command.ESC)
+                    agent.inventory.update()
+                except Exception:
+                    pass
+                for _ in range(40):
+                    pot = None
+                    for it in _ag3.flatten_items(agent.inventory.items):
+                        if getattr(it, "category", None) == _nh.POTION_CLASS:
+                            pot = it
+                            break
+                    if pot is None:
+                        break
+                    try:
+                        agent.inventory.quaff(pot)
+                    except Exception:
+                        break
+                lore_patches.COUNTERS["xl_before_tp"] = int(agent.blstats.experience_level)
                 _do_teleport(agent, target_depth)
                 lore_patches._bump("scenario_teleport")
                 lore_patches.COUNTERS["tp_depth"] = int(agent.blstats.depth)
-                # Quaff any wished gain-level potions to reach a realistic deep XL
-                # (gear alone can't save an XL1/~10HP char at DL15).
-                try:
-                    import autoascend.agent as _ag3
-                    try:
-                        agent.inventory.update()
-                    except Exception:
-                        pass
-                    flat = list(_ag3.flatten_items(agent.inventory.items))
-                    try:
-                        open("/workspace/inv.txt", "w").write(
-                            "XL%s DL%s\n" % (agent.blstats.experience_level, agent.blstats.depth)
-                            + "\n".join(repr(getattr(i, "text", None)) for i in flat))
-                    except Exception:
-                        pass
-                    # The wished gain-level potions are unidentified ("pink
-                    # potions"), so match by POTION category, not text. Only
-                    # gain-level potions were wished, so quaff every potion. Re-
-                    # fetch each iteration (stack decrements); cap at 15.
-                    import nle.nethack as _nh
-                    for _ in range(15):
-                        pot = None
-                        for it in _ag3.flatten_items(agent.inventory.items):
-                            if getattr(it, "category", None) == _nh.POTION_CLASS:
-                                pot = it
-                                break
-                        if pot is None:
-                            break
-                        try:
-                            agent.inventory.quaff(pot)
-                        except Exception:
-                            break
-                    lore_patches.COUNTERS["xl_after"] = int(agent.blstats.experience_level)
-                except Exception:
-                    pass
+                lore_patches.COUNTERS["xl_after"] = int(agent.blstats.experience_level)
             except Exception as e:
                 lore_patches._bump("scenario_teleport_fail")
                 try:
@@ -192,6 +181,120 @@ def install_scenario(target_depth, wishes=()):
 
     _gl.GlobalLogic.global_strategy = scenario_global
     return ["scenario_global(DL%d, bounded-local)" % target_depth]
+
+
+def install_descent(target_depth, wishes=()):
+    """Endgame DESCENT planner. AutoAscend's dungeon model (level.py) knows only
+    DoD/Mines/Sokoban/Quest -- no Gehennom, no planes -- so its go_to_level
+    routing can't reach the endgame. But get_stairs(down=True) works on ANY
+    current level. So we drive descent model-free: explore the current level,
+    find the downstair, take it, repeat. This pushes the agent DEEPER through
+    Gehennom than AutoAscend structurally can (its GO_DOWN is an unimplemented
+    TODO). Tracks max depth reached. Setup (wish + level-up) on safe DL1 first."""
+    from autoascend import global_logic as _gl
+    from autoascend.strategy import Strategy
+    from autoascend.glyph import Hunger, G
+    from autoascend import utils as _u
+
+    from autoascend.exceptions import AgentPanic, AgentFinished
+
+    def descent_global(self):
+        agent = self.agent
+        if not getattr(agent, "_lore_tp_done", False):
+            agent.__dict__["_lore_tp_done"] = True
+            try:
+                import autoascend.agent as _ag3
+                import nle.nethack as _nh
+                for it in wishes:
+                    _do_wish(agent, it)
+                lore_patches.COUNTERS["wishes"] = len(wishes)
+                try:
+                    agent.step(_ag3.A.Command.ESC)
+                    agent.inventory.update()
+                except Exception:
+                    pass
+                for _ in range(40):
+                    pot = None
+                    for it in _ag3.flatten_items(agent.inventory.items):
+                        if getattr(it, "category", None) == _nh.POTION_CLASS:
+                            pot = it
+                            break
+                    if pot is None:
+                        break
+                    try:
+                        agent.inventory.quaff(pot)
+                    except Exception:
+                        break
+                lore_patches.COUNTERS["xl_before_tp"] = int(agent.blstats.experience_level)
+                _do_teleport(agent, target_depth)
+                lore_patches._bump("scenario_teleport")
+                lore_patches.COUNTERS["tp_depth"] = int(agent.blstats.depth)
+                lore_patches.COUNTERS["xl_after"] = int(agent.blstats.experience_level)
+                lore_patches.COUNTERS["max_depth"] = int(agent.blstats.depth)
+                lore_patches.COUNTERS["descents"] = 0
+            except Exception as e:
+                lore_patches._bump("scenario_teleport_fail")
+                try:
+                    import traceback
+                    open("/workspace/tp_err.txt", "w").write(repr(e) + "\n" + traceback.format_exc())
+                except Exception:
+                    pass
+
+        @Strategy.wrap
+        def descend(s):
+            yield True
+            while 1:
+                lore_patches.COUNTERS["descend_iters"] = \
+                    lore_patches.COUNTERS.get("descend_iters", 0) + 1
+                d = int(agent.blstats.depth)
+                if d > lore_patches.COUNTERS.get("max_depth", 0):
+                    lore_patches.COUNTERS["max_depth"] = d
+                # 1) try AutoAscend's own stair primitive: go to a discovered,
+                #    unexplored DOWNstair and take it (battle-tested navigation).
+                took = False
+                try:
+                    st = agent.exploration.explore_stairs(
+                        agent.exploration.go_to_strategy, down=True)
+                    if st.check_condition():
+                        lore_patches.COUNTERS["stairs_seen"] = \
+                            lore_patches.COUNTERS.get("stairs_seen", 0) + 1
+                        before = agent.current_level().key()
+                        st.run()
+                        if agent.current_level().key() != before:
+                            lore_patches.COUNTERS["descents"] = \
+                                lore_patches.COUNTERS.get("descents", 0) + 1
+                        took = True
+                except AgentFinished:
+                    raise                       # death: let main() end the game
+                except AgentPanic:
+                    # recoverable navigation hiccup (monster, blocked path) --
+                    # AutoAscend re-plans on the next loop. Count it, carry on.
+                    lore_patches.COUNTERS["descend_err"] = \
+                        lore_patches.COUNTERS.get("descend_err", 0) + 1
+                except RuntimeError:
+                    raise                       # finished-env / cyclic panic: propagate
+                if took:
+                    continue
+                # 2) no known downstair -> explore this level to discover one.
+                # explore1/search raise AgentFinished on death -> propagate.
+                e = agent.exploration.explore1(0)
+                if e.check_condition():
+                    e.run()
+                else:
+                    agent.search(1)
+
+        return (
+            descend(self)
+            .preempt(agent, [agent.inventory.wear_best_stuff()])
+            .preempt(agent, [agent.eat_corpses_from_ground(only_below_me=True)
+                             .condition(lambda: agent.blstats.hunger_state >= Hunger.NOT_HUNGRY)])
+            .preempt(agent, [agent.fight2()])
+            .preempt(agent, [agent.engulfed_fight()])
+            .preempt(agent, [agent.emergency_strategy()])
+        )
+
+    _gl.GlobalLogic.global_strategy = descent_global
+    return ["descent_global(DL%d, model-free descend)" % target_depth]
 
 
 def patch_enhance_noop():
