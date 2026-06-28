@@ -19,6 +19,66 @@ def _do_wish(agent, item):
     low.step(13); low.step(13)         # clear --More--
 
 
+def _equip_endgame(agent):
+    """Equip the wished kit on the SAFE start level before teleporting. AutoAscend
+    wears armor (wear_best_stuff) but has NO ring/amulet logic at all -- so the
+    wished amulet of reflection + rings (free action, fire resistance) would sit
+    unused. Wear armor via AA's routine, then PUT ON amulet + rings via raw 'P'
+    keypresses. Without this the char lands in Gehennom at ~AC10, unprotected."""
+    import nle.nethack as _nh
+    low = agent.env.env.unwrapped.env
+    # 1) armor (gray dragon scale mail etc.) via AutoAscend's own routine
+    try:
+        agent.inventory.update()
+        s = agent.inventory.wear_best_stuff()
+        if s.check_condition():
+            s.run()
+    except Exception:
+        pass
+    # 2) amulet + rings via raw PUTON. 'P' (80) -> "What do you want to put on?"
+    #    -> item letter -> (rings only) "Which finger?" r/l. Re-fetch each time.
+    try:
+        agent.step(__import__("autoascend.agent", fromlist=["A"]).A.Command.ESC)
+        agent.inventory.update()
+    except Exception:
+        pass
+    from autoascend.agent import flatten_items
+    worn = 0
+    finger = ord('r')
+    for cat in (_nh.AMULET_CLASS, _nh.RING_CLASS, _nh.RING_CLASS):
+        item = None
+        for it in flatten_items(agent.inventory.items):
+            if getattr(it, "category", None) == cat and not getattr(it, "equipped", False):
+                # skip an already-worn item of same letter by checking 'at use'
+                item = it
+                break
+        if item is None:
+            continue
+        try:
+            letter = agent.inventory.items.get_letter(item)
+        except Exception:
+            letter = None
+        if letter is None:
+            continue
+        low.step(80)                       # P (put on)
+        low.step(ord(letter))              # which item
+        if cat == _nh.RING_CLASS:
+            low.step(finger)               # right then left finger
+            finger = ord('l')
+        low.step(13); low.step(13)         # clear prompts/--More--
+        worn += 1
+    try:
+        agent.step(__import__("autoascend.agent", fromlist=["A"]).A.Command.ESC)
+        agent.inventory.update()
+    except Exception:
+        pass
+    lore_patches.COUNTERS["equipped_jewelry"] = worn
+    try:
+        lore_patches.COUNTERS["ac_after_equip"] = int(agent.blstats.armor_class)
+    except Exception:
+        pass
+
+
 def _do_teleport(agent, target_depth):
     # ^V isn't in AutoAscend's action space, so issue the wizard level-teleport
     # at the LOW-LEVEL nethack (raw keypresses), then resync the agent with one
@@ -226,6 +286,7 @@ def install_descent(target_depth, wishes=()):
                     except Exception:
                         break
                 lore_patches.COUNTERS["xl_before_tp"] = int(agent.blstats.experience_level)
+                _equip_endgame(agent)      # wear armor + put on amulet/rings on safe DL1
                 _do_teleport(agent, target_depth)
                 lore_patches._bump("scenario_teleport")
                 lore_patches.COUNTERS["tp_depth"] = int(agent.blstats.depth)

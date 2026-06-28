@@ -6,7 +6,8 @@ if lore:
 lore_scenario.patch_enhance_noop()
 KIT=["12 blessed potions of gain level","12 blessed potions of gain level",
      "blessed +3 gray dragon scale mail","blessed +2 long sword",
-     "blessed ring of free action","blessed amulet of reflection"]
+     "blessed ring of free action","blessed ring of fire resistance",
+     "blessed amulet of reflection"]
 if lore:
     lore_scenario.install_descent(target, wishes=KIT)
 else:
@@ -20,12 +21,27 @@ w = __import__("autoascend.env_wrapper", fromlist=["EnvWrapper"]).EnvWrapper(env
 t0=time.time()
 try: w.main()
 except BaseException as e: w.end_reason=repr(e)[:80]
+# capture the raw final tty (wizard-mode death screen breaks AA's parser, so
+# end_reason is often empty) -- read the actual death cause off the screen.
+death=""
+try:
+    tty=w.env.last_observation if hasattr(w.env,"last_observation") else None
+    import numpy as _np
+    obs=getattr(w,"last_obs",None) or getattr(w.agent,"last_observation",None)
+    tc=obs["tty_chars"] if obs is not None and "tty_chars" in obs else None
+    if tc is not None:
+        death=bytes(tc.reshape(-1)).decode("latin1")
+        death=" ".join(death.split())[:300]
+except Exception as _e:
+    death="(tty capture failed: %r)"%_e
 s=w.get_summary()
 C=lore_patches.COUNTERS
 json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns":s.get("turns"),
           "xl":s.get("experience_level"),"end":str(w.__dict__.get("end_reason"))[:60],
           "tp_depth":C.get("tp_depth"),"max_depth":C.get("max_depth"),"descents":C.get("descents"),
           "descend_iters":C.get("descend_iters"),"stairs_seen":C.get("stairs_seen"),"descend_err":C.get("descend_err"),
+          "jewelry":C.get("equipped_jewelry"),"ac_equip":C.get("ac_after_equip"),
+          "death":death,
           "t":round(time.time()-t0),"xl_after":C.get("xl_after"),"wishes":C.get("wishes")},
           open(OUT,"w"), default=str)
 print("DONE", flush=True)
