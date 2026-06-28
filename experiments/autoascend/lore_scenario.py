@@ -19,6 +19,47 @@ def _do_wish(agent, item):
     low.step(13); low.step(13)         # clear --More--
 
 
+def _eat_for_intrinsics(agent):
+    """Eat wished corpses on the safe start level to gain intrinsic resistances
+    (real gameplay prep, not a wizard cheat): killer-bee/kobold corpses confer
+    poison resistance. The Valley of the Dead kills equipped chars via vampire
+    POISONED bites -- poison res is the missing piece. Eats every FOOD corpse in
+    inventory via raw 'e' keypresses."""
+    import nle.nethack as _nh
+    from autoascend.agent import flatten_items
+    low = agent.env.env.unwrapped.env
+    try:
+        agent.step(__import__("autoascend.agent", fromlist=["A"]).A.Command.ESC)
+        agent.inventory.update()
+    except Exception:
+        pass
+    eaten = 0
+    for _ in range(20):
+        corpse = None
+        for it in flatten_items(agent.inventory.items):
+            if getattr(it, "category", None) == _nh.FOOD_CLASS and getattr(it, "is_corpse", lambda: False)():
+                corpse = it
+                break
+        if corpse is None:
+            break
+        try:
+            letter = agent.inventory.items.get_letter(corpse)
+        except Exception:
+            break
+        low.step(ord('e'))                 # eat
+        # if it asks about floor food first ('y'/'n'), decline then pick inventory
+        low.step(ord(letter))              # choose the corpse
+        low.step(ord('y'))                 # "eat anyway?" / confirm
+        low.step(13); low.step(13)         # clear --More--
+        eaten += 1
+        try:
+            agent.step(__import__("autoascend.agent", fromlist=["A"]).A.Command.ESC)
+            agent.inventory.update()
+        except Exception:
+            break
+    lore_patches.COUNTERS["corpses_eaten"] = eaten
+
+
 def _equip_endgame(agent):
     """Equip the wished kit on the SAFE start level before teleporting. AutoAscend
     wears armor (wear_best_stuff) but has NO ring/amulet logic at all -- so the
@@ -286,6 +327,7 @@ def install_descent(target_depth, wishes=()):
                     except Exception:
                         break
                 lore_patches.COUNTERS["xl_before_tp"] = int(agent.blstats.experience_level)
+                _eat_for_intrinsics(agent) # poison resistance from wished corpses
                 _equip_endgame(agent)      # wear armor + put on amulet/rings on safe DL1
                 _do_teleport(agent, target_depth)
                 lore_patches._bump("scenario_teleport")
