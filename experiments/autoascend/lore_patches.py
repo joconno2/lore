@@ -164,12 +164,33 @@ def apply_oracle_veto(mock=True, base_url=None, model=None):
         except Exception:
             return False
 
+    import os as _os
+    _MINDIV = _os.environ.get("LORE_VETO_MINDIV", "1") == "1"
+    # COUNTERFACTUAL mode: fire the veto exactly ONCE (the first petrification-risk
+    # melee), then disable. With NLE determinism the game is byte-identical to base
+    # until that single decision, so the outcome delta isolates the veto's causal
+    # effect at one branch point (no whole-game RNG-divergence confound).
+    _ONCE = _os.environ.get("LORE_VETO_ONCE", "0") == "1"
+    _fired = {"done": False}
+
     def patched_melee_priority(agent, monsters, monster):
         try:
             _, y, x, mon, _ = monster
             name = (mon.mname or "").lower()
             if any(p in name for p in _DANGEROUS):
+                if _ONCE and _fired["done"]:
+                    return orig(agent, monsters, monster)
                 bl = agent.blstats
+                # MINIMAL-DIVERGENCE gating (LORE_VETO_MINDIV=1, default): only
+                # veto when we can substitute a clean RANGED kill -- the monster
+                # still dies and the game trajectory barely changes (like
+                # crash_recovery's no-op-except-failure profile). If gloved,
+                # melee is already safe (no petrification) -> don't veto. If no
+                # ranged, vetoing forces high-divergence AVOIDANCE that loses more
+                # than it saves (RNG butterfly) -> don't veto. This converts the
+                # veto from a noisy routine-changer into a clean additive save.
+                if _MINDIV and (_has_gloves(agent) or not _has_ranged(agent)):
+                    return orig(agent, monsters, monster)
                 state = {
                     "role": str(getattr(agent, "character", ""))[:3],
                     "xl": int(bl.experience_level), "hp": int(bl.hitpoints),
@@ -183,6 +204,11 @@ def apply_oracle_veto(mock=True, base_url=None, model=None):
                 _bump("veto_query_" + name.replace(" ", "_"))
                 if d.get("action") in _NON_MELEE_ACTIONS:
                     _bump("veto_fired")
+                    if _ONCE:
+                        _fired["done"] = True
+                        COUNTERS["veto_fire_turn"] = int(bl.time)
+                        COUNTERS["veto_fire_mon"] = name
+                        COUNTERS["veto_fire_action"] = d.get("action")
                     return -1000  # veto melee; AutoAscend falls back to ranged/avoid
         except Exception:
             pass
