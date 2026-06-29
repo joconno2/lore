@@ -192,6 +192,264 @@ def apply_oracle_veto(mock=True, base_url=None, model=None):
     return ["oracle_melee_veto (mock=%s)" % mock]
 
 
+def apply_survival_oracle(mock=True, base_url=None, model=None):
+    """The 'pro who wouldn't die' intervention. TOP-priority preempt: when death
+    is plausible (HP dropping / starving / instant-death threat adjacent), the LLM
+    picks the survival action AA misses -- usually DISENGAGE (flee/Elbereth) rather
+    than trade blows to death (AA dies to ponies/dwarves/cockatrice this way).
+    Executes via AA primitives; yields FIGHT back to AA when it's safe to fight."""
+    import oracle as _oracle
+    from autoascend import global_logic as _gl
+    from autoascend.strategy import Strategy
+    from autoascend.glyph import Hunger, G, MON
+    from autoascend import utils as U
+    from autoascend import objects as O
+    from autoascend.item import flatten_items
+    from autoascend.exceptions import AgentPanic, AgentFinished, AgentChangeStrategy
+    import nle.nethack as nh
+
+    HEALERS = [O.from_name('healing', nh.POTION_CLASS),
+               O.from_name('extra healing', nh.POTION_CLASS),
+               O.from_name('full healing', nh.POTION_CLASS)]
+    orig_gs = _gl.GlobalLogic.global_strategy
+
+    def patched_gs(self):
+        agent = self.agent
+
+        def _threat_adjacent():
+            try:
+                y, x = agent.blstats.y, agent.blstats.x
+                for ny, nx in agent.neighbors(y, x):
+                    g = int(agent.glyphs[ny, nx])
+                    if nh.glyph_is_monster(g):
+                        try:
+                            return MON.permonst(g).mname
+                        except Exception:
+                            return "monster"
+            except Exception:
+                pass
+            return None
+
+        def _find_healing():
+            try:
+                for it in flatten_items(agent.inventory.items):
+                    if it.is_unambiguous() and any(it.object == h for h in HEALERS):
+                        return it
+            except Exception:
+                pass
+            return None
+
+        @Strategy.wrap
+        def survival():
+            bl = agent.blstats
+            hp_frac = bl.hitpoints / max(1, bl.max_hitpoints)
+            hunger = int(bl.hunger_state)
+            threat = _threat_adjacent()
+            instant = threat and any(p in threat.lower() for p in
+                                     ("cockatrice", "chickatrice", "floating eye"))
+            # danger = losing a fight (hurt + threat), starving, instant-death
+            # threat, or critical HP. NOT merely hurt-and-safe (let AA rest then).
+            # LORE_SURV_HP_ONLY=1 drops the hunger trigger to ISOLATE the combat-
+            # disengage hypothesis from the food-pursuit confound (which increased
+            # starvation 7->11 and was the food oracle's downfall).
+            import os as _os
+            _hp_only = _os.environ.get("LORE_SURV_HP_ONLY", "0") == "1"
+            in_danger = (hp_frac < 0.35 and threat) or hp_frac < 0.12 or instant \
+                or (hunger >= Hunger.WEAK and not _hp_only)
+            # gates: skip the early game (AA's domain), and COOLDOWN -- after
+            # intervening, hand control back so AA can rest/heal/move; re-firing
+            # every tick loops (Elbereth spam -> 'turn inactivity' death).
+            now = int(bl.time)
+            last = agent.__dict__.get("_lore_surv_last", -999)
+            if not in_danger or int(bl.experience_level) < 4 or (now - last) < 8:
+                yield False
+                return
+            agent.__dict__["_lore_surv_last"] = now
+            heal = _find_healing()
+            state = {"hp": int(bl.hitpoints), "max_hp": int(bl.max_hitpoints),
+                     "hp_frac": round(hp_frac, 2),
+                     "hunger": {2: "hungry", 3: "weak", 4: "fainting"}.get(hunger, "ok"),
+                     "threat_name": threat, "threat_adjacent": bool(threat),
+                     "has_healing": heal is not None,
+                     "prayer_safe": bool(agent.is_safe_to_pray()),
+                     "depth": int(bl.depth), "xl": int(bl.experience_level)}
+            dec = _oracle.query_survival(state, base_url=base_url, model=model, mock=mock)
+            _bump("surv_query")
+            action = dec.get("action", "FLEE")
+            if action == "FIGHT":
+                yield False
+                return
+            yield True
+            _bump("surv_" + action)
+
+            def _elbereth():
+                try:
+                    if (agent.inventory.engraving_below_me or "").lower() != "elbereth":
+                        agent.engrave("Elbereth")
+                except (AgentFinished, AgentChangeStrategy):
+                    raise
+                except Exception:
+                    pass
+
+            def _safe_flee():
+                # walking-flee can panic (monster on next tile) and spiral into a
+                # cyclic panic. Engraving Elbereth is the pro's in-place disengage
+                # -- prefer it; fall back to it if flee-walk panics.
+                try:
+                    _flee(agent, U, G)
+                except AgentPanic:
+                    _elbereth()
+                except (AgentFinished, AgentChangeStrategy):
+                    raise
+                except Exception:
+                    _elbereth()
+
+            try:
+                if action == "HEAL" and heal is not None:
+                    agent.inventory.quaff(heal)
+                elif action == "ELBERETH":
+                    _elbereth()
+                elif action == "PRAY":
+                    if agent.is_safe_to_pray():
+                        agent.pray()
+                    else:
+                        _elbereth()
+                elif action == "EAT":
+                    st = agent.eat_corpses_from_ground(only_below_me=False)
+                    if st.check_condition():
+                        st.run()
+                    else:
+                        st2 = agent.eat_from_inventory()
+                        if st2.check_condition():
+                            st2.run()
+                        elif agent.is_safe_to_pray():
+                            agent.pray()
+                else:  # FLEE -- prefer Elbereth disengage, panic-safe walk
+                    _elbereth()
+            except (AgentFinished, AgentChangeStrategy):
+                raise
+            except AgentPanic:
+                _elbereth()
+            except Exception:
+                pass
+
+        return orig_gs(self).preempt(agent, [survival()])
+
+    _gl.GlobalLogic.global_strategy = patched_gs
+    return ["survival_oracle (mock=%s)" % mock]
+
+
+def _flee(agent, U, G):
+    """Retreat toward a reachable up-stair; else step to the neighbor maximizing
+    distance from adjacent monsters."""
+    import nle.nethack as nh
+    lvl = agent.current_level()
+    bfs = agent.bfs()
+    try:
+        ups = list(zip(*((U.isin(lvl.objects, G.STAIR_UP)) & (bfs != -1)).nonzero()))
+        if ups:
+            agent.go_to(int(ups[0][0]), int(ups[0][1]))
+            return
+    except Exception:
+        pass
+    # no reachable upstair: step away from nearest monster
+    try:
+        y, x = agent.blstats.y, agent.blstats.x
+        mons = []
+        for ny in range(max(0, y - 6), y + 7):
+            for nx in range(max(0, x - 6), x + 7):
+                if nh.glyph_is_monster(int(agent.glyphs[ny, nx])):
+                    mons.append((ny, nx))
+        if mons:
+            best, bestd = None, -1
+            for ny, nx in agent.neighbors(y, x):
+                if not lvl.walkable[ny, nx]:
+                    continue
+                d = min((abs(ny - my) + abs(nx - mx)) for my, mx in mons)
+                if d > bestd:
+                    bestd, best = d, (ny, nx)
+            if best:
+                agent.move(best[0], best[1])
+    except Exception:
+        pass
+
+
+def apply_food_oracle(mock=True, base_url=None, model=None, query_every=15):
+    """LLM manages the food economy -- AA's #1 real death (35% starve). Adds a
+    TOP-priority preempt to AA's real global_strategy: when Hungry+, the LLM
+    decides EAT (proactively bank corpses) / PRAY (emergency, reserve it) /
+    CONTINUE, from wiki knowledge AA's heuristic lacks. Throttled to ~1 query /
+    query_every turns. This is the knowledge-driven angle, executed via AA's own
+    eat/pray primitives."""
+    import oracle as _oracle
+    from autoascend import global_logic as _gl
+    from autoascend.strategy import Strategy
+    from autoascend.glyph import Hunger
+    from autoascend.item import flatten_items
+    from autoascend.exceptions import AgentPanic, AgentFinished, AgentChangeStrategy
+
+    orig_gs = _gl.GlobalLogic.global_strategy
+
+    def patched_gs(self):
+        agent = self.agent
+
+        @Strategy.wrap
+        def food_oracle():
+            h = int(agent.blstats.hunger_state)
+            if h < Hunger.HUNGRY:
+                yield False
+                return
+            now = int(agent.blstats.time)
+            cache = agent.__dict__.setdefault("_lore_food", {})
+            if cache.get("turn") is None or now - cache.get("turn", 0) >= query_every \
+                    or cache.get("h") != h:
+                try:
+                    has_food = any(it.is_food() and not it.is_corpse()
+                                   for it in flatten_items(agent.inventory.items))
+                except Exception:
+                    has_food = False
+                try:
+                    corpse = agent.eat_corpses_from_ground(only_below_me=False).check_condition()
+                except Exception:
+                    corpse = False
+                state = {"hunger": {2: "hungry", 3: "weak", 4: "fainting"}.get(h, "hungry"),
+                         "hp": int(agent.blstats.hitpoints),
+                         "max_hp": int(agent.blstats.max_hitpoints),
+                         "has_inv_food": bool(has_food), "corpse_on_level": bool(corpse),
+                         "prayer_safe": bool(agent.is_safe_to_pray()),
+                         "depth": int(agent.blstats.depth), "turn": now}
+                dec = _oracle.query_food(state, base_url=base_url, model=model, mock=mock)
+                cache.update(turn=now, h=h, action=dec.get("action", "CONTINUE"))
+                _bump("food_query")
+            action = cache.get("action", "CONTINUE")
+            if action == "CONTINUE":
+                yield False
+                return
+            yield True
+            _bump("food_" + action)
+            try:
+                if action == "EAT":
+                    st = agent.eat_corpses_from_ground(only_below_me=False)
+                    if st.check_condition():
+                        st.run()
+                    else:
+                        st2 = agent.eat_from_inventory()
+                        if st2.check_condition():
+                            st2.run()
+                elif action == "PRAY":
+                    if agent.is_safe_to_pray():
+                        agent.pray()
+            except (AgentFinished, AgentPanic, AgentChangeStrategy):
+                raise
+            except Exception:
+                pass
+
+        return orig_gs(self).preempt(agent, [food_oracle()])
+
+    _gl.GlobalLogic.global_strategy = patched_gs
+    return ["food_oracle (mock=%s, every=%d)" % (mock, query_every)]
+
+
 # --- Intervention #3: oracle-gated descent timing -------------------------
 # AutoAscend leaves DL1 at XL8 then rushes to DL4-5 and dies to fast hitters
 # (unicorns: all XL8-9 on DL4-5). move() is the single choke point for stair

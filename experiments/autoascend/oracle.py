@@ -153,6 +153,145 @@ def _mock(state):
 
 
 # ---------------------------------------------------------------------------
+# Survival oracle: the "pro who wouldn't die" intervention. AutoAscend dies to
+# WINNABLE situations -- fights ponies/dwarves to death, walks into cockatrice
+# melee, lets food hit zero. At a near-death moment the LLM (pro judgment) picks
+# the survival action AA's heuristic misses: usually DISENGAGE rather than trade
+# blows. Fires only when death is plausible (HP low / starving / instant-threat).
+# ---------------------------------------------------------------------------
+SURVIVAL_ACTIONS = ["FLEE", "HEAL", "ELBERETH", "PRAY", "EAT", "FIGHT"]
+
+SURVIVAL_SYSTEM = (
+    "You advise an EXPERT NetHack 3.6 bot (AutoAscend) that is a strong, capable "
+    "fighter -- it WINS the large majority of its fights and you should TRUST it. "
+    "You are consulted only at moments flagged as risky, and your job is to catch "
+    "the RARE case where it would die in a winnable situation. Overriding a fight "
+    "the bot would have won WASTES the game (fleeing exposes it, engraving wastes "
+    "turns) -- this is the most common mistake, so do NOT do it.\n"
+    "Default to FIGHT. Only override when death is genuinely imminent:\n"
+    "  FIGHT    - DEFAULT. HP not critical, or the threat is ordinary. Trust the bot.\n"
+    "  HEAL     - HP critical (<~15%) AND you hold a healing potion.\n"
+    "  PRAY     - HP critical OR starving (Weak/Fainting), AND prayer is safe.\n"
+    "  ELBERETH - HP critical, no heal/prayer, and the attacker is a normal monster "
+    "(NOT @/human, minotaur, or mindless/blind).\n"
+    "  EAT      - Weak/Fainting with food/corpse available.\n"
+    "  FLEE     - last resort: about to die and none of the above apply.\n"
+    "Pick FIGHT unless the state clearly shows imminent death. Reply ONLY compact "
+    "JSON: {\"action\": <one of the set>, \"reason\": <short>}."
+)
+
+
+def query_survival(state, base_url=None, model=None, mock=False):
+    """state: hp, max_hp, hp_frac, hunger, threat_name, threat_adjacent,
+    has_healing, prayer_safe, has_elbereth_ok, depth, xl."""
+    if mock:
+        return _mock_survival(state)
+    base_url = base_url or os.environ.get("LORE_ORACLE_URL", "http://localhost:8000/v1")
+    model = model or os.environ.get("LORE_ORACLE_MODEL", "served-model")
+    resp = _post(base_url.rstrip("/") + "/chat/completions", {
+        "model": model,
+        "messages": [{"role": "system", "content": SURVIVAL_SYSTEM},
+                     {"role": "user", "content": "State:\n" + json.dumps(state, indent=2)}],
+        "temperature": 0.0, "max_tokens": 80,
+    })
+    t = resp["choices"][0]["message"]["content"].strip()
+    s, e = t.find("{"), t.rfind("}")
+    if s != -1 and e != -1:
+        try:
+            o = json.loads(t[s:e + 1]); a = str(o.get("action", "")).upper()
+            if a in SURVIVAL_ACTIONS:
+                return {"action": a, "reason": o.get("reason", ""), "raw": t}
+        except Exception:
+            pass
+    return {"action": "FLEE", "reason": "parse_fail_default_flee", "raw": t}
+
+
+def _mock_survival(state):
+    """Perfect-knowledge pro: disengage early, heal/pray at the brink."""
+    hp = state.get("hp_frac", 1.0)
+    if state.get("hunger") in ("weak", "fainting"):
+        if state.get("prayer_safe") and hp < 0.3:
+            return {"action": "PRAY", "reason": "starving + critical"}
+        return {"action": "EAT", "reason": "starving"}
+    if hp < 0.15:
+        if state.get("has_healing"):
+            return {"action": "HEAL", "reason": "critical, heal"}
+        if state.get("prayer_safe"):
+            return {"action": "PRAY", "reason": "critical, no heal"}
+        return {"action": "ELBERETH", "reason": "critical, scare + buy time"}
+    if hp < 0.45 and state.get("threat_adjacent"):
+        return {"action": "ELBERETH" if state.get("has_elbereth_ok", True) else "FLEE",
+                "reason": "losing the trade, disengage"}
+    return {"action": "FIGHT", "reason": "ok to fight"}
+
+
+# ---------------------------------------------------------------------------
+# Food oracle: the LLM manages the food economy -- AutoAscend's #1 real-game
+# death (35% starve; it runs food to ZERO and over-relies on prayer 5-23x/game).
+# The LLM decides, from wiki knowledge, when to proactively eat safe corpses vs
+# reserve/spend prayer vs continue. This is the knowledge AA's heuristic lacks.
+# ---------------------------------------------------------------------------
+FOOD_ACTIONS = ["EAT", "PRAY", "CONTINUE"]
+
+FOOD_SYSTEM = (
+    "You manage the food economy of an expert NetHack 3.6 bot. Starvation is its "
+    "#1 death: it lets food drop to zero and band-aids with repeated prayer until "
+    "the prayer cooldown can't keep up, then faints and dies. Your job: prevent "
+    "that by banking nutrition EARLY. Given the state choose one action:\n"
+    "  EAT      - go eat a safe corpse on this level now (or inventory food). Do "
+    "this PROACTIVELY once Hungry, before you're desperate -- most fresh corpses "
+    "are safe nutrition. Build a buffer.\n"
+    "  PRAY     - emergency only: Weak/Fainting, no food/corpse, and prayer is "
+    "safe (cooldown elapsed). The god feeds a starving supplicant, but tires of "
+    "frequent prayer -- do not waste it.\n"
+    "  CONTINUE - food is fine; keep doing what the bot was doing.\n"
+    "Wiki safety: avoid OLD/rotten corpses; never cockatrice/chickatrice/floating-"
+    "eye corpses; avoid kobold/zombie/were and acidic/poisonous corpses without "
+    "resistance. When in doubt, fresh non-listed corpses are safe.\n"
+    "Reply ONLY compact JSON: {\"action\": <EAT|PRAY|CONTINUE>, \"reason\": <short>}."
+)
+
+
+def query_food(state, base_url=None, model=None, mock=False):
+    """state: hunger (str), hp, max_hp, has_inv_food, corpse_on_level,
+    prayer_safe, depth, turn."""
+    if mock:
+        return _mock_food(state)
+    base_url = base_url or os.environ.get("LORE_ORACLE_URL", "http://localhost:8000/v1")
+    model = model or os.environ.get("LORE_ORACLE_MODEL", "served-model")
+    resp = _post(base_url.rstrip("/") + "/chat/completions", {
+        "model": model,
+        "messages": [{"role": "system", "content": FOOD_SYSTEM},
+                     {"role": "user", "content": "State:\n" + json.dumps(state, indent=2)}],
+        "temperature": 0.0, "max_tokens": 80,
+    })
+    t = resp["choices"][0]["message"]["content"].strip()
+    s, e = t.find("{"), t.rfind("}")
+    if s != -1 and e != -1:
+        try:
+            o = json.loads(t[s:e + 1]); a = str(o.get("action", "")).upper()
+            if a in FOOD_ACTIONS:
+                return {"action": a, "reason": o.get("reason", ""), "raw": t}
+        except Exception:
+            pass
+    return {"action": "CONTINUE", "reason": "parse_fail", "raw": t}
+
+
+def _mock_food(state):
+    """Perfect-knowledge food policy (upper bound)."""
+    h = str(state.get("hunger", "")).lower()
+    if h in ("weak", "fainting"):
+        if state.get("has_inv_food") or state.get("corpse_on_level"):
+            return {"action": "EAT", "reason": "weak: eat now"}
+        if state.get("prayer_safe"):
+            return {"action": "PRAY", "reason": "weak, no food, prayer safe"}
+        return {"action": "CONTINUE", "reason": "weak but no recourse"}
+    if h == "hungry" and state.get("corpse_on_level"):
+        return {"action": "EAT", "reason": "hungry: bank nutrition proactively"}
+    return {"action": "CONTINUE", "reason": "food ok"}
+
+
+# ---------------------------------------------------------------------------
 # Endgame oracle: the LLM DRIVES the endgame descent. AutoAscend's GO_DOWN is an
 # unimplemented TODO; the LORE primitives (dig, stairs, fight, flee, ...) are the
 # action SPACE, and this query -- fed the wiki strategy corpus -- chooses the
