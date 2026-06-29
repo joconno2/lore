@@ -794,3 +794,84 @@ def apply_obs_sanitize():
 
     Agent.update = safe_update
     return ["obs_sanitize (clip >127 in obs text arrays)"]
+
+
+def apply_unstick_dl1(min_xl=8):
+    """AA's #1 macro flaw (empirical: 42% of games starve on DL1): the
+    BE_ON_FIRST_LEVEL milestone gates leaving DL1 on experience_level>=8, but
+    many seeds' DL1 can't grant XL8, so AA farms DL1 to starvation. AA's authors
+    left a commented-out escape. Re-enable it structurally: once hungry on DL1
+    with XL still below the gate, advance the milestone so the agent descends
+    instead of farming to death. (Structural probe of the deadlock-break lever;
+    the LLM version makes the 'stop farming, move on' call with judgment.)"""
+    from autoascend import global_logic as _gl
+    from autoascend.glyph import Hunger
+    M = _gl.Milestone
+    orig_update = _gl.GlobalLogic.update
+
+    def patched(self):
+        orig_update(self)
+        try:
+            if self.milestone == M.BE_ON_FIRST_LEVEL:
+                bl = self.agent.blstats
+                if bl.hunger_state >= Hunger.HUNGRY and bl.experience_level < min_xl:
+                    self.milestone = M(int(self.milestone) + 1)
+                    _bump("unstick_dl1")
+        except Exception:
+            pass
+
+    _gl.GlobalLogic.update = patched
+    return ["unstick_dl1 (min_xl=%d)" % min_xl]
+
+
+def apply_unstick_llm(mock=False, base_url=None, model=None, query_every=120, min_xl=8):
+    """LLM version of the DL1-unstick lever: instead of the blunt hungry+below-gate
+    rule, the LLM judges 'keep farming DL1 vs descend now' from XL/hunger/turn.
+    Hooks GlobalLogic.update (per-step); only active while milestone is
+    BE_ON_FIRST_LEVEL; throttled to ~1 query / query_every turns (so queries
+    happen only during the DL1 phase, then stop once it descends)."""
+    import oracle as _oracle
+    from autoascend import global_logic as _gl
+    M = _gl.Milestone
+    orig_update = _gl.GlobalLogic.update
+
+    def patched(self):
+        orig_update(self)
+        try:
+            if self.milestone != M.BE_ON_FIRST_LEVEL:
+                return
+            bl = self.agent.blstats
+            if bl.experience_level >= min_xl:
+                return  # AA will advance on its own
+            now = int(bl.time)
+            last = self.agent.__dict__.get("_lore_unstick_q", -99999)
+            if now - last < query_every:
+                return
+            self.agent.__dict__["_lore_unstick_q"] = now
+            try:
+                from autoascend.item import flatten_items as _fi
+                has_food = any(it.is_food() and not it.is_corpse()
+                               for it in _fi(self.agent.inventory.items))
+            except Exception:
+                has_food = False
+            try:
+                corpse = self.agent.eat_corpses_from_ground(only_below_me=False).check_condition()
+            except Exception:
+                corpse = False
+            xl = int(bl.experience_level)
+            state = {"depth": int(bl.depth), "xl": xl,
+                     "hunger": {0: "satiated", 1: "ok", 2: "hungry", 3: "weak",
+                                4: "fainting"}.get(int(bl.hunger_state), "ok"),
+                     "hp_frac": round(bl.hitpoints / max(1, bl.max_hitpoints), 2),
+                     "has_food": bool(has_food), "corpse_on_level": bool(corpse),
+                     "turn": now, "xp_per_1k_turns": round(1000.0 * xl / max(1, now), 2)}
+            dec = _oracle.query_unstick(state, base_url=base_url, model=model, mock=mock)
+            _bump("unstick_query")
+            if dec.get("action") == "DESCEND":
+                self.milestone = M(int(self.milestone) + 1)
+                _bump("unstick_llm_fired")
+        except Exception:
+            pass
+
+    _gl.GlobalLogic.update = patched
+    return ["unstick_llm (mock=%s, every=%d)" % (mock, query_every)]

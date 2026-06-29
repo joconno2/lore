@@ -430,3 +430,66 @@ if __name__ == "__main__":
     for st in TEST_STATES:
         d = query_threat(st, mock=mock)
         print(f"{st['name']:>22}  ->  {d['action']:<9} ({d.get('reason','')})")
+
+
+# ---------------------------------------------------------------------------
+# Unstick oracle: AA's #1 macro flaw is over-farming DL1 to a starvation death
+# (42% of games). The blunt structural fix descends when hungry+below-gate. The
+# LLM version makes the "keep farming vs move on" call with judgment -- weighing
+# XP gained, food pressure, and the fact that DL1 grinding is food-negative.
+# ---------------------------------------------------------------------------
+UNSTICK_ACTIONS = ["KEEP_FARMING", "DESCEND"]
+
+UNSTICK_SYSTEM = (
+    "You direct an expert NetHack 3.6 bot that is still on Dungeon Level 1. The "
+    "bot's macro flaw: it grinds DL1 for experience until experience-level 8, but "
+    "DL1 spawns too little food to sustain that grind, so it routinely STARVES on "
+    "DL1 without ever descending (its single most common death). Your job: decide "
+    "whether to KEEP_FARMING DL1 a bit longer or DESCEND now (move on to deeper "
+    "levels / the Mines, where there is more food and progress).\n"
+    "The subtlety: a productively-leveling DL1 (you have food on hand and your XP "
+    "is climbing) is fine to milk a little longer; a DOOMED DL1 (you're getting "
+    "hungry with no food, or barely leveling) is a starvation spiral -- leave NOW. "
+    "Use the state: has_food + rising xp_per_1k_turns => KEEP_FARMING a bit; hunger "
+    "creeping in with has_food=false, or Weak/Fainting, or already a solid level "
+    "(XL>=6) => DESCEND. Do NOT yank a healthy, well-fed, leveling run off DL1 "
+    "prematurely (that throws away strong games); do NOT grind a hungry, foodless "
+    "run to death.\n"
+    "Reply ONLY compact JSON: {\"action\": <KEEP_FARMING|DESCEND>, \"reason\": <short>}."
+)
+
+
+def query_unstick(state, base_url=None, model=None, mock=False):
+    """state: depth, xl, hunger, hp_frac, has_food, turn, xp_per_1k_turns."""
+    if mock:
+        # Smart perfect-knowledge policy: descend the DOOMED farmers (food failing
+        # / unproductive), keep the PRODUCTIVE ones (leveling with food). This is
+        # the judgment the blunt 'descend-if-hungry' rule lacked (it killed good
+        # games). Transient hunger WITH food on hand -> keep; hunger with NO food
+        # -> doomed spiral -> descend.
+        h = str(state.get("hunger", "")).lower()
+        hf = bool(state.get("has_food"))
+        corpse = bool(state.get("corpse_on_level"))
+        # PRECISE: descend ONLY the genuinely doomed (no food recourse at all).
+        # Leave productive farmers fully alone -- do NOT descend on XL or transient
+        # hunger (that forgoes farm-score and killed the previous mock).
+        if h == "fainting": return {"action": "DESCEND", "reason": "fainting, last chance"}
+        if h in ("weak", "hungry") and not hf and not corpse:
+            return {"action": "DESCEND", "reason": "no food recourse: doomed spiral"}
+        return {"action": "KEEP_FARMING", "reason": "has food recourse / fine"}
+    base_url = base_url or os.environ.get("LORE_ORACLE_URL", "http://localhost:8000/v1")
+    model = model or os.environ.get("LORE_ORACLE_MODEL", "served-model")
+    resp = _post(base_url.rstrip("/") + "/chat/completions", {
+        "model": model,
+        "messages": [{"role": "system", "content": UNSTICK_SYSTEM},
+                     {"role": "user", "content": "State:\n" + json.dumps(state, indent=2)}],
+        "temperature": 0.0, "max_tokens": 60,
+    })
+    t = resp["choices"][0]["message"]["content"].strip()
+    s, e = t.find("{"), t.rfind("}")
+    if s != -1 and e != -1:
+        try:
+            o = json.loads(t[s:e + 1]); a = str(o.get("action", "")).upper()
+            if a in UNSTICK_ACTIONS: return {"action": a, "reason": o.get("reason", ""), "raw": t}
+        except Exception: pass
+    return {"action": "KEEP_FARMING", "reason": "parse_fail_default_stay", "raw": t}
