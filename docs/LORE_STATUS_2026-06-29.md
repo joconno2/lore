@@ -5,7 +5,7 @@ Exhaustive, rigorous testing (paired, crash-matched, perfect-knowledge mocks as
 controls) shows **an LLM oracle cannot beat AutoAscend on score via better
 decisions** — AA is near-decision-optimal and the LLM *agrees* with it (97% on
 tactics; identical to the perfect rule on petrifier-avoidance). The **one clean
-SOTA-beat is structural: `crash_recovery`, +2% mean / +8% p90, 14W/0L (n=250)**,
+SOTA-beat is structural: `crash_recovery`, ~+1.4% mean, 23W/1L (n=450, reproducible; +2% on the first 250 was seed-lucky)**,
 fixing AA's own crashes that kill its high-value games. A knowledge instadeath-
 veto lifts the high tail (+24% p95) but is a trivial hardcodable rule (the LLM
 just reproduces it) and nets ~0 on the mean (rarity + path-divergence collateral).
