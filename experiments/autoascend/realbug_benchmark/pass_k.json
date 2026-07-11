@@ -1,0 +1,97 @@
+[
+ {
+  "sha": "073d770",
+  "symptom": "Fix cyclic panic handling, quit after 5000 score",
+  "changed_funcs": [
+   "agent.py:main"
+  ],
+  "samples": [
+   "**Function:** `agent.py:main`\n\n**Bug:** The code contains an assertion that checks for a \"cyclic panic\" condition, but the assertion message is incomplete and incorrectly formatted. Specifically, the line:\n\n```python\nassert inactivity_counter < 5, ('cyclic panic', sorted({p.args[0] for p in self.panics}))\n```\n\nis problematic because `self.panics` is not defined or initialized properly, leading to potential errors or undefined behavior.\n\n**Fix:** To address the issue, we should ensure that `self.",
+   "**Function:** `agent.py:main`\n\n**Bug:** The code contains an assertion that checks for a \"cyclic panic\" condition, but the assertion message is incomplete and incorrectly formatted. Specifically, the line `assert inactivity_counter < 5, ('cyclic panic', sorted({p.args[0] for p in self...` is missing a closing parenthesis and lacks proper context to understand the panic conditions fully.\n\n**Fix:** Ensure the assertion message is complete and properly formatted for clarity. For example:\n\n```python",
+   "### Function: `agent.py:main`\n\n#### Bug:\nThe `main` function contains an assertion that checks for a cyclic panic condition. The assertion `assert inactivity_counter < 5, ('cyclic panic', ...)` is supposed to prevent infinite loops but the message formatting is incorrect and incomplete, leading to potential issues in debugging and understanding the problem.\n\n#### Fix:\nTo fix the cyclic panic handling, we should ensure that the panic handling does not lead to an infinite loop and that the message",
+   "### Function: `agent.py:main`\n\n**Bug:** The code contains an assertion that checks for a \"cyclic panic\" condition but the assertion message is incomplete and incorrectly formatted. This can lead to confusing error messages when the assertion fails.\n\n**Fix:** Ensure the assertion message is properly formatted and complete for clarity.\n\n### Function: `agent.py:f`\n\n**Bug:** The function `f` within the `while 1:` loop increments an `inactivity_counter`. If this counter exceeds 5, an assertion error ",
+   "**Function:** `agent.py:main`\n\n**Bug:** The `main` function has an assertion that checks for a cyclic panic condition but doesn't handle it properly. Specifically, the assertion `assert inactivity_counter < 5, ('cyclic panic', ...)` will trigger a panic if the inactivity counter exceeds 4, but it does not provide a mechanism to break out of the loop or reset the counter after a panic occurs. This can lead to an infinite loop where the assertion keeps triggering without resolution.\n\n**Fix:** To a"
+  ]
+ },
+ {
+  "sha": "e328738",
+  "symptom": "Add small fight fix (ranged priority tweak for \"only ranged monsters\"),     untrap template",
+  "changed_funcs": [
+   "agent.py:eat",
+   "agent.py:is_safe_to_pray",
+   "exploration_logic.py:open_visit_search",
+   "fight_heur.py:get_available_actions",
+   "fight_heur.py:get_potential_wand_usages",
+   "fight_heur.py:is_dangerous_monster"
+  ],
+  "samples": [
+   "### Function: `draw_monster_priority_negative`\n\n#### Bug:\nThe function does not appropriately prioritize avoidance of melee combat with only ranged monsters, leading to suboptimal behavior where the agent might engage in melee with these monsters when it should avoid them.\n\n#### Fix:\nAdjust the logic to ensure that the agent avoids melee combat with only ranged monsters by tweaking the priority values and conditions. This involves ensuring that the agent does not move into melee range of only ra",
+   "### Function: `draw_monster_priority_negative`\n\n#### Bug:\nThe function does not properly prioritize avoiding melee combat with only ranged monsters, especially when the agent has no ranged weapons available.\n\n#### Fix:\nAdjust the logic to ensure that the agent avoids melee combat with only ranged monsters by tweaking the priority values appropriately. This can be done by increasing the negative priority around these monsters to discourage melee engagement.\n\n### Function: `get_available_actions`\n",
+   "### Function: `draw_monster_priority_negative`\n\n#### Bug:\nThe current implementation does not properly prioritize avoiding melee combat with only ranged monsters unless they are slow-moving. This can lead to the agent engaging in unnecessary melee combat with these monsters.\n\n#### Fix:\nTweak the logic to ensure that the agent avoids melee combat with only ranged monsters, especially when they are not slow-moving. This involves adjusting the priority values to discourage melee engagement under th",
+   "### Function: `draw_monster_priority_negative`\n\n#### Bug:\nThe current implementation does not properly prioritize avoiding melee combat with only ranged monsters unless they are slow-moving. This can lead to the agent engaging in unnecessary melee combat which could be harmful.\n\n#### Fix:\nAdjust the logic to ensure that when dealing with only ranged monsters, the agent avoids melee combat more effectively. This involves tweaking the priority settings so that the agent prefers ranged attacks over",
+   "### Function: `draw_monster_priority_negative`\n\n#### Bug:\nThe current logic in `draw_monster_priority_negative` does not properly prioritize ranged attacks over melee attacks when only ranged monsters are present. This can lead to suboptimal behavior where the agent engages in melee combat unnecessarily.\n\n#### Fix:\nAdjust the logic to ensure that the agent prioritizes ranged attacks over melee attacks when facing only ranged monsters. This involves tweaking the priority calculations and ensuring"
+  ]
+ },
+ {
+  "sha": "bad5143",
+  "symptom": "Fix visualizer step calling order, make wand engraving atom operation",
+  "changed_funcs": [
+   "item.py:action_generator",
+   "item.py:wand_engrave_identify"
+  ],
+  "samples": [
+   "**Function:** `item.py:action_generator`\n\n**Bug:** The `action_generator` function does not handle the atomic nature of wand engraving properly. Specifically, it may prematurely terminate or fail to correctly manage the sequence of actions required for wand engraving.\n\n**Fix:** Ensure that the `action_generator` function manages the wand engraving process as an atomic operation. This means ensuring that once the engraving starts, it completes without interruption and handles any potential errors",
+   "### Function and Bug Identification\n\n**Function:** `item.py:action_generator`\n\n**Bug:** The current implementation of `action_generator` does not handle the engraving process as an atomic operation. This can lead to issues where the state of the wand or the engraving might be inconsistent due to interruptions or other operations interfering.\n\n### Fix\n\nTo ensure that the wand engraving process is treated as an atomic operation, we need to wrap the entire process within a context that prevents any",
+   "**Function:** `item.py:action_generator`\n\n**Bug:** The `action_generator` function does not handle the atomicity of the wand engraving process correctly. Specifically, it doesn't ensure that the step calling order is fixed and that the wand engraving operation is treated as an atomic operation.\n\n**Fix:** Ensure that the `action_generator` function treats the wand engraving operation as an atomic operation by wrapping the entire process within a context manager that disallows step calling during ",
+   "**Function:** `item.py:action_generator`\n\n**Bug:** The current implementation does not ensure that each step in the engraving process is an atomic operation. This can lead to issues where the state of the wand or the engraving is not properly managed between steps.\n\n**Fix:** Ensure that the engraving process is treated as an atomic operation by wrapping the entire process in a context manager or similar mechanism that prevents interruptions or concurrent modifications. This will help maintain th",
+   "**Function:** `item.py:action_generator`\n\n**Bug:** The `action_generator` function does not handle the engraving process as an atomic operation. This means that between steps, the state could change unexpectedly, leading to inconsistencies or incorrect behavior.\n\n**Fix:** Ensure that the entire wand engraving process is treated as an atomic operation so that no other operations can interfere with it. This can be achieved by modifying the `action_generator` function to encapsulate the entire proc"
+  ]
+ },
+ {
+  "sha": "de0f93a",
+  "symptom": "Improve ranged priority, fix double 'y' in eat",
+  "changed_funcs": [
+   "agent.py:eat",
+   "agent.py:pray",
+   "fight_heur.py:get_available_actions",
+   "fight_heur.py:melee_monster_priority",
+   "fight_heur.py:ranged_monster_priority"
+  ],
+  "samples": [
+   "### Function: `draw_monster_priority_negative`\n**Bug:** The function incorrectly handles the priority setting for certain monsters, particularly when dealing with the \"mold\" type monsters. The code snippet cuts off before completing the logic, leaving an incomplete condition check.\n\n**Fix:** Ensure that the logic for handling \"mold\" type monsters is complete and correctly prioritizes staying within the range of ranged attacks. This involves ensuring that `_draw_ranged` is called properly and the",
+   "### Function: `draw_monster_priority_negative`\n\n**Bug:** The function does not correctly handle the case where the player should prioritize staying within the range of their ranged weapons. Specifically, the condition to prioritize staying within the range of ranged weapons is incomplete and lacks proper handling.\n\n**Fix:** Ensure that when dealing with monsters like molds, the function properly prioritizes staying within the range of the player's ranged weapons. This involves completing the log",
+   "### Function: `draw_monster_priority_negative`\n**Bug:** The function incorrectly handles the priority for certain monsters, particularly when dealing with the \"mold\" type monsters. The code snippet cuts off at the end, but it's clear that there's an incomplete condition check for these monsters.\n\n**Fix:** Ensure that the logic for handling \"mold\" type monsters is complete and correctly prioritizes staying within the range of ranged weapons. This involves checking if the agent has ranged weapon c",
+   "### Function: `draw_monster_priority_negative`\n**Bug:** The ranged priority is not effectively improved for certain conditions, such as when dealing with molds that are not cold monsters or slow ranged attackers.\n\n**Fix:** Ensure that when dealing with molds (`'mold' in mon.mname`) that are not cold monsters or slow ranged attackers, the function properly prioritizes keeping the agent within the range of its ranged weapons. This can be achieved by correctly setting the priority values for the ar",
+   "### Function and Bug Identification\n\n**Function:** `draw_monster_priority_negative` from `fight_heur.py`\n\n**Bug:** The function does not properly handle the case where the player's hit points are low and there are no ranged weapon combinations available. Specifically, the logic to avoid melee combat when hit points are low and no ranged weapons are available is missing or incomplete.\n\n### Fix\n\nTo improve the ranged priority and ensure that the player avoids melee combat when hit points are low a"
+  ]
+ },
+ {
+  "sha": "bde22a3",
+  "symptom": "Fix go_to_item bug",
+  "changed_funcs": [
+   "item.py:go_to_item_to_pickup"
+  ],
+  "samples": [
+   "**Function:** `item.py:go_to_item_to_pickup`\n\n**Bug:** The function `go_to_item_to_pickup` does not properly handle the case where there are no items to pick up or drop, leading to an infinite loop or unexpected behavior.\n\n**Fix:** Add a condition to check if `items` is empty and handle it appropriately before proceeding with the logic to pick up or drop items.\n\nHere's a brief fix:\n\n```python\ndef go_to_item_to_pickup(self):\n    level = self.agent.current_level()\n    dis = self.agent.bfs()\n\n    m",
+   "**Function:** `item.py:go_to_item_to_pickup`\n\n**Bug:** The function `go_to_item_to_pickup` does not properly handle the case where there are no items to pick up or drop, leading to an infinite loop or unexpected behavior.\n\n**Fix:** Add a condition to check if `items` is empty and handle it appropriately, such as returning `False` or taking another action.\n\nHere's a possible fix:\n\n```python\ndef go_to_item_to_pickup(self):\n    level = self.agent.current_level()\n    dis = self.agent.bfs()\n\n    mask",
+   "**Function:** `item.py:go_to_item_to_pickup`\n\n**Bug:** The function `go_to_item_to_pickup` does not properly handle the case where there are no items to pick up or drop, leading to an infinite loop or unexpected behavior.\n\n**Fix:** Add a condition to check if `items` is empty and handle it appropriately, such as returning `False` to indicate that there are no items to pick up or drop.\n\nHere's a brief fix:\n\n```python\ndef go_to_item_to_pickup(self):\n    level = self.agent.current_level()\n    dis =",
+   "**Function:** `item.py:go_to_item_to_pickup`\n\n**Bug:** The `go_to_item_to_pickup` function does not properly handle the case where there are no items to pick up or drop, leading to an incorrect yield value or possibly an infinite loop.\n\n**Fix:** Ensure that the function correctly handles cases where there are no items to pick up or drop by adding appropriate checks and yielding `False` when necessary:\n\n```python\ndef go_to_item_to_pickup(self):\n    level = self.agent.current_level()\n    dis = sel",
+   "**Function:** `item.py:go_to_item_to_pickup`\n\n**Bug:** The function does not properly handle the case where there are no items to pick up or drop, leading to an infinite loop or unexpected behavior.\n\n**Fix:** Add logic to ensure that the function returns `False` when there are no items to pick up or drop, and to handle the scenario where all items are already accounted for in the inventory.\n\nHere's a brief fix:\n\n```python\ndef go_to_item_to_pickup(self):\n    level = self.agent.current_level()\n   "
+  ]
+ },
+ {
+  "sha": "0114ad4",
+  "symptom": "Fix sokoban solving strategy",
+  "changed_funcs": [
+   "global_logic.py:__init__",
+   "global_logic.py:solve_sokoban_strategy"
+  ],
+  "samples": [
+   "**Function:** `solve_sokoban_strategy` in `global_logic.py`\n\n**Bug:** The code snippet has an incomplete line where the variable `offset` is referenced but not properly defined due to a syntax error. Specifically, the line `mask = boulder_map[offse]` is missing the rest of the indexing.\n\n**Fix:** Complete the indexing for `boulder_map` and ensure that the `offset` calculation is correctly applied. Here's the corrected part of the code:\n\n```python\nboulder_map = utils.isin(self.agent.glyphs, G.BOU",
+   "**Function:** `solve_sokoban_strategy` in `global_logic.py`\n\n**Bug:** The code snippet has an incomplete line where the variable `offset` is referenced but not properly defined due to a syntax error.\n\n**Fix:** Correct the syntax error and ensure that the `offset` calculation is completed before using it in the `boulder_map` check.\n\nHere's the corrected part of the code:\n\n```python\nfor (y, x), (dy, dx) in answer:\n    boulder_map = utils.isin(self.agent.glyphs, G.BOULDER)\n    mask = boulder_map[of",
+   "**Function:** `solve_sokoban_strategy` in `global_logic.py`\n\n**Bug:** The code snippet has an incomplete line where the variable `offset` is referenced but not properly defined due to a syntax error.\n\n**Fix:** Correct the syntax error and ensure that `offset` is correctly used to align the Sokoban map with the game's map. Here\u2019s the corrected part of the code:\n\n```python\nboulder_map = utils.isin(self.agent.glyphs, G.BOULDER)\nfor (y, x), (dy, dx) in answer:\n    mask = boulder_map[offset[0] + dy :",
+   "### Function: `solve_sokoban_strategy`\n#### Bug:\nThe code snippet has an incomplete implementation where the variable `offset` is calculated but not used correctly when matching the Sokoban map with the actual game environment. Specifically, the line `boulder_map[offse]` is cut off and incorrectly referenced as `mask = boulder_map[offse]`, which should be `mask = boulder_map[offset[0] : offset[0] + sokomap.sokomap.shape[0], offset[1] : offset[1] + sokomap.sokomap.shape[1]]`.\n\n#### Fix:\nEnsure th",
+   "**Function:** `solve_sokoban_strategy`\n\n**Bug:** The code has an incomplete line where the offset variable is incorrectly referenced as `offse` instead of `offset`. This causes a syntax error and prevents the program from running correctly.\n\n**Fix:** Replace `offse` with `offset` in the last line of the provided snippet to ensure correct referencing.\n\nHere's the corrected line:\n\n```python\nmask = boulder_map[offset[0]:offset[0] + sokomap.sokomap.shape[0], offset[1]:offset[1] + sokomap.sokomap.sha"
+  ]
+ }
+]

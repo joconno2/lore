@@ -53,6 +53,21 @@ low accuracy (~5-22%) and the run-to-run variance live (the cyclic-panic case fl
 CORRECT→PARTIAL v2→v3). The weak link is generative diagnosis of complex real logic —
 exactly the exact-token-generation floor the whole result turns on.
 
+**The diagnosis floor is a CEILING, not sampling variance (`pass_k.py`, 5 samples on
+the 6 localized cases).** pass@5 ≈ pass@1: sampling does NOT rescue the failures. Only
+`go_to_item` is correct (5/5, reliably). The other 5 are CONSISTENTLY WRONG the same way
+every sample — same fixation on "message formatting" (cyclic panic), same wrong ranged-
+priority theme, same symptom-echo, same hallucinated syntax error. So best-of-k / self-
+consistency won't help: when not grounded+local the model is reliably WRONG, not merely
+unreliable. The v2→v3 flip was a rare borderline case, not the pattern. This is the
+strongest form of the bounded claim — the floor is a genuine ceiling.
+
+**Method artifact found:** all 5 samples on the Sokoban case hallucinated an "incomplete
+line / `offse` syntax error" that isn't the bug — an artifact of the debugger truncating
+each retrieved function body to 1200 chars, so the cut-off looks like broken code.
+Truncating code display manufactures false positives; a real fix would feed whole
+functions (bounded by the 4k context, so retrieve fewer + show them fully).
+
 **Mechanism (two-factor, confirmed in both runs).** Every CORRECT diagnosis was also a
 localization hit (localization is NECESSARY), but localization is NOT sufficient: in v3,
 6 localized but only 1 diagnosed strictly; the localized-but-wrong cases are complex
