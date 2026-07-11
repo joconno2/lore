@@ -679,6 +679,35 @@ def install_descent(target_depth, wishes=()):
             except Exception:
                 pass
 
+        def _heal_if_low():
+            """Survival reflex: extended Gehennom traversal accumulates damage
+            faster than regen; prayer has a ~1000-turn cooldown so it can't sustain.
+            Quaff a potion of (full) healing when HP drops, to keep exploring to the
+            downstair. Raw 'q' keypresses (unidentified/blessed healing in kit)."""
+            try:
+                if agent.blstats.hitpoints > 0.45 * max(1, agent.blstats.max_hitpoints):
+                    return False
+            except Exception:
+                return False
+            low = agent.env.env.unwrapped.env
+            try:
+                heal_lt = None
+                for nm, oc, lt in zip(agent.last_observation['inv_strs'],
+                                      agent.last_observation['inv_oclasses'],
+                                      agent.last_observation['inv_letters']):
+                    s = bytes(nm).decode('latin1').strip('\x00').strip().lower()
+                    if int(oc) == _nh2.POTION_CLASS and int(lt) != 0 and 'healing' in s:
+                        heal_lt = chr(int(lt)); break
+                if heal_lt is None:
+                    return False
+                low.step(ord('q')); low.step(ord(heal_lt)); low.step(13); low.step(13)
+                agent.step(_agz.A.Command.ESC); agent.inventory.update()
+                lore_patches.COUNTERS["descent_heals"] = \
+                    lore_patches.COUNTERS.get("descent_heals", 0) + 1
+                return True
+            except Exception:
+                return False
+
         def _eat_if_hungry():
             """Survival reflex: extended Gehennom traversal burns food -> the char
             starves mid-descent. Eat a food item (ration/corpse) when hungry, via
@@ -851,7 +880,7 @@ def install_descent(target_depth, wishes=()):
                 # DIAGNOSTIC (bug #3): once, report whether a down-stair GLYPH is
                 # known on this Gehennom level and whether it is BFS-reachable, so
                 # we distinguish "not revealed" from "revealed but behind moat/lava".
-                if lore_patches.COUNTERS.get("descend_iters", 0) == 400 and \
+                if lore_patches.COUNTERS.get("descend_iters", 0) == 100 and \
                         "down_diag" not in lore_patches.COUNTERS:
                     try:
                         _lvl = agent.current_level()
@@ -892,7 +921,13 @@ def install_descent(target_depth, wishes=()):
                             "ascii": "\n".join(_rows)}
                     except Exception as _de:
                         lore_patches.COUNTERS["down_diag"] = "err %r" % _de
-                # survival reflex: eat before starving (extended traversal burns food)
+                # survival reflexes: heal when hurt, eat before starving -- so the
+                # long Gehennom traversal survives to reach the downstair.
+                try:
+                    if _heal_if_low():
+                        continue
+                except Exception:
+                    pass
                 try:
                     if _eat_if_hungry():
                         continue
