@@ -19,6 +19,40 @@ def _do_wish(agent, item):
     low.step(13); low.step(13)         # clear --More--
 
 
+def _do_genocide(agent, classes):
+    """Read blessed scrolls of genocide (in inventory) to genocide deadly monster
+    CLASSES globally -- a real ascension technique. Read on the safe start level so
+    the deep Gehennom levels (else lethal-on-arrival) become survivable. Raw low.step:
+    'r' -> scroll letter -> 'What class...?' getlin -> class symbol -> enter."""
+    import nle.nethack as _nh
+    import autoascend.agent as _A
+    low = agent.env.env.unwrapped.env
+    done = []
+    for cls in classes:
+        slt = None
+        try:
+            for nm, oc, lt in zip(agent.last_observation['inv_strs'],
+                                  agent.last_observation['inv_oclasses'],
+                                  agent.last_observation['inv_letters']):
+                if int(oc) == _nh.SCROLL_CLASS and int(lt) != 0 and \
+                        'genocide' in bytes(nm).decode('latin1').lower():
+                    slt = chr(int(lt)); break
+        except Exception:
+            break
+        if slt is None:
+            break
+        try:
+            low.step(ord('r')); low.step(ord(slt))
+            for ch in cls:
+                low.step(ord(ch))
+            low.step(13); low.step(13); low.step(13)
+            done.append(cls)
+            agent.step(_A.A.Command.ESC); agent.inventory.update()
+        except Exception:
+            break
+    lore_patches.COUNTERS["genocided"] = done
+
+
 def _spawn_monsters(agent, names):
     """Wizard ^G (create monster, keycode 7) -- spawn named monsters next to the
     agent for a CONTROLLED knowledge-gated threat test. ^G prompts 'Create what
@@ -569,6 +603,10 @@ def install_descent(target_depth, wishes=()):
                 try: lore_patches.COUNTERS["t_after_quaff"] = int(agent.blstats.time)
                 except Exception: pass
                 import os as _os
+                # GENOCIDE deadly Gehennom classes on the safe start level (global
+                # effect) so the deep levels are survivable for the endgame demo.
+                if _os.environ.get("LORE_GENOCIDE"):
+                    _do_genocide(agent, list(_os.environ.get("LORE_GENOCIDE")))
                 if _os.environ.get("LORE_NO_EAT") != "1":
                     _eat_for_intrinsics(agent)  # poison res from wished corpses
                 try: lore_patches.COUNTERS["t_after_eat"] = int(agent.blstats.time)
