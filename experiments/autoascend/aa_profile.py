@@ -32,6 +32,18 @@ if os.environ.get("LORE_SOKOPATCH") == "1":
 if os.environ.get("LORE_SOKOFIX") == "1":
     import lore_patches
     lore_patches.apply_sokoban_fix()   # structural: strip 4-col map indent (unblocks the solve)
+if os.environ.get("LORE_ELBFIX2") == "1":
+    import elbereth_fix2
+    elbereth_fix2.apply()
+if os.environ.get("LORE_EMERG") == "1":
+    import emergency_boost
+    emergency_boost.apply()
+if os.environ.get("LORE_ELBFIX") == "1":
+    import elbereth_fix
+    elbereth_fix.apply()
+if os.environ.get("LORE_SURV") in ("1", "mock", "llm"):
+    import lore_patches
+    lore_patches.apply_survival_oracle(mock=os.environ.get("LORE_SURV") != "llm")
 if os.environ.get("LORE_CRVETO") in ("1", "mock", "llm"):
     # crash_recovery + knowledge-gated instadeath veto (petrification etc.) --
     # the two things that kill the high-score TAIL. veto isolated on top of CR.
@@ -56,9 +68,22 @@ def _cpray(self):
     return _orig_pray(self)
 _Ag.pray = _cpray
 
-env = gym.make("NetHackChallenge-v0")
+env = gym.make("NetHackChallenge-v0", no_progress_timeout=1000) if os.environ.get("LORE_NPT")=="1" else gym.make("NetHackChallenge-v0")
 try: env.seed(seed, seed)
 except Exception: pass
+if os.environ.get("LORE_ROLE"):
+    _want=os.environ["LORE_ROLE"].lower()
+    import nle.nethack as _nh
+    from autoascend import agent as _al
+    _s2=seed
+    for _ in range(300):
+        env.seed(_s2,_s2); _o=env.reset()
+        _bl=_al.BLStats(*_o["blstats"]); _g=_o["glyphs"][_bl.y,_bl.x]
+        try: _mn=_nh.permonst(_nh.glyph_to_mon(_g)).mname.lower()
+        except Exception: _mn=""
+        if _want in _mn: break
+        _s2+=10**9
+    env.seed(_s2,_s2)
 
 _MSGS, _TRAJ = [], []
 _max_depth = [1]
