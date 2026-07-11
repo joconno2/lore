@@ -360,17 +360,28 @@ def _parse_endgame(text):
 
 
 def _mock_endgame(state):
-    """Perfect-knowledge endgame controller (upper bound for mechanism testing)."""
+    """Perfect-knowledge endgame controller (upper bound for mechanism testing).
+    COMBAT-AVOIDANT (LORE_ENDGAME_AVOID=1, default): in Gehennom, standing to fight
+    endless undead invites burst deaths, so keep MOVING toward progress (dig/stair/
+    explore) and only FLEE when actually hurt -- the tank kit's HP + the heal reflex
+    absorb the hits taken while moving. This targets the 0/16 descent wall (deaths
+    are bursts during exploration). Set LORE_ENDGAME_AVOID=0 for the fight policy."""
+    import os
     hp_frac = state.get("hp", 1) / max(1, state.get("max_hp", 1))
     if hp_frac < 0.25:
         return {"action": "PRAY", "reason": "hp critical"}
+    avoid = os.environ.get("LORE_ENDGAME_AVOID", "1") != "0"
     if state.get("adjacent_threats"):
-        return {"action": "FIGHT" if hp_frac > 0.5 else "FLEE", "reason": "threat adjacent"}
+        if not avoid:
+            return {"action": "FIGHT" if hp_frac > 0.5 else "FLEE", "reason": "threat adjacent"}
+        if hp_frac < 0.4:
+            return {"action": "FLEE", "reason": "hurt -> disengage"}
+        # keep moving past the threat toward progress (absorb the hit, don't stand)
     if state.get("has_dig_wand") and not state.get("level_no_dig"):
         return {"action": "DIG_DOWN", "reason": "fast descent"}
     if state.get("have_downstair"):
         return {"action": "DESCEND_STAIRS", "reason": "dig blocked, use stair"}
-    return {"action": "EXPLORE", "reason": "find the downstair"}
+    return {"action": "EXPLORE", "reason": "keep moving; find the downstair"}
 
 
 def retrieve_knowledge(state, corpus_path=None, max_chars=3500):
