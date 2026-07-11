@@ -47,8 +47,14 @@ def truly_solved_soko(r):
     # milestone advanced past SOLVE_SOKOBAN AND did NOT abandon (dropped). AA's
     # abandon path also advances the milestone, so milestone alone overcounts.
     return milestone_num(r) >= 5 and (r.get("sokoban_dropped") in (0, None))
+# Minetown: PHYSICAL reach if the field is present (new profiles), else the old
+# milestone proxy -- which the macro director contaminates by setting FIND_SOKOBAN
+# as an objective, so prefer the physical did_minetown wherever we have it.
+def reached_minetown(r):
+    if "did_minetown" in r: return bool(r.get("did_minetown"))
+    return milestone_num(r) >= 3
 print("Mines   %5.0f%%   Minetown %5.0f%%   Sokoban %5.0f%%   SOLVED-Soko %5.0f%%  (abandoned-past %5.0f%%)" % (
-    pct(lambda r: r.get("did_mines")), pct(lambda r: milestone_num(r) >= 3 or r.get("did_minetown")),
+    pct(lambda r: r.get("did_mines")), pct(reached_minetown),
     pct(lambda r: r.get("did_sokoban")), pct(truly_solved_soko),
     pct(lambda r: milestone_num(r) >= 5 and r.get("sokoban_dropped"))))
 print("ascension-kit item held  %5.0f%%   |   starvation deaths %5.0f%%" % (

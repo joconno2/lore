@@ -138,6 +138,10 @@ rec = {"seed": seed, "score": s.get("score"), "turns": s.get("turns"),
        "fighting_at_death": fighting, "branches": branches,
        "did_mines": "Mines" in branches, "did_sokoban": "Sokoban" in branches,
        "did_quest": "Quest" in branches,
+       # PHYSICAL Minetown reach (global_logic sets minetown_level only on arrival)
+       # -- the ladder's milestone-based proxy is contaminated by the macro
+       # director setting FIND_SOKOBAN as an objective, so capture the real thing.
+       "did_minetown": bool(getattr(getattr(ag, "global_logic", None), "minetown_level", None)),
        "sokoban_dropped": s.get("sokoban_dropped"), "elbereth": s.get("elbereth_write"),
        "agent_panic": s.get("agent_panic"), "prayers": _PRAY["n"],
        "key_items": sorted(set(keyitems)), "gold_last": s.get("gold_last"),
