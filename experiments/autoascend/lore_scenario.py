@@ -921,18 +921,11 @@ def install_descent(target_depth, wishes=()):
                             "ascii": "\n".join(_rows)}
                     except Exception as _de:
                         lore_patches.COUNTERS["down_diag"] = "err %r" % _de
-                # survival reflexes: heal when hurt, eat before starving -- so the
-                # long Gehennom traversal survives to reach the downstair.
-                try:
-                    if _heal_if_low():
-                        continue
-                except Exception:
-                    pass
-                try:
-                    if _eat_if_hungry():
-                        continue
-                except Exception:
-                    pass
+                # NOTE: eat/heal survival reflexes removed -- they SPIN on some
+                # seeds (increment descend_iters without a game step -> hit the cap
+                # with few turns, e.g. seeds 48/56/57). Reimplement carefully fresh
+                # (ensure every reflex path takes exactly one game step, multi-seed
+                # tested) as part of the holistic descent agent.
                 # --- decide the action (policy-dependent), then execute it ---
                 try:
                     action = _decide_action()
