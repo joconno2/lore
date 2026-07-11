@@ -965,6 +965,19 @@ def install_descent(target_depth, wishes=()):
                 if lore_patches.COUNTERS["descend_iters"] > int(_os2.environ.get("LORE_MAX_ITERS", 600)):
                     lore_patches.COUNTERS["hit_iter_cap"] = 1
                     raise AgentFinished()
+                # VIBRATING-SQUARE detection: this loop runs INSIDE AA's main loop
+                # (observations update), so watch for the invocation square's message
+                # while exploring. Found => we've reached the invocation level.
+                try:
+                    _vm = str(agent.message).lower()
+                    if "vibrat" in _vm and "vibration_found" not in lore_patches.COUNTERS:
+                        lore_patches.COUNTERS["vibration_found"] = int(agent.blstats.depth)
+                        lore_patches.COUNTERS["vibration_pos"] = [int(agent.blstats.y), int(agent.blstats.x)]
+                        raise AgentFinished()
+                except AgentFinished:
+                    raise
+                except Exception:
+                    pass
                 d = int(agent.blstats.depth)
                 if d > lore_patches.COUNTERS.get("max_depth", 0):
                     lore_patches.COUNTERS["max_depth"] = d
