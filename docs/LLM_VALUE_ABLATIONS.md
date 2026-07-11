@@ -90,6 +90,14 @@ future work, currently GPU-blocked on trx.)
   strategy (a game-design decision), not a mechanical patch. So the one lever that
   "crashed" rather than cleanly failing is now explained: it can't work as built, and
   the version that could is a strategy redesign. The DL5 wall stands.
+  **Fine death taxonomy (clean engine n=60, CPU — AA is symbolic, never GPU-blocked):**
+  75% fair-combat (underleveled, XL1-8 at these depths), 12% starvation, 8% genuinely
+  avoidable (floating-eye paralysis + petrify — already handled by eye_safety/
+  petrifier_avoidance, which are depth-neutral: deaths re-route to combat), 5% crash. So
+  the "avoidable deaths hide a depth lever" hypothesis is refuted — avoidable is a
+  minority, already-patched, depth-neutral; the binding constraint is fair-combat
+  mortality while underleveled. (Verified killers: a raw regex miscounts "soldier ant"
+  as a guard and overstates avoidable at 15%; the real figure is 8%.)
   So the DL5 median is AA's fundamental mid-game combat-death rate, invariant to
   strategy/role/survival-tuning; ascension lives only in the rare tail (p90 DL8,
   p95 DL10). Baseline validated as fair (native `no_progress_timeout`: DL1-stuck
