@@ -615,3 +615,63 @@ def _mock_macro(state):
     if not solved_soko:
         return {"objective": "GO_SOKOBAN", "reason": "bag/reflection prize"}
     return {"objective": "DESCEND", "reason": "kitted; progress deeper"}
+
+
+# --- Wish oracle: the one KNOWLEDGE-RICH, potentially-ADAPTIVE decision AA does
+# with a fixed hardcoded list. LLM value hypothesis: an LLM sees the CURRENT
+# inventory and wishes to fill the biggest GAP (skip redundant resistances),
+# beating a fixed list. Tested via the deep-scenario survival metric.
+WISH_ITEMS = [
+    "blessed +3 gray dragon scale mail",   # MR + AC (the classic first wish)
+    "blessed ring of free action",         # anti-paralysis (else instadeath)
+    "blessed amulet of reflection",        # reflects death/disint rays
+    "blessed ring of conflict",            # crowd control
+    "blessed +3 speed boots",              # escape speed
+    "blessed cloak of magic resistance",   # MR (redundant if GDSM held)
+    "blessed ring of fire resistance",
+    "blessed ring of cold resistance",
+]
+WISH_SYSTEM = (
+    "You are a NetHack 3.6 expert choosing ONE wish (from a wand of wishing) for a "
+    "character heading into the deep game. Pick the SINGLE most valuable wish to "
+    "fill the character's biggest survival GAP, given what they ALREADY have. Key "
+    "priorities when MISSING: magic resistance (gray dragon scale mail), reflection "
+    "(amulet of reflection), free action (ring), then speed/AC/crowd-control. Do NOT "
+    "wish for a property the character already has (e.g. don't wish reflection if an "
+    "amulet of reflection is held; don't wish MR if gray dragon scale mail is worn). "
+    "Reply ONLY compact JSON: {\"wish\": <exact blessed wish string>, \"reason\": <short>}."
+)
+
+
+def _mock_wish(state):
+    """FIXED expert list -- wishes in a set priority order, NOT adapting to what the
+    character already holds (the non-adaptive baseline, like AA's hardcoded list)."""
+    idx = int(state.get("wish_index", 0))
+    if idx < len(WISH_ITEMS):
+        return {"wish": WISH_ITEMS[idx], "reason": "fixed list[%d]" % idx}
+    return {"wish": WISH_ITEMS[-1], "reason": "fixed list overflow"}
+
+
+def query_wish(state, base_url=None, model=None, mock=False):
+    """state: have (list of held properties/items), depth, wish_index, wishes_left."""
+    if mock:
+        return _mock_wish(state)
+    base_url = base_url or os.environ.get("LORE_ORACLE_URL", "http://localhost:8000/v1")
+    model = model or os.environ.get("LORE_ORACLE_MODEL", "served-model")
+    try:
+        resp = _post(base_url.rstrip("/") + "/chat/completions", {
+            "model": model,
+            "messages": [{"role": "system", "content": WISH_SYSTEM},
+                         {"role": "user", "content": "Character state:\n" + json.dumps(state, indent=2)}],
+            "temperature": 0.0, "max_tokens": 60,
+        })
+        t = resp["choices"][0]["message"]["content"].strip()
+        s, e = t.find("{"), t.rfind("}")
+        if s != -1 and e != -1:
+            o = json.loads(t[s:e + 1])
+            w = str(o.get("wish", "")).strip()
+            if w:
+                return {"wish": w, "reason": o.get("reason", ""), "raw": t}
+    except Exception as _e:
+        return {"wish": _mock_wish(state)["wish"], "reason": "llm_fail:%r" % _e}
+    return {"wish": _mock_wish(state)["wish"], "reason": "parse_fail"}
