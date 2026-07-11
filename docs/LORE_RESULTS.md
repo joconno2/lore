@@ -98,7 +98,12 @@ wrong — so the usable form is forced-choice, not binary judgment.) Two consequ
 bigger model with better exact-token generation plausibly closes the 13%→67% gap — the
 GPU-blocked bigger-model test is worth running, not a long shot; (b) deployed as a candidate
 RANKER (tool proposes fixes, LLM picks) it hits ~67%, a genuinely usable tool where candidates
-can be sourced — versus 13% open generation.
+can be sourced — versus 13% open generation. But the ranker needs EXTERNAL candidates: a
+self-contained generate-then-rank pipeline is bounded at ~13% because neither temperature
+diversity (pass@5 ≈ pass@1) NOR prompt diversity (5 distinct framings, recall@5 ≈ 13%;
+`diverse.py`) escapes the generation floor — different framings still fail to produce the
+exact token (they trade cases: one framing recovers a bug single-prompt missed but loses
+another). So the 67% ranker is human-in-the-loop (or tool-fed candidates), not autonomous.
 
 **Net:** the positive is a *general, post-failure, grounded fix-suggester* — ~5-22% strict open
 generation but ~67% as a candidate ranker, ~45% right-area, cross-domain, ceiling in exact-token
