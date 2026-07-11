@@ -34,6 +34,11 @@ optimum on a rule-determined decision.
 - **Progress engine** (hand-rule macro director + `crash_recovery` + `sokoban_fix`):
   beats base AA on ascension-progress — median DL1→DL4, mean 2.78→4.97, deepest
   9→17, starvation 45%→21%, wins 68/100, Wilcoxon p=1.9e-9. A **hand rule**, not the LLM.
+  **Decomposition (abl_* batches, n~100/arm):** base med DL2 → +macro-director med
+  DL5 (DL1-stuck 46%→5%) → +crash_recovery DL5 → +sokoban_fix DL5. The ENTIRE depth
+  win is the macro director unsticking DL1; `crash_recovery` adds 0 depth (only
+  removes the 7% crash-death tail), `sokoban_fix` adds 0 (median game never reaches
+  Sokoban). So "progress engine" = one lever.
   **Integrity caveat (measured 2026-07-11):** this margin is dominated by ONE AA
   bug fix. Base AA sticks at DL1 on ~52% of seeds (n=300) — AA's `BE_ON_FIRST_LEVEL`
   milestone gates leaving DL1 on `experience_level>=8`, so seeds whose DL1 can't
