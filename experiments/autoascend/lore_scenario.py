@@ -142,8 +142,15 @@ def _equip_endgame(agent):
     # ("...on right hand") -- it has no ring logic. Raw low.step bypasses that.
     # Correct letters (from obs) mean no inventory corruption; worst case a stray
     # move if a finger prompt doesn't appear. P, letter, finger, clear.
+    # Wearing the wished rings corrupts AutoAscend's ring-less inventory model:
+    # a later agent.step parses the "...on right hand" message and ASSERTS,
+    # crashing the whole descent. Armor (the AC that keeps us alive) is worn
+    # separately via AA's own routine, so skip rings when LORE_NO_RINGS=1 to keep
+    # descending. (Loses free-action/fire-res; fixable later by patching AA's
+    # inventory parser, but rings aren't needed to reach the vibrating square.)
+    import os as _osr
     low = agent.env.env.unwrapped.env
-    for l, finger in zip(rings[:2], ['r', 'l']):
+    for l, finger in zip([] if _osr.environ.get("LORE_NO_RINGS") == "1" else rings[:2], ['r', 'l']):
         try:
             low.step(ord('P'))             # PUTON
             low.step(ord(l))               # ring letter
