@@ -57,6 +57,19 @@ hallucination. Not a model-size problem.
   is (curriculum for a learned agent? behavior-space exploration where "beat AA"
   isn't the metric? level/scenario generation?) is the real (b) design question,
   and it likely means redefining the goal away from "beat AA on ascension."
+  **VALIDATED (b) DIRECTION (2026-07-11): LLM as a code-grounded FAILURE-ANALYZER of
+  the symbolic agent.** Tested live (Qwen-14B): given symptoms + the relevant code,
+  the LLM correctly diagnosed 2/2 real AA bugs (the DL1 XL-gate unassisted; the
+  Elbereth-immune loop) with the right fixes, AND correctly declined the 1 fundamental
+  case (DL8+ diverse combat → "not a specific bug") — calibrated, no hallucinated fix.
+  MECHANISM: diagnosis is NOT rule-governed (no expert rule for "what's wrong with
+  this code"), so the parity-ceiling that nulls in-loop decisions doesn't apply. This
+  is the FIRST measured LLM-value niche and the positive complement to the negative
+  (LLM null in decisions, useful in analysis). It IS outside the walled spaces. Caveat:
+  curated symptoms + relevant code pre-selected + re-derived known bugs; the full
+  pipeline (auto-trace→symptom, code-retrieval over 15K lines, NOVEL-bug discovery)
+  is the unproven next step. A publishable framing: "LLMs can't out-decide a symbolic
+  SOTA (rule-governed), but can help discover and fix its failure modes."
 - **(c) A different, non-rule-governed domain.** NetHack is the wrong domain for
   the oracle thesis (exact-name, wiki-documented, SOTA-saturated). A domain where
   no precise rule exists is where LLM knowledge could beat the absence of a rule.
