@@ -87,11 +87,16 @@ def _eat_for_intrinsics(agent):
         except Exception:
             break
     lore_patches.COUNTERS["corpses_eaten"] = eaten
-    # Then eat FOOD RATIONS for nutrition: the setup (13 wishes + 12 potion quaffs)
-    # burns turns and corpses barely feed, so the char lands in Gehennom HUNGRY and
-    # faints (= helpless = swarmed to death). Eat rations to Satiated before teleport.
+    # Then eat FOOD RATIONS for nutrition, but ONLY while genuinely hungry --
+    # eating when already Satiated makes the char CHOKE TO DEATH (killed the whole
+    # setup: 'Called step on finished NetHack' at teleport). Stop at hunger_state<2.
     rations = 0
     for _ in range(8):
+        try:
+            if int(agent.blstats.hunger_state) < 2:   # 0 satiated, 1 normal -> stop
+                break
+        except Exception:
+            break
         ration = None
         for it in flatten_items(agent.inventory.items):
             if getattr(it, "category", None) == _nh.FOOD_CLASS and \
@@ -112,11 +117,6 @@ def _eat_for_intrinsics(agent):
             agent.inventory.update()
         except Exception:
             break
-        try:
-            if 'satiated' in str(agent.message).lower() or 'stuffed' in str(agent.message).lower():
-                break
-        except Exception:
-            pass
     lore_patches.COUNTERS["rations_eaten"] = rations
 
 
@@ -679,6 +679,33 @@ def install_descent(target_depth, wishes=()):
             except Exception:
                 pass
 
+        def _eat_if_hungry():
+            """Survival reflex: extended Gehennom traversal burns food -> the char
+            starves mid-descent. Eat a food item (ration/corpse) when hungry, via
+            raw 'e' keypresses (AA has no endgame eat logic in this loop)."""
+            try:
+                if int(agent.blstats.hunger_state) < 2:   # 0 satiated 1 normal
+                    return False
+            except Exception:
+                return False
+            low = agent.env.env.unwrapped.env
+            try:
+                food_lt = None
+                for oc, lt in zip(agent.last_observation['inv_oclasses'],
+                                  agent.last_observation['inv_letters']):
+                    if int(oc) == _nh2.FOOD_CLASS and int(lt) != 0:
+                        food_lt = chr(int(lt)); break
+                if food_lt is None:
+                    return False
+                low.step(ord('e')); low.step(ord(food_lt)); low.step(ord('y'))
+                low.step(13); low.step(13)
+                agent.step(_agz.A.Command.ESC); agent.inventory.update()
+                lore_patches.COUNTERS["descent_eats"] = \
+                    lore_patches.COUNTERS.get("descent_eats", 0) + 1
+                return True
+            except Exception:
+                return False
+
         def prim_fight():
             f = agent.fight2()
             if f.check_condition():
@@ -865,6 +892,12 @@ def install_descent(target_depth, wishes=()):
                             "ascii": "\n".join(_rows)}
                     except Exception as _de:
                         lore_patches.COUNTERS["down_diag"] = "err %r" % _de
+                # survival reflex: eat before starving (extended traversal burns food)
+                try:
+                    if _eat_if_hungry():
+                        continue
+                except Exception:
+                    pass
                 # --- decide the action (policy-dependent), then execute it ---
                 try:
                     action = _decide_action()
