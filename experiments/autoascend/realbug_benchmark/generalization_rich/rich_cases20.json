@@ -1,0 +1,202 @@
+[
+ {
+  "sha": "7ef2d05ca8aa3cb405dab2fdf3282e69cf8089e3",
+  "symptom": "fix inline code in table cells",
+  "file": "rich/markdown.py",
+  "func": "on_text",
+  "func_lines": 6,
+  "n_changed": 9,
+  "buggy_func": "    def on_text(self, context: MarkdownContext, text: TextType) -> None:\n        text = Text(text) if isinstance(text, str) else text\n        text.stylize(context.current_style)\n        self.content.append_text(text)\n\n",
+  "fix_diff": "diff --git a/rich/markdown.py b/rich/markdown.py\nindex 1e28343e..15e16a21 100644\n--- a/rich/markdown.py\n+++ b/rich/markdown.py\n@@ -331,9 +331,13 @@ class TableDataElement(MarkdownElement):\n         self.justify = justify\n \n     def on_text(self, context: MarkdownContext, text: TextType) -> None:\n-        text = Text(text) if isinstance(text, str) else text\n-        text.stylize(context.current_style)\n-        self.content.append_text(text)\n+        if isinstance(text, str):\n+            self.content.append(text, context.current_style)\n+        else:\n+            self.content.append_text(text)\n+        # text = Text(text) if isinstance(text, str) else text\n+        # text.stylize(context.current_style)\n+        # self.content.append_text(text)\n \n \n class ListElement(MarkdownElement):"
+ },
+ {
+  "sha": "60b064a70a9db813e96955b7b344f61f62817f4c",
+  "symptom": "fix for infinite loop in split_graphemes",
+  "file": "rich/cells.py",
+  "func": "split_graphemes",
+  "func_lines": 53,
+  "n_changed": 6,
+  "buggy_func": "def split_graphemes(\n    text: str, unicode_version: str = \"auto\"\n) -> \"tuple[list[CellSpan], int]\":\n    \"\"\"Divide text into spans that define a single grapheme.\n\n    Args:\n        text: String to split.\n        unicode_version: Unicode version, `\"auto\"` to auto detect, `\"latest\"` for the latest unicode version.\n\n    Returns:\n        List of spans.\n    \"\"\"\n\n    cell_table = load_cell_table(unicode_version)\n    codepoint_count = len(text)\n    index = 0\n    last_measured_character: str | None = None\n\n    total_width = 0\n    spans: list[tuple[int, int, int]] = []\n    SPECIAL = {\"\\u200d\", \"\\ufe0f\"}\n    while index < codepoint_count:\n        if (character := text[index]) in SPECIAL:\n            if character == \"\\u200d\":\n                # zero width joiner\n                index += 2\n                if spans:\n                    start, _end, cell_length = spans[-1]\n                    spans[-1] = (start, index, cell_length)\n            elif last_measured_character:\n                # variation selector 16\n                index += 1\n                if spans:\n                    start, _end, cell_length = spans[-1]\n                    if last_measured_character in cell_table.narrow_to_wide:\n                        last_measured_character = None\n                        cell_length += 1\n                        total_width += 1\n                    spans[-1] = (start, index, cell_length)\n            continue\n\n        if character_width := get_character_cell_size(character, unicode_version):\n            last_measured_character = character\n            spans.append((index, index := index + 1, character_width))\n            total_width += character_width\n        elif spans:\n            # zero width characters are associated with the previous character\n            start, _end, cell_length = spans[-1]\n            spans[-1] = (start, index := index + 1, cell_length)\n\n    return (spans, total_width)\n\n",
+  "fix_diff": "diff --git a/rich/cells.py b/rich/cells.py\nindex 31165957..a35065a7 100644\n--- a/rich/cells.py\n+++ b/rich/cells.py\n@@ -207,6 +207,8 @@ def split_graphemes(\n             # zero width characters are associated with the previous character\n             start, _end, cell_length = spans[-1]\n             spans[-1] = (start, index := index + 1, cell_length)\n+        else:\n+            index = index + 1\n \n     return (spans, total_width)"
+ },
+ {
+  "sha": "95fe8ff59249d9ac0534a82af7c746826a5999f4",
+  "symptom": "Fix raw markup printed on prompt errors sometimes",
+  "file": "rich/prompt.py",
+  "func": "on_validate_error",
+  "func_lines": 9,
+  "n_changed": 7,
+  "buggy_func": "    def on_validate_error(self, value: str, error: InvalidResponse) -> None:\n        \"\"\"Called to handle validation error.\n\n        Args:\n            value (str): String entered by user.\n            error (InvalidResponse): Exception instance the initiated the error.\n        \"\"\"\n        self.console.print(error)\n",
+  "fix_diff": "diff --git a/rich/prompt.py b/rich/prompt.py\nindex c7cf25ba..ae94d9bb 100644\n--- a/rich/prompt.py\n+++ b/rich/prompt.py\n@@ -262,7 +262,7 @@ class PromptBase(Generic[PromptType]):\n             value (str): String entered by user.\n             error (InvalidResponse): Exception instance the initiated the error.\n         \"\"\"\n-        self.console.print(error)\n+        self.console.print(error, markup=True)\n \n     def pre_prompt(self) -> None:\n         \"\"\"Hook to display something before the prompt.\"\"\""
+ },
+ {
+  "sha": "a34914be5d1cc9dc298ca92e5c9af757157a0bb7",
+  "symptom": "fix for null tb_offset",
+  "file": "rich/traceback.py",
+  "func": "ipy_display_traceback",
+  "func_lines": 43,
+  "n_changed": 7,
+  "buggy_func": "        def ipy_display_traceback(\n            *args: Any, is_syntax: bool = False, **kwargs: Any\n        ) -> None:\n            \"\"\"Internally called traceback from ip._showtraceback\"\"\"\n            nonlocal tb_data\n            exc_tuple = ip._get_exc_info()\n\n            # do not display trace on syntax error\n            tb: Optional[TracebackType] = None if is_syntax else exc_tuple[2]\n\n            # determine correct tb_offset\n            compiled = tb_data.get(\"running_compiled_code\", False)\n            tb_offset = tb_data.get(\"tb_offset\", 1 if compiled else 0)\n            # remove ipython internal frames from trace with tb_offset\n            for _ in range(tb_offset):\n                if tb is None:\n                    break\n                tb = tb.tb_next\n\n            excepthook(exc_tuple[0], exc_tuple[1], tb)\n            tb_data = {}  # clear data upon usage\n\n        # replace _showtraceback instead of showtraceback to allow ipython features such as debugging to work\n        # this is also what the ipython docs recommends to modify when subclassing InteractiveShell\n        ip._showtraceback = ipy_display_traceback\n        # add wrapper to capture tb_data\n        ip.showtraceback = ipy_show_traceback\n        ip.showsyntaxerror = lambda *args, **kwargs: ipy_display_traceback(\n            *args, is_syntax=True, **kwargs\n        )\n\n    try:  # pragma: no cover\n        # if within ipython, use customized traceback\n        ip = get_ipython()  # type: ignore[name-defined]\n        ipy_excepthook_closure(ip)\n        return sys.excepthook\n    except Exception:\n        # otherwise use default system hook\n        old_excepthook = sys.excepthook\n        sys.excepthook = excepthook\n        return old_excepthook\n\n",
+  "fix_diff": "diff --git a/rich/traceback.py b/rich/traceback.py\nindex b2cc6304..bd064deb 100644\n--- a/rich/traceback.py\n+++ b/rich/traceback.py\n@@ -177,7 +177,9 @@ def install(\n \n             # determine correct tb_offset\n             compiled = tb_data.get(\"running_compiled_code\", False)\n-            tb_offset = tb_data.get(\"tb_offset\", 1 if compiled else 0)\n+            tb_offset = tb_data.get(\"tb_offset\")\n+            if tb_offset is None:\n+                tb_offset = 1 if compiled else 0\n             # remove ipython internal frames from trace with tb_offset\n             for _ in range(tb_offset):\n                 if tb is None:"
+ },
+ {
+  "sha": "16b3830408df98db41967774e59175a1f919ce25",
+  "symptom": "fix(table): highlight columns added by add_row",
+  "file": "rich/table.py",
+  "func": "add_cell",
+  "func_lines": 29,
+  "n_changed": 7,
+  "buggy_func": "        def add_cell(column: Column, renderable: \"RenderableType\") -> None:\n            column._cells.append(renderable)\n\n        cell_renderables: List[Optional[\"RenderableType\"]] = list(renderables)\n\n        columns = self.columns\n        if len(cell_renderables) < len(columns):\n            cell_renderables = [\n                *cell_renderables,\n                *[None] * (len(columns) - len(cell_renderables)),\n            ]\n        for index, renderable in enumerate(cell_renderables):\n            if index == len(columns):\n                column = Column(_index=index)\n                for _ in self.rows:\n                    add_cell(column, Text(\"\"))\n                self.columns.append(column)\n            else:\n                column = columns[index]\n            if renderable is None:\n                add_cell(column, \"\")\n            elif is_renderable(renderable):\n                add_cell(column, renderable)\n            else:\n                raise errors.NotRenderableError(\n                    f\"unable to render {type(renderable).__name__}; a string or other renderable object is required\"\n                )\n        self.rows.append(Row(style=style, end_section=end_section))\n",
+  "fix_diff": "diff --git a/rich/table.py b/rich/table.py\nindex 10af2e6f..7b1fa9e4 100644\n--- a/rich/table.py\n+++ b/rich/table.py\n@@ -451,7 +451,7 @@ class Table(JupyterMixin):\n             ]\n         for index, renderable in enumerate(cell_renderables):\n             if index == len(columns):\n-                column = Column(_index=index)\n+                column = Column(_index=index, highlight=self.highlight)\n                 for _ in self.rows:\n                     add_cell(column, Text(\"\"))\n                 self.columns.append(column)"
+ },
+ {
+  "sha": "a8c3b8700bc05222b8e6ca855c618f30a8c8eac8",
+  "symptom": "fix split cells",
+  "file": "rich/segment.py",
+  "func": "_split_cells",
+  "func_lines": 37,
+  "n_changed": 16,
+  "buggy_func": "    def _split_cells(cls, segment: \"Segment\", cut: int) -> Tuple[\"Segment\", \"Segment\"]:\n        text, style, control = segment\n        _Segment = Segment\n\n        cell_length = segment.cell_length\n        if cut >= cell_length:\n            return segment, _Segment(\"\", style, control)\n\n        cell_size = get_character_cell_size\n\n        pos = int((cut / cell_length) * (len(text) - 1))\n\n        before = text[:pos]\n        cell_pos = cell_len(before)\n        if cell_pos == cut:\n            return (\n                _Segment(before, style, control),\n                _Segment(text[pos:], style, control),\n            )\n        while pos < len(text):\n            char = text[pos]\n            pos += 1\n            cell_pos += cell_size(char)\n            before = text[:pos]\n            if cell_pos == cut:\n                return (\n                    _Segment(before, style, control),\n                    _Segment(text[pos:], style, control),\n                )\n            if cell_pos > cut:\n                return (\n                    _Segment(before[: pos - 1] + \" \", style, control),\n                    _Segment(\" \" + text[pos:], style, control),\n                )\n\n        raise AssertionError(\"Will never reach here\")\n",
+  "fix_diff": "diff --git a/rich/segment.py b/rich/segment.py\nindex 603d5097..413a9c4c 100644\n--- a/rich/segment.py\n+++ b/rich/segment.py\n@@ -109,16 +109,22 @@ class Segment(NamedTuple):\n     @classmethod\n     @lru_cache(1024 * 16)\n     def _split_cells(cls, segment: \"Segment\", cut: int) -> Tuple[\"Segment\", \"Segment\"]:\n+        \"\"\"Split a segment in to two at a given cell position.\n+\n+        Returns:\n+            A tuple of two segments.\n+        \"\"\"\n         text, style, control = segment\n         _Segment = Segment\n-\n         cell_length = segment.cell_length\n         if cut >= cell_length:\n             return segment, _Segment(\"\", style, control)\n \n         cell_size = get_character_cell_size\n \n-        pos = int((cut / cell_length) * (len(text) - 1))\n+        pos = int((cut / cell_length) * (len(text) - 1)) - 1\n+        if pos < 0:\n+            pos = 0\n \n         before = text[:pos]\n         cell_pos = cell_len(before)"
+ },
+ {
+  "sha": "f591471cf005062c9068f5ac348c01aec4ca13ef",
+  "symptom": "Fix [BUG] @ breaks highlighting in hyperlink #3327",
+  "file": "rich/highlighter.py",
+  "func": "highlight",
+  "func_lines": 13,
+  "n_changed": 7,
+  "buggy_func": "    def highlight(self, text: Text) -> None:\n        \"\"\"Highlight :class:`rich.text.Text` using regular expressions.\n\n        Args:\n            text (~Text): Text to highlighted.\n\n        \"\"\"\n\n        highlight_regex = text.highlight_regex\n        for re_highlight in self.highlights:\n            highlight_regex(re_highlight, style_prefix=self.base_style)\n\n",
+  "fix_diff": "diff --git a/rich/highlighter.py b/rich/highlighter.py\nindex 27714b25..e4c462e2 100644\n--- a/rich/highlighter.py\n+++ b/rich/highlighter.py\n@@ -98,7 +98,7 @@ class ReprHighlighter(RegexHighlighter):\n             r\"(?P<number>(?<!\\w)\\-?[0-9]+\\.?[0-9]*(e[-+]?\\d+?)?\\b|0x[0-9a-fA-F]*)\",\n             r\"(?P<path>\\B(/[-\\w._+]+)*\\/)(?P<filename>[-\\w._+]*)?\",\n             r\"(?<![\\\\\\w])(?P<str>b?'''.*?(?<!\\\\)'''|b?'.*?(?<!\\\\)'|b?\\\"\\\"\\\".*?(?<!\\\\)\\\"\\\"\\\"|b?\\\".*?(?<!\\\\)\\\")\",\n-            r\"(?P<url>(file|https|http|ws|wss)://[-0-9a-zA-Z$_+!`(),.?/;:&=%#~]*)\",\n+            r\"(?P<url>(file|https|http|ws|wss)://[-0-9a-zA-Z$_+!`(),.?/;:&=%#~@]*)\",\n         ),\n     ]"
+ },
+ {
+  "sha": "ee43879005609fa782703b42bd3889f7522a80df",
+  "symptom": "fix(console): fix selective enabling of highlighting",
+  "file": "rich/console.py",
+  "func": "check_text",
+  "func_lines": 33,
+  "n_changed": 7,
+  "buggy_func": "        def check_text() -> None:\n            if text:\n                sep_text = Text(sep, justify=justify, end=end)\n                append(sep_text.join(text))\n                text.clear()\n\n        for renderable in objects:\n            renderable = rich_cast(renderable)\n            if isinstance(renderable, str):\n                append_text(\n                    self.render_str(\n                        renderable, emoji=emoji, markup=markup, highlighter=_highlighter\n                    )\n                )\n            elif isinstance(renderable, Text):\n                append_text(renderable)\n            elif isinstance(renderable, ConsoleRenderable):\n                check_text()\n                append(renderable)\n            elif is_expandable(renderable):\n                check_text()\n                append(Pretty(renderable, highlighter=_highlighter))\n            else:\n                append_text(_highlighter(str(renderable)))\n\n        check_text()\n\n        if self.style is not None:\n            style = self.get_style(self.style)\n            renderables = [Styled(renderable, style) for renderable in renderables]\n\n        return renderables\n",
+  "fix_diff": "diff --git a/rich/console.py b/rich/console.py\nindex 23cc44d5..ee543553 100644\n--- a/rich/console.py\n+++ b/rich/console.py\n@@ -1535,7 +1535,11 @@ class Console:\n             if isinstance(renderable, str):\n                 append_text(\n                     self.render_str(\n-                        renderable, emoji=emoji, markup=markup, highlighter=_highlighter\n+                        renderable,\n+                        emoji=emoji,\n+                        markup=markup,\n+                        highlight=highlight,\n+                        highlighter=_highlighter,\n                     )\n                 )\n             elif isinstance(renderable, Text):"
+ },
+ {
+  "sha": "b41cb4813b5c8fadbcf7835d975d56e9c4c827ae",
+  "symptom": "fix auto detection of terminal size on Windows",
+  "file": "rich/console.py",
+  "func": "size",
+  "func_lines": 45,
+  "n_changed": 19,
+  "buggy_func": "    def size(self) -> ConsoleDimensions:\n        \"\"\"Get the size of the console.\n\n        Returns:\n            ConsoleDimensions: A named tuple containing the dimensions.\n        \"\"\"\n\n        if self._width is not None and self._height is not None:\n            return ConsoleDimensions(self._width - self.legacy_windows, self._height)\n\n        if self.is_dumb_terminal:\n            return ConsoleDimensions(80, 25)\n\n        width: Optional[int] = None\n        height: Optional[int] = None\n\n        if WINDOWS:  # pragma: no cover\n            try:\n                width, height = os.get_terminal_size()\n            except (AttributeError, ValueError, OSError):  # Probably not a terminal\n                pass\n        else:\n            for file_descriptor in _STD_STREAMS:\n                try:\n                    width, height = os.get_terminal_size(file_descriptor)\n                except (AttributeError, ValueError, OSError):\n                    pass\n                else:\n                    break\n\n        columns = self._environ.get(\"COLUMNS\")\n        if columns is not None and columns.isdigit():\n            width = int(columns)\n        lines = self._environ.get(\"LINES\")\n        if lines is not None and lines.isdigit():\n            height = int(lines)\n\n        # get_terminal_size can report 0, 0 if run from pseudo-terminal\n        width = width or 80\n        height = height or 25\n        return ConsoleDimensions(\n            width - self.legacy_windows if self._width is None else self._width,\n            height if self._height is None else self._height,\n        )\n",
+  "fix_diff": "diff --git a/rich/console.py b/rich/console.py\nindex 23cc44d5..102a984b 100644\n--- a/rich/console.py\n+++ b/rich/console.py\n@@ -1005,19 +1005,13 @@ class Console:\n         width: Optional[int] = None\n         height: Optional[int] = None\n \n-        if WINDOWS:  # pragma: no cover\n+        for file_descriptor in _STD_STREAMS_OUTPUT if WINDOWS else _STD_STREAMS:\n             try:\n-                width, height = os.get_terminal_size()\n+                width, height = os.get_terminal_size(file_descriptor)\n             except (AttributeError, ValueError, OSError):  # Probably not a terminal\n                 pass\n-        else:\n-            for file_descriptor in _STD_STREAMS:\n-                try:\n-                    width, height = os.get_terminal_size(file_descriptor)\n-                except (AttributeError, ValueError, OSError):\n-                    pass\n-                else:\n-                    break\n+            else:\n+                break\n \n         columns = self._environ.get(\"COLUMNS\")\n         if columns is not None and columns.isdigit():"
+ },
+ {
+  "sha": "e08d717a51cf03bea1d4e936005c3e034c7070b5",
+  "symptom": "fix(syntax): include padding with background color override",
+  "file": "rich/syntax.py",
+  "func": "__rich_console__",
+  "func_lines": 11,
+  "n_changed": 9,
+  "buggy_func": "    def __rich_console__(\n        self, console: Console, options: ConsoleOptions\n    ) -> RenderResult:\n        segments = Segments(self._get_syntax(console, options))\n        if self.padding:\n            yield Padding(\n                segments, style=self._theme.get_background_style(), pad=self.padding\n            )\n        else:\n            yield segments\n",
+  "fix_diff": "diff --git a/rich/syntax.py b/rich/syntax.py\nindex 618e0459..dd7de6a6 100644\n--- a/rich/syntax.py\n+++ b/rich/syntax.py\n@@ -620,9 +620,7 @@ class Syntax(JupyterMixin):\n     ) -> RenderResult:\n         segments = Segments(self._get_syntax(console, options))\n         if self.padding:\n-            yield Padding(\n-                segments, style=self._theme.get_background_style(), pad=self.padding\n-            )\n+            yield Padding(segments, style=self._get_base_style(), pad=self.padding)\n         else:\n             yield segments"
+ },
+ {
+  "sha": "720800e6930d85ad027b1e9bd0cbb96b5e994ce3",
+  "symptom": "fix tab size issue",
+  "file": "rich/text.py",
+  "func": "expand_tabs",
+  "func_lines": 42,
+  "n_changed": 7,
+  "buggy_func": "    def expand_tabs(self, tab_size: Optional[int] = None) -> None:\n        \"\"\"Converts tabs to spaces.\n\n        Args:\n            tab_size (int, optional): Size of tabs. Defaults to 8.\n\n        \"\"\"\n        if \"\\t\" not in self.plain:\n            return\n        if tab_size is None:\n            tab_size = self.tab_size\n        assert tab_size is not None\n        result = self.blank_copy()\n\n        new_text: List[Text] = []\n        append = new_text.append\n\n        for line in self.split(\"\\n\", include_separator=True):\n            if \"\\t\" not in line.plain:\n                append(line)\n            else:\n                cell_position = 0\n                parts = line.split(\"\\t\", include_separator=True)\n                for part in parts:\n                    if part.plain.endswith(\"\\t\"):\n                        part._text[-1] = part._text[-1][:-1] + \" \"\n                        cell_position += part.cell_len\n                        tab_remainder = cell_position % tab_size\n                        if tab_remainder:\n                            spaces = tab_size - tab_remainder\n                            part.extend_style(spaces)\n                            cell_position += spaces\n                    else:\n                        cell_position += part.cell_len\n                    append(part)\n\n        result = Text(\"\").join(new_text)\n\n        self._text = [result.plain]\n        self._length = len(self.plain)\n        self._spans[:] = result._spans\n",
+  "fix_diff": "diff --git a/rich/text.py b/rich/text.py\nindex d20bdbce..c5021917 100644\n--- a/rich/text.py\n+++ b/rich/text.py\n@@ -819,7 +819,9 @@ class Text(JupyterMixin):\n             return\n         if tab_size is None:\n             tab_size = self.tab_size\n-        assert tab_size is not None\n+        if tab_size is None:\n+            tab_size = 8\n+\n         result = self.blank_copy()\n \n         new_text: List[Text] = []"
+ },
+ {
+  "sha": "956bfa5fe558557cd5939bd44f522a6ccc5f8d18",
+  "symptom": "Allow tilde in URL (fixes #3057)",
+  "file": "rich/highlighter.py",
+  "func": "highlight",
+  "func_lines": 13,
+  "n_changed": 7,
+  "buggy_func": "    def highlight(self, text: Text) -> None:\n        \"\"\"Highlight :class:`rich.text.Text` using regular expressions.\n\n        Args:\n            text (~Text): Text to highlighted.\n\n        \"\"\"\n\n        highlight_regex = text.highlight_regex\n        for re_highlight in self.highlights:\n            highlight_regex(re_highlight, style_prefix=self.base_style)\n\n",
+  "fix_diff": "diff --git a/rich/highlighter.py b/rich/highlighter.py\nindex c2646794..27714b25 100644\n--- a/rich/highlighter.py\n+++ b/rich/highlighter.py\n@@ -98,7 +98,7 @@ class ReprHighlighter(RegexHighlighter):\n             r\"(?P<number>(?<!\\w)\\-?[0-9]+\\.?[0-9]*(e[-+]?\\d+?)?\\b|0x[0-9a-fA-F]*)\",\n             r\"(?P<path>\\B(/[-\\w._+]+)*\\/)(?P<filename>[-\\w._+]*)?\",\n             r\"(?<![\\\\\\w])(?P<str>b?'''.*?(?<!\\\\)'''|b?'.*?(?<!\\\\)'|b?\\\"\\\"\\\".*?(?<!\\\\)\\\"\\\"\\\"|b?\\\".*?(?<!\\\\)\\\")\",\n-            r\"(?P<url>(file|https|http|ws|wss)://[-0-9a-zA-Z$_+!`(),.?/;:&=%#]*)\",\n+            r\"(?P<url>(file|https|http|ws|wss)://[-0-9a-zA-Z$_+!`(),.?/;:&=%#~]*)\",\n         ),\n     ]"
+ },
+ {
+  "sha": "dbf66e8bb9d9391a268e4db8b0d3408a58a27da9",
+  "symptom": "fix for markdown table",
+  "file": "rich/markdown.py",
+  "func": "__rich_console__",
+  "func_lines": 18,
+  "n_changed": 10,
+  "buggy_func": "    def __rich_console__(\n        self, console: Console, options: ConsoleOptions\n    ) -> RenderResult:\n        table = Table(box=box.SIMPLE_HEAVY)\n\n        assert self.header is not None\n        assert self.header.row is not None\n        for column in self.header.row.cells:\n            table.add_column(column.content)\n\n        assert self.body is not None\n        for row in self.body.rows:\n            row_content = [element.content for element in row.cells]\n            table.add_row(*row_content)\n\n        yield table\n\n",
+  "fix_diff": "diff --git a/rich/markdown.py b/rich/markdown.py\nindex e2cedfaa..3ab4af0e 100644\n--- a/rich/markdown.py\n+++ b/rich/markdown.py\n@@ -259,10 +259,10 @@ class TableElement(MarkdownElement):\n         for column in self.header.row.cells:\n             table.add_column(column.content)\n \n-        assert self.body is not None\n-        for row in self.body.rows:\n-            row_content = [element.content for element in row.cells]\n-            table.add_row(*row_content)\n+        if self.body is not None:\n+            for row in self.body.rows:\n+                row_content = [element.content for element in row.cells]\n+                table.add_row(*row_content)\n \n         yield table"
+ },
+ {
+  "sha": "58f54ca7a391c4f12a1737128e95757cc15587f9",
+  "symptom": "trailing slash fix",
+  "file": "rich/markup.py",
+  "func": "escape_backslashes",
+  "func_lines": 11,
+  "n_changed": 8,
+  "buggy_func": "    def escape_backslashes(match: Match[str]) -> str:\n        \"\"\"Called by re.sub replace matches.\"\"\"\n        backslashes, text = match.groups()\n        return f\"{backslashes}{backslashes}\\\\{text}\"\n\n    markup = _escape(escape_backslashes, markup)\n    if markup.endswith(\"\\\\\"):\n        return markup + \"\\\\\"\n    return markup\n\n",
+  "fix_diff": "diff --git a/rich/markup.py b/rich/markup.py\nindex 953b124a..cb927edd 100644\n--- a/rich/markup.py\n+++ b/rich/markup.py\n@@ -64,8 +64,9 @@ def escape(\n         return f\"{backslashes}{backslashes}\\\\{text}\"\n \n     markup = _escape(escape_backslashes, markup)\n-    if markup.endswith(\"\\\\\"):\n+    if markup.endswith(\"\\\\\") and not markup.endswith(\"\\\\\\\\\"):\n         return markup + \"\\\\\"\n+\n     return markup"
+ },
+ {
+  "sha": "d9eff2aa44501ee1c6c9808543c493e4b2efe3c9",
+  "symptom": "Fixed issue with custom classes (fixes #2875)",
+  "file": "rich/repr.py",
+  "func": "auto_rich_repr",
+  "func_lines": 36,
+  "n_changed": 7,
+  "buggy_func": "        def auto_rich_repr(self: Type[T]) -> Result:\n            \"\"\"Auto generate __rich_rep__ from signature of __init__\"\"\"\n            try:\n                signature = inspect.signature(self.__init__)\n                for name, param in signature.parameters.items():\n                    if param.kind == param.POSITIONAL_ONLY:\n                        yield getattr(self, name)\n                    elif param.kind in (\n                        param.POSITIONAL_OR_KEYWORD,\n                        param.KEYWORD_ONLY,\n                    ):\n                        if param.default == param.empty:\n                            yield getattr(self, param.name)\n                        else:\n                            yield param.name, getattr(self, param.name), param.default\n            except Exception as error:\n                raise ReprError(\n                    f\"Failed to auto generate __rich_repr__; {error}\"\n                ) from None\n\n        if not hasattr(cls, \"__rich_repr__\"):\n            auto_rich_repr.__doc__ = \"Build a rich repr\"\n            cls.__rich_repr__ = auto_rich_repr  # type: ignore[attr-defined]\n\n        auto_repr.__doc__ = \"Return repr(self)\"\n        cls.__repr__ = auto_repr  # type: ignore[assignment]\n        if angular is not None:\n            cls.__rich_repr__.angular = angular  # type: ignore[attr-defined]\n        return cls\n\n    if cls is None:\n        return partial(do_replace, angular=angular)\n    else:\n        return do_replace(cls, angular=angular)\n\n",
+  "fix_diff": "diff --git a/rich/repr.py b/rich/repr.py\nindex 9dd65cde..95331006 100644\n--- a/rich/repr.py\n+++ b/rich/repr.py\n@@ -76,7 +76,7 @@ def auto(\n                         param.POSITIONAL_OR_KEYWORD,\n                         param.KEYWORD_ONLY,\n                     ):\n-                        if param.default == param.empty:\n+                        if param.default is param.empty:\n                             yield getattr(self, param.name)\n                         else:\n                             yield param.name, getattr(self, param.name), param.default"
+ },
+ {
+  "sha": "680d9d876e561f1e1ad511fcfe5f5f793a40bc2f",
+  "symptom": "fix empty line print on jupyter",
+  "file": "rich/progress.py",
+  "func": "stop",
+  "func_lines": 6,
+  "n_changed": 7,
+  "buggy_func": "    def stop(self) -> None:\n        \"\"\"Stop the progress display.\"\"\"\n        self.live.stop()\n        if not self.console.is_interactive:\n            self.console.print()\n",
+  "fix_diff": "diff --git a/rich/progress.py b/rich/progress.py\nindex 43c47eb9..2a20e735 100644\n--- a/rich/progress.py\n+++ b/rich/progress.py\n@@ -1162,7 +1162,7 @@ class Progress(JupyterMixin):\n     def stop(self) -> None:\n         \"\"\"Stop the progress display.\"\"\"\n         self.live.stop()\n-        if not self.console.is_interactive:\n+        if not self.console.is_interactive and not self.console.is_jupyter:\n             self.console.print()\n \n     def __enter__(self) -> \"Progress\":"
+ },
+ {
+  "sha": "6796675b0ec4d8305700b76c19ce4f92270522ee",
+  "symptom": "fix markup in console live",
+  "file": "rich/live.py",
+  "func": "update",
+  "func_lines": 12,
+  "n_changed": 6,
+  "buggy_func": "    def update(self, renderable: RenderableType, *, refresh: bool = False) -> None:\n        \"\"\"Update the renderable that is being displayed\n\n        Args:\n            renderable (RenderableType): New renderable to use.\n            refresh (bool, optional): Refresh the display. Defaults to False.\n        \"\"\"\n        with self._lock:\n            self._renderable = renderable\n            if refresh:\n                self.refresh()\n",
+  "fix_diff": "diff --git a/rich/live.py b/rich/live.py\nindex e635fe5c..3ebbbc4c 100644\n--- a/rich/live.py\n+++ b/rich/live.py\n@@ -210,6 +210,8 @@ class Live(JupyterMixin, RenderHook):\n             renderable (RenderableType): New renderable to use.\n             refresh (bool, optional): Refresh the display. Defaults to False.\n         \"\"\"\n+        if isinstance(renderable, str):\n+            renderable = self.console.render_str(renderable)\n         with self._lock:\n             self._renderable = renderable\n             if refresh:"
+ },
+ {
+  "sha": "daf6e38f553cb76de3aefbc847e15d8055913f8d",
+  "symptom": "fix for color downgrade",
+  "file": "rich/color.py",
+  "func": "downgrade",
+  "func_lines": 54,
+  "n_changed": 18,
+  "buggy_func": "    def downgrade(self, system: ColorSystem) -> \"Color\":\n        \"\"\"Downgrade a color system to a system with fewer colors.\"\"\"\n\n        if self.type in (ColorType.DEFAULT, system):\n            return self\n        # Convert to 8-bit color from truecolor color\n        if system == ColorSystem.EIGHT_BIT and self.system == ColorSystem.TRUECOLOR:\n            assert self.triplet is not None\n            red, green, blue = self.triplet.normalized\n            _h, l, s = rgb_to_hls(red, green, blue)\n            # If saturation is under 10% assume it is grayscale\n            if s < 0.1:\n                gray = round(l * 25.0)\n                if gray == 0:\n                    color_number = 16\n                elif gray == 25:\n                    color_number = 231\n                else:\n                    color_number = 231 + gray\n                return Color(self.name, ColorType.EIGHT_BIT, number=color_number)\n\n            color_number = (\n                16 + 36 * round(red * 5.0) + 6 * round(green * 5.0) + round(blue * 5.0)\n            )\n            return Color(self.name, ColorType.EIGHT_BIT, number=color_number)\n\n        # Convert to standard from truecolor or 8-bit\n        elif system == ColorSystem.STANDARD:\n            if self.system == ColorSystem.TRUECOLOR:\n                assert self.triplet is not None\n                triplet = self.triplet\n            else:  # self.system == ColorSystem.EIGHT_BIT\n                assert self.number is not None\n                triplet = ColorTriplet(*EIGHT_BIT_PALETTE[self.number])\n\n            color_number = STANDARD_PALETTE.match(triplet)\n            return Color(self.name, ColorType.STANDARD, number=color_number)\n\n        elif system == ColorSystem.WINDOWS:\n            if self.system == ColorSystem.TRUECOLOR:\n                assert self.triplet is not None\n                triplet = self.triplet\n            else:  # self.system == ColorSystem.EIGHT_BIT\n                assert self.number is not None\n                if self.number < 16:\n                    return Color(self.name, ColorType.WINDOWS, number=self.number)\n                triplet = ColorTriplet(*EIGHT_BIT_PALETTE[self.number])\n\n            color_number = WINDOWS_PALETTE.match(triplet)\n            return Color(self.name, ColorType.WINDOWS, number=color_number)\n\n        return self\n\n",
+  "fix_diff": "diff --git a/rich/color.py b/rich/color.py\nindex 35281eb9..dfe45593 100644\n--- a/rich/color.py\n+++ b/rich/color.py\n@@ -518,10 +518,9 @@ class Color(NamedTuple):\n         # Convert to 8-bit color from truecolor color\n         if system == ColorSystem.EIGHT_BIT and self.system == ColorSystem.TRUECOLOR:\n             assert self.triplet is not None\n-            red, green, blue = self.triplet.normalized\n-            _h, l, s = rgb_to_hls(red, green, blue)\n-            # If saturation is under 10% assume it is grayscale\n-            if s < 0.1:\n+            _h, l, s = rgb_to_hls(*self.triplet.normalized)\n+            # If saturation is under 15% assume it is grayscale\n+            if s < 0.15:\n                 gray = round(l * 25.0)\n                 if gray == 0:\n                     color_number = 16\n@@ -531,8 +530,13 @@ class Color(NamedTuple):\n                     color_number = 231 + gray\n                 return Color(self.name, ColorType.EIGHT_BIT, number=color_number)\n \n+            red, green, blue = self.triplet\n+            six_red = red / 95 if red < 95 else 1 + (red - 95) / 40\n+            six_green = green / 95 if green < 95 else 1 + (green - 95) / 40\n+            six_blue = blue / 95 if blue < 95 else 1 + (blue - 95) / 40\n+\n             color_number = (\n-                16 + 36 * round(red * 5.0) + 6 * round(green * 5.0) + round(blue * 5.0)\n+                16 + 36 * round(six_red) + 6 * round(six_green) + round(six_blue)\n             )\n             return Color(self.name, ColorType.EIGHT_BIT, number=color_number)"
+ },
+ {
+  "sha": "aa0929298bf85b9357edf8af239d715a18ab5ce8",
+  "symptom": "fix issue splitting segments",
+  "file": "rich/segment.py",
+  "func": "_split_cells",
+  "func_lines": 38,
+  "n_changed": 7,
+  "buggy_func": "    def _split_cells(cls, segment: \"Segment\", cut: int) -> Tuple[\"Segment\", \"Segment\"]:\n\n        text, style, control = segment\n        _Segment = Segment\n\n        cell_length = segment.cell_length\n        if cut >= cell_length:\n            return segment, _Segment(\"\", style, control)\n\n        cell_size = get_character_cell_size\n\n        pos = int((cut / cell_length) * len(text))\n\n        before = text[:pos]\n        cell_pos = cell_len(before)\n        if cell_pos == cut:\n            return (\n                _Segment(before, style, control),\n                _Segment(text[pos:], style, control),\n            )\n        while pos < len(text):\n            char = text[pos]\n            pos += 1\n            cell_pos += cell_size(char)\n            before = text[:pos]\n            if cell_pos == cut:\n                return (\n                    _Segment(before, style, control),\n                    _Segment(text[pos:], style, control),\n                )\n            if cell_pos > cut:\n                return (\n                    _Segment(before[: pos - 1] + \" \", style, control),\n                    _Segment(\" \" + text[pos:], style, control),\n                )\n\n        raise AssertionError(\"Will never reach here\")\n",
+  "fix_diff": "diff --git a/rich/segment.py b/rich/segment.py\nindex 6c87a791..d489d137 100644\n--- a/rich/segment.py\n+++ b/rich/segment.py\n@@ -119,7 +119,7 @@ class Segment(NamedTuple):\n \n         cell_size = get_character_cell_size\n \n-        pos = int((cut / cell_length) * len(text))\n+        pos = int((cut / cell_length) * (len(text) - 1))\n \n         before = text[:pos]\n         cell_pos = cell_len(before)"
+ },
+ {
+  "sha": "c3a24505978756e7e5802cbb22dc2aecc8c1b136",
+  "symptom": "fix for fileno",
+  "file": "rich/file_proxy.py",
+  "func": "flush",
+  "func_lines": 5,
+  "n_changed": 3,
+  "buggy_func": "    def flush(self) -> None:\n        output = \"\".join(self.__buffer)\n        if output:\n            self.__console.print(output)\n        del self.__buffer[:]",
+  "fix_diff": "diff --git a/rich/file_proxy.py b/rich/file_proxy.py\nindex cc69f22f..72b59ed2 100644\n--- a/rich/file_proxy.py\n+++ b/rich/file_proxy.py\n@@ -52,3 +52,6 @@ class FileProxy(io.TextIOBase):\n         if output:\n             self.__console.print(output)\n         del self.__buffer[:]\n+\n+    def fileno(self) -> int:\n+        return self.__file.fileno()"
+ }
+]

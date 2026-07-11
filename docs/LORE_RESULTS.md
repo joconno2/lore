@@ -77,6 +77,13 @@ code does NOT rescue diagnosis — it refutes "better retrieval would fix it" an
 the earlier "co-pilot works because a human surfaces the code" claim: the co-pilot points
 at the right AREA ~half the time but names the specific fix ~13%. Localization gates
 attempting; bug-simplicity gates succeeding, and most real bugs are not simple.
+**Not an AA artifact — it generalizes (`realbug_benchmark/generalization_rich/`).** The
+same co-pilot protocol on `rich` (a pure-Python terminal-rendering library, a totally
+different domain) gives 1/20 = 5% strict / 9/20 = 45% lenient — matching AA's 13%/47%.
+And rich's misses are overwhelmingly EXACT-TOKEN edits (add `~` to a URL regex, `==`→`is`,
+off-by-one `len(text)-1`, `assert`→default): the model sees WHERE but not WHAT-exactly,
+the same exact-token floor as hallucinated NetHack item names and the Sokoban `'^'`
+constant. So the diagnosis ceiling and the exact-token mechanism are domain-general.
 The controlled synthetic ceiling still holds (8/8 isolated, value-tracing 5/5, un-annotated
 found — "value-tracing fails" and "annotation inflates" both DISPROVEN), but isolated
 bugs are the easy tail: the debugger is REAL but NARROW.

@@ -1,0 +1,122 @@
+[
+ {
+  "sha": "7ef2d05ca8aa3cb405dab2fdf3282e69cf8089e3",
+  "symptom": "fix inline code in table cells",
+  "func": "on_text",
+  "diagnosis": "Based on the provided information, it seems like the issue is related to rendering inline code within table cells using the `rich` library. The specific problem isn't entirely clear from the snippet you've provided, but I can infer that there might be an issue with how inline code is being handled or styled.\n\nHowever, without more context, let's assume the issue is that inline code (e.g., `code`) is not being properly stylized or rendered as expected when used inside table cells.\n\n### Identifying the Bug\n\nFrom the given function:\n\n```python\ndef on_text(self, context: MarkdownContext, text: Tex"
+ },
+ {
+  "sha": "60b064a70a9db813e96955b7b344f61f62817f4c",
+  "symptom": "fix for infinite loop in split_graphemes",
+  "func": "split_graphemes",
+  "diagnosis": "The issue described as an \"infinite loop in split_graphemes\" suggests that there's a condition where the loop does not properly progress and ends up repeating indefinitely. In the provided function, the primary suspect for such behavior would be how the `index` variable is updated and used within the loop.\n\nUpon closer inspection, the potential issue lies in the way the `index` variable is incremented and reassigned within the loop. Specifically, the lines:\n\n```python\nif character_width := get_character_cell_size(character, unicode_version):\n    ...\n    spans.append((index, index := index + 1,"
+ },
+ {
+  "sha": "95fe8ff59249d9ac0534a82af7c746826a5999f4",
+  "symptom": "Fix raw markup printed on prompt errors sometimes",
+  "func": "on_validate_error",
+  "diagnosis": "Based on the description of the issue, it seems that the problem lies with how the `rich` library handles raw markup when printing errors on the prompt. The specific issue is that raw markup might be incorrectly displayed or interpreted when an error occurs during validation.\n\nTo address this, we need to ensure that the error message is properly formatted before being printed. This can often involve escaping or sanitizing the raw markup to prevent any unintended behavior.\n\nHere's a possible solution:\n\n1. Ensure that the error message is properly formatted before printing.\n2. Use the `rich` lib"
+ },
+ {
+  "sha": "a34914be5d1cc9dc298ca92e5c9af757157a0bb7",
+  "symptom": "fix for null tb_offset",
+  "func": "ipy_display_traceback",
+  "diagnosis": "Based on the provided code snippet and the description of the issue \"fix for null tb_offset,\" it seems that the problem lies in how the traceback offset (`tb_offset`) is handled. Specifically, the issue arises when `tb_offset` is set to `null` or `None`, which can cause problems in the traceback processing.\n\nIn the given function, the `tb_offset` is determined based on whether the running code is compiled or not. The issue might be related to the fact that `tb_offset` is being set to `0` when the code is not compiled, which could lead to issues when trying to remove internal frames from the tr"
+ },
+ {
+  "sha": "16b3830408df98db41967774e59175a1f919ce25",
+  "symptom": "fix(table): highlight columns added by add_row",
+  "func": "add_cell",
+  "diagnosis": "Based on the provided code snippet and the description of the issue, it seems that the problem lies in how new columns are being handled when adding rows to a table using the `rich` library. Specifically, the issue is related to highlighting columns that are added dynamically by `add_row`.\n\n### Problem Identification\nThe main issue appears to be that when new columns are added dynamically, they are not properly highlighted if they should be. This can happen if the `highlight` attribute is not correctly applied to these new columns.\n\nIn the given code, the problematic part is where new columns "
+ },
+ {
+  "sha": "a8c3b8700bc05222b8e6ca855c618f30a8c8eac8",
+  "symptom": "fix split cells",
+  "func": "_split_cells",
+  "diagnosis": "Based on the provided code snippet, the issue seems to be related to how the `_split_cells` method handles splitting segments based on their cell length rather than character count. The primary concern appears to be that the method might not correctly handle multi-cell characters (like emojis or other wide characters) when splitting the text.\n\n### Identifying the Bug\n\nThe main issue lies in the way the `pos` variable is incremented and how the `cell_pos` is calculated. Specifically, the logic for calculating `cell_pos` and determining where to split the string can be problematic, especially wi"
+ },
+ {
+  "sha": "f591471cf005062c9068f5ac348c01aec4ca13ef",
+  "symptom": "Fix [BUG] @ breaks highlighting in hyperlink #3327",
+  "func": "highlight",
+  "diagnosis": "Based on the provided information, it seems that the issue revolves around how the `highlight` method processes regular expressions for text highlighting, particularly when dealing with hyperlinks. The bug report suggests that the use of `@` symbol within the text disrupts the highlighting process in hyperlinks.\n\nHowever, without the exact code snippet from the repository or more detailed description of the issue, we can only hypothesize based on common issues related to regular expressions and text processing. Let's assume the issue is related to how the `highlight_regex` function handles the"
+ },
+ {
+  "sha": "ee43879005609fa782703b42bd3889f7522a80df",
+  "symptom": "fix(console): fix selective enabling of highlighting",
+  "func": "check_text",
+  "diagnosis": "Based on the description of the issue and the provided code snippet, it seems that the problem lies in the handling of text highlighting within the `rich` library. The reported problem suggests that there's an issue with selectively enabling or disabling highlighting.\n\nFrom the provided code, the main concern appears to be around how `Text` objects are handled and joined together, particularly when it comes to applying styles and ensuring that highlighting is correctly applied or disabled as needed.\n\n### Identifying the Bug\n\nThe bug might be related to how `Text` objects are joined and whether"
+ },
+ {
+  "sha": "b41cb4813b5c8fadbcf7835d975d56e9c4c827ae",
+  "symptom": "fix auto detection of terminal size on Windows",
+  "func": "size",
+  "diagnosis": "The issue described seems to be related to the incorrect detection of terminal size on Windows using the `rich` library. The problem likely stems from how the terminal size is being calculated and adjusted for legacy Windows behavior.\n\nIn the provided code snippet, the problematic part is the adjustment for legacy Windows behavior:\n\n```python\nreturn ConsoleDimensions(self._width - self.legacy_windows, self._height)\n```\n\nThis line subtracts `self.legacy_windows` from `_width`. If `self.legacy_windows` is set to a non-zero value, it adjusts the detected terminal width, which might not be necessa"
+ },
+ {
+  "sha": "e08d717a51cf03bea1d4e936005c3e034c7070b5",
+  "symptom": "fix(syntax): include padding with background color override",
+  "func": "__rich_console__",
+  "diagnosis": "Based on the description of the issue, it seems that the padding applied to the segments does not correctly apply the background color as expected. The problem lies in how the `Padding` class is used to wrap the segments.\n\nIn the provided code snippet, the `Padding` class is being used incorrectly. Specifically, the `segments` object should be passed to the `Padding` constructor, but it looks like `segments` might be an iterable of segment objects rather than a single object that can be padded directly.\n\nHere's the corrected version of the function:\n\n```python\ndef __rich_console__(self, consol"
+ },
+ {
+  "sha": "720800e6930d85ad027b1e9bd0cbb96b5e994ce3",
+  "symptom": "fix tab size issue",
+  "func": "expand_tabs",
+  "diagnosis": "Based on the provided code snippet, the issue seems to be related to how the function handles tab expansion into spaces. The main problem lies in the way the function calculates and adds spaces to replace the tabs. Specifically, the issue is that the calculation of spaces to add after each tab character might not be accurate due to incorrect handling of the `cell_position`.\n\nHere's a detailed analysis of the potential issues:\n\n1. **Incorrect Calculation of Spaces**: The current implementation tries to calculate the number of spaces needed to replace a tab based on the `tab_size`. However, it d"
+ },
+ {
+  "sha": "956bfa5fe558557cd5939bd44f522a6ccc5f8d18",
+  "symptom": "Allow tilde in URL (fixes #3057)",
+  "func": "highlight",
+  "diagnosis": "Based on the information provided, it seems that there might be some confusion regarding the specific bug and its location within the `rich` library. The description mentions \"Allow tilde in URL\" and references issue number `#3057`, but no specific code snippet or function name is directly linked to this issue in your question.\n\nHowever, if we assume that the issue is related to handling URLs with tildes (`~`) in them, and given the context of the `highlight` function you've provided, we can infer that the problem might be related to how URLs containing tildes are being processed or displayed."
+ },
+ {
+  "sha": "dbf66e8bb9d9391a268e4db8b0d3408a58a27da9",
+  "symptom": "fix for markdown table",
+  "func": "__rich_console__",
+  "diagnosis": "Based on the provided code snippet, it seems like the issue might be related to how Markdown tables are rendered using the `rich` library. However, the provided code doesn't directly indicate a bug; rather, it's a function that creates a table from some data structure and renders it using the `rich` library.\n\nIf we assume that the issue is related to rendering Markdown tables correctly, one common problem could be the handling of Markdown syntax within cells. The `rich` library should handle Markdown content properly when rendering tables.\n\nHere\u2019s a possible scenario where the issue arises:\n\n1"
+ },
+ {
+  "sha": "58f54ca7a391c4f12a1737128e95757cc15587f9",
+  "symptom": "trailing slash fix",
+  "func": "escape_backslashes",
+  "diagnosis": "Based on the provided code snippet, it seems like the issue is related to how backslashes are being handled and escaped within the string. The goal appears to be ensuring that any trailing backslash (`\\`) in the `markup` string is properly escaped.\n\n### Identifying the Bug\n\nThe bug lies in the logic that appends an extra backslash if the `markup` string ends with a single backslash. This can lead to incorrect escaping of backslashes, especially when there's already an even number of backslashes at the end of the string.\n\nHere\u2019s the problematic part of the code:\n\n```python\nif markup.endswith(\"\\"
+ },
+ {
+  "sha": "d9eff2aa44501ee1c6c9808543c493e4b2efe3c9",
+  "symptom": "Fixed issue with custom classes (fixes #2875)",
+  "func": "auto_rich_repr",
+  "diagnosis": "Based on the provided context, it seems like the issue was related to how custom classes were handled when generating an automatic `__rich_repr__`. The bug likely involved improper handling of positional-only parameters or keyword arguments in the `auto_rich_repr` function.\n\nHowever, the code snippet you've provided does not directly correspond to the issue described in the bug report (#2875). The description suggests that there was an issue with custom classes, but the code snippet you've shared doesn't contain enough context to pinpoint the exact lines where the bug occurred or was fixed.\n\nT"
+ },
+ {
+  "sha": "680d9d876e561f1e1ad511fcfe5f5f793a40bc2f",
+  "symptom": "fix empty line print on jupyter",
+  "func": "stop",
+  "diagnosis": "Based on the description of the issue, it seems that the problem lies in how the `rich` library handles printing to Jupyter notebooks. Specifically, the `self.console.print()` call might be causing an empty line to be printed when the progress display stops.\n\nIn Jupyter notebooks, the `Console` object from the `rich` library behaves differently compared to a standard terminal. When `self.console.print()` is called in a Jupyter notebook, it can sometimes result in an empty line being printed due to how Jupyter handles output.\n\nTo address this issue, you need to check whether the console is runn"
+ },
+ {
+  "sha": "6796675b0ec4d8305700b76c19ce4f92270522ee",
+  "symptom": "fix markup in console live",
+  "func": "update",
+  "diagnosis": "Based on the provided code snippet and the problem description \"fix markup in console live,\" it seems like there might be an issue related to how the `update` method handles live rendering of markup content. However, the snippet you've provided does not directly indicate a bug; it's more about updating the renderable object.\n\nIf we assume that the issue is related to how the markup is handled during live updates, one possible scenario could be that the markup is not correctly refreshed or updated when new content is set. This can lead to stale markup being displayed instead of the latest conte"
+ },
+ {
+  "sha": "daf6e38f553cb76de3aefbc847e15d8055913f8d",
+  "symptom": "fix for color downgrade",
+  "func": "downgrade",
+  "diagnosis": "Based on the provided code snippet, the issue seems to be related to how the `downgrade` method handles the conversion of colors when downgrading from truecolor to an 8-bit color system. Specifically, the bug appears to be in the logic that determines the color number for the 8-bit palette.\n\n### Identified Bug\nThe bug lies in the calculation of `color_number` for the 8-bit color system. The current formula uses a factor of 5 when converting RGB values to the closest 8-bit color index:\n\n```python\ncolor_number = 16 + 36 * round(red * 5.0) + 6 * round(green * 5.0) + round(blue * 5.0)\n```\n\nThis fo"
+ },
+ {
+  "sha": "aa0929298bf85b9357edf8af239d715a18ab5ce8",
+  "symptom": "fix issue splitting segments",
+  "func": "_split_cells",
+  "diagnosis": "Based on the provided code snippet, the issue seems to be related to how the `_split_cells` method handles the splitting of segments based on their cell length rather than character count. The main problem appears to be in the calculation of `cell_pos`, which should accurately reflect the cumulative width of each character in the string.\n\n### Identifying the Bug\n\nThe primary issue lies in the way `cell_pos` is calculated and updated within the loop. Specifically, the function `get_character_cell_size` is not being called correctly, and the variable `cell_size` is not being used properly. This "
+ },
+ {
+  "sha": "c3a24505978756e7e5802cbb22dc2aecc8c1b136",
+  "symptom": "fix for fileno",
+  "func": "flush",
+  "diagnosis": "Based on the provided context and the description of the issue, it seems like the problem might be related to how the buffer is being flushed and printed to the console. However, the term \"fix for fileno\" suggests that there's an underlying issue with file handling or specifically with the `fileno()` method, which returns the file descriptor of a file object.\n\nIn the given `flush` method, the issue could be related to how the buffer is being handled and printed. The current implementation directly prints the joined buffer to the console using `self.__console.print(output)`. This approach doesn"
+ }
+]
