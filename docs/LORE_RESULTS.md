@@ -89,9 +89,21 @@ are overwhelmingly EXACT-TOKEN edits (add `~` to a URL regex, `==`→`is`, off-b
 `len(text)-1`, `assert`→default) — the model sees WHERE but not WHAT-exactly, the same floor
 as hallucinated NetHack item names and the Sokoban `'^'` constant.
 
-**Net:** the positive is a *general, post-failure, grounded fix-suggester* — ~5-22% strict,
-~45% right-area, cross-domain, with the ceiling in exact-token generation. Real, useful as a
-triage co-pilot, but not the "autonomous debugger beats the symbolic SOTA's weakness" overclaim.
+**6. The ceiling is GENERATION, not knowledge — recognition 67% >> generation 13%
+(`recognize2.py`).** Forced-choice (real fix + 3 distractors from other cases, chance 25%):
+the model picks the correct fix 10/15 = 67%, versus 2/15 = 13% when asked to GENERATE it.
+So the diagnostic knowledge is largely present; the floor is producing the exact tokens.
+(Yes/no fix-verification collapses to the same NO-bias as detection — 0/15 accept real AND
+wrong — so the usable form is forced-choice, not binary judgment.) Two consequences: (a) a
+bigger model with better exact-token generation plausibly closes the 13%→67% gap — the
+GPU-blocked bigger-model test is worth running, not a long shot; (b) deployed as a candidate
+RANKER (tool proposes fixes, LLM picks) it hits ~67%, a genuinely usable tool where candidates
+can be sourced — versus 13% open generation.
+
+**Net:** the positive is a *general, post-failure, grounded fix-suggester* — ~5-22% strict open
+generation but ~67% as a candidate ranker, ~45% right-area, cross-domain, ceiling in exact-token
+GENERATION (knowledge largely present). Real and usable as a ranking co-pilot; not the
+"autonomous debugger beats the symbolic SOTA's weakness" overclaim.
 
 ## Two-factor law (predicts which bugs it gets)
 
