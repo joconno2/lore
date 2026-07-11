@@ -68,4 +68,12 @@ Not picking for you. If the goal stays ascension, (a) needs a real capability
 build and (b)/(c) leave NetHack-ascension behind. If the goal is a publishable
 result about LLMs-on-SOTA, the measured negative (Axis 1) + the broken-baseline
 finding are already a clean paper; (b) is the natural positive-result direction
-and the one that uses AALL's own methods. Your call.
+and the one that uses AALL's own methods.
+
+One more consideration against (a): it isn't just walled, it's anti-AALL. The
+holistic build (grind + nav-pacing + Gehennom nav) is a generic re-engineering of
+AutoAscend's own 15K lines of mid-game heuristics — exactly the "generic
+improvements, not AALL-method work" the lab avoids, and it drops the LLM entirely.
+(b) [LLM-guided QD, an AALL method] and (c) [novel domain] are the AALL-aligned
+plays; (a) is grinding on someone else's codebase for an uncertain gain. So (a) is
+disfavored on two grounds now: feasibility AND research ethos. Your call.
