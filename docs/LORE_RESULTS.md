@@ -1,7 +1,31 @@
 # LORE — the complete result (two-sided, one mechanism)
 
 Where LLMs help a symbolic SOTA (AutoAscend) in NetHack, and where they don't.
-One mechanism explains both. Every number measured on trx (Qwen-14B); artifacts committed.
+One mechanism explains both. Every number measured on trx (Qwen-14B unless noted); artifacts committed.
+
+## Results at a glance
+
+| axis | measurement | number |
+|---|---|---|
+| DECISIONS — macro strategy | LLM vs mock, n=100 paired | 92/100 identical → **null** |
+| DECISIONS — tactical veto | counterfactual, n=200 | 0/200 outcomes changed → **null** |
+| DECISIONS — wish (bare) | vs expert rule, n=14 | 1/14 agree, 71% hallucinate → **worse** |
+| DECISIONS — wish (+retrieval) | grounded, n=14 | hallucination fixed → **parity, no edge** |
+| DEBUG — synthetic isolated bugs | 8 Python bug types | 8/8 (100%) — the easy tail |
+| DEBUG — hand-picked real scorecard | 5 AA bugs | 4/5 (80%) — overestimates |
+| DEBUG — unbiased real, generation | n=19 / n=9 | 1/19–2/9 = **5–22% strict**, 32–44% lenient |
+| DEBUG — co-pilot (perfect localization) | n=15 | 13% strict / 47% area → localization NOT the bottleneck |
+| DEBUG — recognition (forced choice) | n=15, chance 25% | **67%** (14B) → **93%** (32B) — scales |
+| DEBUG — generation at scale | 32B concise / co-pilot | 0/15 / ~7% — **does NOT scale** |
+| DEBUG — standalone detection | neutral prompt, buggy vs fixed | P(BUG) 1/15 both → **0 discrimination** |
+| DEBUG — self-consistency / prompt-diversity | pass@5, 5 framings | ≈ pass@1 → self-contained ranker floored ~13% |
+| DEBUG — cross-domain (rich) | co-pilot, n=20 | 5% strict / 45% area → not an AA artifact |
+| DEBUG — novel bugs co-found | prayer, floating-eye | 2 code-verified real gaps, fixed |
+| ASCENSION — DL1-unstick | the one depth lever | base med DL2 → DL5 |
+| ASCENSION — DL5 wall | 13 macro variants n=1660 + role/survival | invariant → **fundamental** (75% fair-combat, underleveled) |
+
+One-line reading: LLM null at rule-governed decisions; a **93%-with-scale candidate RANKER**
+but a floored (~5–22%, non-scaling) open generator for code diagnosis; ascension walled.
 
 ## The mechanism (the spine)
 
