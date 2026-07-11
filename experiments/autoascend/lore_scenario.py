@@ -432,6 +432,7 @@ def install_descent(target_depth, wishes=()):
     from autoascend.glyph import MON as _MON
     import nle.nethack as _nh2
     import oracle as _oracle
+    patch_ring_parse()   # let AA tolerate worn rings/amulet without crashing
 
     def descent_global(self):
         agent = self.agent
@@ -750,6 +751,27 @@ def install_descent(target_depth, wishes=()):
 
     _gl.GlobalLogic.global_strategy = descent_global
     return ["descent_global(DL%d, model-free descend)" % target_depth]
+
+
+def patch_ring_parse():
+    """AutoAscend's item_manager.parse_text asserts (assert 0, 'on right hand') on
+    a WORN ring/amulet/boots -- it has no model for those worn-location suffixes,
+    so inventory.update() crashes the whole run whenever the endgame kit's rings
+    are on. AA can't reach the endgame anyway, so it never hit these. Normalize the
+    worn-location parenthetical to '(being worn)' (which AA parses as equipped)
+    BEFORE parsing. Keeps AA source frozen; unblocks the equipped deep descent."""
+    from autoascend.item import item_manager as _im
+    import re
+    _WORN = re.compile(r"\((?:on (?:right|left) (?:hand|foot|paw)|around (?:neck|left claw)|"
+                       r"on left hand|embedded in your skin)\)")
+    _orig = _im.ItemManager.parse_text.__func__ if hasattr(_im.ItemManager.parse_text, "__func__") \
+        else _im.ItemManager.parse_text
+
+    def _patched(text, category=None, glyph=None):
+        return _orig(_WORN.sub("(being worn)", text), category, glyph)
+
+    _im.ItemManager.parse_text = staticmethod(_patched)
+    return ["ring_parse_fix"]
 
 
 def patch_enhance_noop():
