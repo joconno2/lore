@@ -29,6 +29,25 @@ create an edge above the rule, because the knowledge is already in the rule/wiki
 This is not a model-size problem — no LLM beats a rule that already captures the
 optimum on a rule-determined decision.
 
+### The unifying principle (ties the negative and the positive together)
+
+The whole two-sided investigation reduces to one mechanism: **the LLM's floor is
+hallucination in EXACT-TOKEN spaces (NetHack item names AND code identifiers), and
+GROUNDING — providing the exact tokens — is what unlocks value.** The LLM adds value
+exactly when the exact tokens are PROVIDED, and fails when it must GENERATE them:
+- **Decisions (null result):** bare LLM must generate item names → hallucinates
+  ("wand of magic resistance") → worse than the rule; retrieval-grounding → parity.
+- **Debugging (positive result):** GIVEN the exact code (grounded) the LLM diagnoses
+  real bugs correctly (validated co-pilot: DL1-gate, Elbereth, prayer, floating-eye,
+  distractor-localization); asked to GENERATE the exact identifiers to FIND the code
+  (autonomous retrieval — keyword, name-selection, and agentic search all tried) it
+  hallucinates non-existent identifiers and fails. Same floor.
+
+So the debugging co-pilot works because a human/tool surfaces the code; full autonomy
+fails on the same hallucination floor as the wish decision. LLM-value ≈ f(grounding),
+floored by exact-token hallucination. (Model-dependent caveat: Qwen-14B; a larger
+model may hallucinate less in agentic search — future work.)
+
 ## What is NOT the LLM (the real, engineering contributions)
 
 - **Progress engine** (hand-rule macro director + `crash_recovery` + `sokoban_fix`):
