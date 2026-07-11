@@ -87,6 +87,37 @@ def _eat_for_intrinsics(agent):
         except Exception:
             break
     lore_patches.COUNTERS["corpses_eaten"] = eaten
+    # Then eat FOOD RATIONS for nutrition: the setup (13 wishes + 12 potion quaffs)
+    # burns turns and corpses barely feed, so the char lands in Gehennom HUNGRY and
+    # faints (= helpless = swarmed to death). Eat rations to Satiated before teleport.
+    rations = 0
+    for _ in range(8):
+        ration = None
+        for it in flatten_items(agent.inventory.items):
+            if getattr(it, "category", None) == _nh.FOOD_CLASS and \
+                    not getattr(it, "is_corpse", lambda: False)():
+                ration = it
+                break
+        if ration is None:
+            break
+        try:
+            letter = agent.inventory.items.get_letter(ration)
+        except Exception:
+            break
+        low.step(ord('e')); low.step(ord(letter)); low.step(ord('y'))
+        low.step(13); low.step(13)
+        rations += 1
+        try:
+            agent.step(__import__("autoascend.agent", fromlist=["A"]).A.Command.ESC)
+            agent.inventory.update()
+        except Exception:
+            break
+        try:
+            if 'satiated' in str(agent.message).lower() or 'stuffed' in str(agent.message).lower():
+                break
+        except Exception:
+            pass
+    lore_patches.COUNTERS["rations_eaten"] = rations
 
 
 def _equip_endgame(agent):
