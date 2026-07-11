@@ -27,12 +27,13 @@ hallucination. Not a model-size problem.
   SOTA at. AA has no "grind for XP" behavior, so pacing the dive needs new
   capability AA deliberately lacks — not a lever tweak.
 - "Closer to ascending" exists only in wizard-`^V` scenario tooling (place a
-  kitted agent at DL27-49) — not legitimate play. (CORRECTION 2026-07-11: the
-  earlier "invocation levels are sealed no-dig pockets" claim was an instrumentation
-  artifact — AA's level model is empty right after a wizard teleport, so the BFS
-  saw no frontier. Deep levels ARE navigable: the working explorer traverses 167
-  cells. The invocation-demo blocker is SURVIVAL at DL47-50, not topology; retesting
-  with genocide now. This may reopen the real-invocation capability rung.)
+  kitted agent at DL27-49) — not legitimate play. And the real invocation is
+  blocked: on ^V-generated Gehennom levels the agent is confined to a small
+  16-54-cell region (verified with wide genocide + 1300+ turn survival,
+  frontier→0/1, vibrating square never found), and the levels are no-dig with 0/N
+  stairs. (A mid-session doubt that this was an instrumentation artifact was itself
+  wrong — it came from under-powered runs that died before exploring; re-verified
+  the confined-region result with a surviving, fully-exploring agent.)
 
 ## The pivot options
 
