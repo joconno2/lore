@@ -70,8 +70,22 @@ model may hallucinate less in agentic search — future work.)
   deaths, median XL6/DL5, underleveled diving into the Mines). That DL5 wall was
   then probed across every intervention class — all null except the DL1 unstick:
   macro/strategy (13 variants, n=1660, all median DL5), Elbereth-loop bug-fix
-  (0/0/100 no-op; p=0.39), disengage/survival (p=0.16), dive-pacing (crashes AA),
-  and character role (forced Valkyrie, the best ascension role, still median DL5).
+  (0/0/100 no-op; p=0.39), disengage/survival (p=0.16), dive-pacing (crashes AA —
+  now root-caused, below), and character role (forced Valkyrie, the best ascension
+  role, still median DL5).
+  **Dive-pacing crash root-caused (2026-07-11, n=12 repro: 8/12 crash).** The descent
+  gate holds by raising `AgentPanic` on the descend-move; the held agent then sits on
+  the downstairs doing nothing, so AA's own cyclic-panic guard (`assert
+  inactivity_counter < 5`, reset only when `step_count` advances) trips → RuntimeError.
+  Varying the panic message never helped because the guard counts INACTIVITY, not
+  messages. Deeper point: AA navigates to the downstairs only once the reachable level
+  is explored, so blocking descent leaves it with nothing to do — i.e. AA descends
+  BECAUSE the level's XP is worked out. Descent-pacing therefore cannot "grind XP" that
+  is no longer there; a faithful XP-pacing intervention would have to reroute the agent
+  to XP-rich areas (Mines) rather than dive DoD — a redesign of AA's level-selection
+  strategy (a game-design decision), not a mechanical patch. So the one lever that
+  "crashed" rather than cleanly failing is now explained: it can't work as built, and
+  the version that could is a strategy redesign. The DL5 wall stands.
   So the DL5 median is AA's fundamental mid-game combat-death rate, invariant to
   strategy/role/survival-tuning; ascension lives only in the rare tail (p90 DL8,
   p95 DL10). Baseline validated as fair (native `no_progress_timeout`: DL1-stuck
