@@ -12,7 +12,7 @@ for path in glob.glob(AA_SRC+"/**/*.py",recursive=True):
     try: SRC[path]=open(path).read().split("\n")
     except: pass
 ALL="\n".join("\n".join(v) for v in SRC.values()).lower()
-SYMPTOMS=("The bot stays on Dungeon Level 1 for 14000+ turns, experience level rises to ~7, "
+import sys; SYMPTOMS=sys.argv[1] if len(sys.argv)>1 else ("The bot stays on Dungeon Level 1 for 14000+ turns, experience level rises to ~7, "
  "then it starves. It never issues the descend command though the downstairs is visible.")
 words=re.findall(r"[a-z]+",SYMPTOMS.lower())
 cands=set(words)|{words[i]+"_"+words[i+1] for i in range(len(words)-1)}
