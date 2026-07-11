@@ -1111,10 +1111,15 @@ def patch_ring_parse():
     import re
     _WORN = re.compile(r"\((?:on (?:right|left) (?:hand|foot|paw)|around (?:neck|left claw)|"
                        r"on left hand|embedded in your skin)\)")
+    # Candelabrum-of-Invocation state parentheticals also assert (AA has no model
+    # for the invocation items): "(no candles attached)", "(7 candles attached)",
+    # "(7 candles, lit)". Strip them so parse_text treats it as a plain carried item.
+    _CAND = re.compile(r"\((?:no candles attached|\d+ candles(?: attached|, lit| attached, lit)?)\)")
     _orig = _im.ItemManager.parse_text.__func__ if hasattr(_im.ItemManager.parse_text, "__func__") \
         else _im.ItemManager.parse_text
 
     def _patched(text, category=None, glyph=None):
+        text = _CAND.sub("", text)
         return _orig(_WORN.sub("(being worn)", text), category, glyph)
 
     _im.ItemManager.parse_text = staticmethod(_patched)

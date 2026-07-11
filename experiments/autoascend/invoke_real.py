@@ -1,30 +1,28 @@
-"""Real invocation demo (rung 4). Iterative-teleport to deep Gehennom with the
-invocation kit; on each level DL(target..target-6) SINGLE-STEP-walk watching for
-the 'strange vibration' message (the vibrating square). Robust: catches death per
-level and moves on. If found, records level+pos (the real invocation is then the
-proven ritual on that square)."""
-import sys, json, gym, nle, lore_patches, lore_scenario, random
+"""Real invocation demo (rung 4, AA-0%). Iterative-teleport to deep Gehennom with
+the invocation kit; on each candidate level (target-6 .. target, reached by DOWN
+teleport) systematically go_to every reachable cell watching for the vibrating
+square's 'strange vibration' message. Reports the level+pos when found."""
+import sys, json, gym, nle, lore_patches, lore_scenario
 seed = int(sys.argv[1]); target = int(sys.argv[2]); OUT = sys.argv[3]
 lore_scenario.patch_enhance_noop()
+lore_scenario.patch_ring_parse()   # tolerate worn rings + candelabrum state strings
 from autoascend import global_logic as _gl
 import autoascend.agent as _A
-from autoascend.exceptions import AgentFinished, AgentPanic
+from autoascend.exceptions import AgentFinished
 import nle.nethack as _nh
-DIRS = [ord(c) for c in "hjklyubn"]
 R = {"levels": [], "found": None}
 def _msg(agent):
     try: return bytes(agent.last_observation['message']).decode('latin1').strip('\x00').strip().lower()
     except Exception: return ""
 def probe(self):
     agent = self.agent
-    if getattr(agent, "_done", False):
-        raise AgentFinished()
+    if getattr(agent, "_done", False): raise AgentFinished()
     agent.__dict__["_done"] = True
-    low = agent.env.env.unwrapped.env
-    for it in ["The Candelabrum of Invocation","7 wax candles","The Bell of Opening",
-               "The Book of the Dead","12 blessed potions of gain level",
-               "12 blessed potions of gain level","blessed +3 gray dragon scale mail",
-               "blessed ring of free action"]:
+    # SEARCH PHASE: survival kit ONLY -- the Candelabrum isn't in AA's item DB, so
+    # having it in inventory makes every inventory.update() assert and corrupts the
+    # agent (blocks go_to). Wish the invocation items LATER, once on the square.
+    for it in ["12 blessed potions of gain level","12 blessed potions of gain level",
+               "blessed +3 gray dragon scale mail","blessed ring of free action"]:
         lore_scenario._do_wish(agent, it)
     try:
         agent.step(_A.A.Command.ESC); agent.inventory.update()
@@ -39,23 +37,31 @@ def probe(self):
         if s.check_condition(): s.run()
         agent.step(_A.A.Command.ESC); agent.inventory.update()
     except Exception as e: R["setup_err"]=repr(e)[:50]
-    for lvl in range(target, max(target-7, 27), -1):
+    # search each candidate level, reached by DOWN teleport (43->..->target)
+    for lvl in range(max(target-6, 28), target+1):
         try: lore_scenario._do_teleport(agent, lvl)
-        except Exception as e: R["levels"].append([lvl,"tp_err"]); continue
+        except Exception as e: R["levels"].append([lvl,"tp_err %r"%e]); continue
         try: cur=int(agent.blstats.depth)
         except Exception: cur=lvl
-        found=False; steps=0
+        if "vibrat" in _msg(agent):
+            R["found"]={"level":cur,"pos":[int(agent.blstats.y),int(agent.blstats.x)],"how":"on-arrival"}; break
+        found=False; visited=0
         try:
-            for steps in range(80):
+            for _ in range(150):
                 if "vibrat" in _msg(agent):
-                    found=True; R["found"]={"level":cur,"pos":[int(agent.blstats.y),int(agent.blstats.x)],"msg":_msg(agent)[:60]}; break
-                low.step(random.choice(DIRS)); low.step(13)  # single step + clear
+                    found=True; R["found"]={"level":cur,"pos":[int(agent.blstats.y),int(agent.blstats.x)],"how":"walked","visited":visited}; break
+                # AA's explore1 populates + covers the level model (raw go_to fails
+                # on the empty post-teleport level). Stop when fully explored.
+                e=agent.exploration.explore1(0)
+                if e.check_condition():
+                    e.run(); visited+=1
+                else:
+                    break
         except AgentFinished:
-            R["levels"].append([cur,"died",steps]); 
-            raise
-        except Exception:
-            pass
-        R["levels"].append([cur,"FOUND" if found else "no-vib",steps])
+            R["levels"].append([cur,"died",visited]); raise
+        except Exception as _we:
+            R.setdefault("walk_err", repr(_we)[:50])
+        R["levels"].append([cur,"FOUND" if found else "no-vib", visited])
         if found: break
     raise AgentFinished()
 _gl.GlobalLogic.global_strategy = probe
