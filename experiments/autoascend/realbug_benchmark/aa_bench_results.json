@@ -1,0 +1,250 @@
+[
+ {
+  "search_terms": [
+   "handling",
+   "cyclic"
+  ],
+  "retrieved": [
+   "agent.py:move",
+   "agent.py:f",
+   "agent.py:main"
+  ],
+  "gate": "BUG The cyclic panic handling needs to be fixed to prevent infinite loops or unexpected behavior during game play.",
+  "diagnosis": "### Function: `agent.py:main`\n#### Bug:\nThe `main` function contains an assertion that checks for a cyclic panic condition. The assertion `assert inactivity_counter < 5, ('cyclic panic', ...)` is supposed to prevent infinite loops but seems to be causing a cyclic panic itself due to incorrect handling of exceptions or conditions.\n\n#### Fix:\nTo address the cyclic panic issue, the code should include a mechanism to terminate the loop after a certain number of iterations or a specific score threshold. For example, adding a score counter and quitting after reaching a score of 5000:\n\n```python\nscor",
+  "sha": "073d770",
+  "symptom": "Fix cyclic panic handling, quit after 5000 score",
+  "target": "agent.py:main",
+  "loc_hit": true
+ },
+ {
+  "search_terms": [
+   "gas_spore"
+  ],
+  "retrieved": [
+   "stats_logger.py:__init__",
+   "fight_heur.py:melee_monster_priority"
+  ],
+  "gate": "BUG\n\nThe issue arises from a specific condition not being fully accounted for in the `melee_monster_priority` function, leading to suboptimal handling of the gas spore scenario.",
+  "diagnosis": "**Function:** `melee_monster_priority` from the file `fight_heur.py`\n\n**Bug:** The code incorrectly handles the scenario where the player is surrounded by a single `gas spore`. The condition to check if the player is trapped by a `gas spore` is flawed, leading to incorrect behavior.\n\n**Fix:** Modify the condition to accurately determine if the player is trapped by a `gas spore`. This involves checking if the player can move to any adjacent position without encountering the `gas spore`.\n\nHere's the corrected code snippet:\n\n```python\nif mon.mname == 'gas spore':\n    # handle a specific case when",
+  "sha": "bf8617a",
+  "symptom": "Fix case with being blocked by gas spore, measure longer",
+  "target": "fight_heur.py:get_priorities",
+  "loc_hit": false
+ },
+ {
+  "search_terms": [],
+  "retrieved": [],
+  "gate": "BUG\n\nThe issue might stem from a coding error in how the bot interprets or interacts with the game environment, which can be identified and corrected.",
+  "diagnosis": "**Function:** RL (Reinforcement Learning)\n\n**Bug:** The term \"Fix RL\" is ambiguous and could refer to various issues within a reinforcement learning algorithm, such as incorrect reward calculation, inefficient policy updates, or convergence problems.\n\n**Fix:** To address the issue, we need more specific details about the problem. However, a general approach could be:\n\n1. **Review Reward Function:** Ensure that the reward function accurately reflects the desired behavior.\n2. **Check Policy Update Mechanism:** Verify that the policy update mechanism (e.g., Q-learning, SARSA) is implemented corre",
+  "sha": "ec3cc35",
+  "symptom": "Fix RL",
+  "target": "agent.py:fight3",
+  "loc_hit": false
+ },
+ {
+  "search_terms": [
+   "monster_tracker",
+   "tracker",
+   "monster"
+  ],
+  "retrieved": [
+   "agent.py:fight3",
+   "agent.py:get_visible_monsters",
+   "agent.py:__init__",
+   "agent.py:move",
+   "agent.py:bfs",
+   "agent.py:_update_level_shops"
+  ],
+  "gate": "BUG\nThe issue seems to stem from an incomplete implementation of handling invisible or adjacent monsters, which can lead to incorrect tracking and interaction logic.",
+  "diagnosis": "**Function:** `get_visible_monsters` in `agent.py`\n\n**Bug:** The function `get_visible_monsters` incorrectly filters out some monsters that should be considered. Specifically, the condition `if self.glyphs[y, x] == nh.GLYPH_INVISIBLE or not MON.is_monster(self.glyphs[y, x]):` might exclude valid monsters, especially those that are invisible but still have a corresponding `permonst` entry.\n\n**Fix:** Modify the condition to ensure that all valid monsters are included, even if they are invisible. This can be done by checking if the glyph corresponds to a known monster before filtering based on vi",
+  "sha": "88a1b9b",
+  "symptom": "Fix monster tracker",
+  "target": "item.py:gather_items",
+  "loc_hit": false
+ },
+ {
+  "search_terms": [
+   "step_calling",
+   "calling",
+   "engraving",
+   "atom_operation",
+   "operation"
+  ],
+  "retrieved": [
+   "strategy.py:f",
+   "agent.py:disallow_step_calling",
+   "agent.py:call_update_functions",
+   "heur.py:run_profiling",
+   "item.py:_determine_possible_wands",
+   "item.py:action_generator"
+  ],
+  "gate": "BUG The issue seems to stem from an incorrect calling order of the visualizer steps and an incomplete implementation for handling wand engraving as an atomic operation, which can be fixed through code adjustments.",
+  "diagnosis": "**Function:** `item.py:action_generator`\n\n**Bug:** The `action_generator` function does not handle the atomic nature of wand engraving properly. Specifically, it may prematurely terminate or fail to correctly manage the sequence of actions related to wand engraving.\n\n**Fix:** Ensure that the `action_generator` function handles the wand engraving as an atomic operation. This means that once the process starts, it should complete without interruption and handle any potential errors gracefully. Additionally, ensure that the step calling order within the `agent` class is fixed to prevent premature",
+  "sha": "bad5143",
+  "symptom": "Fix visualizer step calling order, make wand engraving atom operation",
+  "target": "item.py:wand_engrave_identify",
+  "loc_hit": false
+ },
+ {
+  "search_terms": [],
+  "retrieved": [],
+  "gate": "BUG\n\nThe failure might be due to a specific bug in pathfinding or action prioritization that affects complex decision-making in the game environment.",
+  "diagnosis": "It seems like you're asking for an example of a function with a related bug and its fix. Here's a simple example:\n\nFunction: `calculate_area(length, width)`\nBug: The function incorrectly calculates the area using multiplication instead of addition.\nFix: Change the operation from addition to multiplication in the calculation.\n\nHere's how it might look in code:\n\n**Original Function:**\n```python\ndef calculate_area(length, width):\n    return length + width  # Incorrect operation\n```\n\n**Bug Fix:**\n```python\ndef calculate_area(length, width):\n    return length * width  # Corrected operation\n```\n\nThi",
+  "sha": "6bd6eee",
+  "symptom": "Fixes",
+  "target": "agent.py:eat",
+  "loc_hit": false
+ },
+ {
+  "search_terms": [
+   "total_time",
+   "pyinstrument"
+  ],
+  "retrieved": [
+   "heur.py:run_profiling",
+   "visualize.py:__init__",
+   "visualize.py:_update_dynamic_frame_skipping",
+   "heur.py:parse_args"
+  ],
+  "gate": "BUG The issue seems to be related to how the total profiling time is calculated and reported when using pyinstrument, indicating a specific implementation problem rather than an inherent difficulty of the game.",
+  "diagnosis": "**Function:** `heur.py:run_profiling`\n\n**Bug:** The total time reported by `pyinstrument` is incorrect because the stop method returns a session object which does not directly provide the total execution time.\n\n**Fix:** Instead of using `profiler.stop()` directly, use `session.print()` to print the profiling results and extract the total time from the session object.\n\nHere's how you can modify the code:\n\n```python\nif args.profiler == 'pyinstrument':\n    session = profiler.stop()\n    # Assuming there's a way to get the total time from the session object\n    # This might require parsing the prin",
+  "sha": "3b25d57",
+  "symptom": "Fix pyinstrument total time",
+  "target": "agent.py:move",
+  "loc_hit": false
+ },
+ {
+  "search_terms": [],
+  "retrieved": [],
+  "gate": "BUG\n\nThe issue described seems to stem from a programming oversight rather than an inherent complexity of the game, suggesting there's a specific bug related to how monk armor habits are handled programmatically.",
+  "diagnosis": "**Function:** Monk Armor Mechanics\n\n**Bug:** The current implementation of monk armor in the game is not functioning as intended. Specifically, the armor rating or defensive capabilities provided by monk gear are either too high or too low compared to the design specifications.\n\n**Fix:** Adjust the formulas or values that determine the effectiveness of monk armor to ensure it aligns with the intended balance and gameplay mechanics. This may involve tweaking the base stats, scaling factors, or any other relevant parameters to achieve the desired defensive properties for monk characters.",
+  "sha": "195eaad",
+  "symptom": "Fix monk armor habits",
+  "target": "item.py:get_best_armorset",
+  "loc_hit": false
+ },
+ {
+  "search_terms": [
+   "to_item"
+  ],
+  "retrieved": [
+   "item.py:gather_items",
+   "item.py:check_items",
+   "item.py:go_to_item_to_pickup"
+  ],
+  "gate": "BUG The function go_to_item_to_pickup does not correctly handle the case where all items are already picked up, leading to an infinite loop or incorrect behavior.",
+  "diagnosis": "**Function:** `item.py:go_to_item_to_pickup`\n\n**Bug:** The function `go_to_item_to_pickup` does not properly handle the case where there are no items to pick up or drop, leading to an infinite loop or unexpected behavior.\n\n**Fix:** Add a condition to check if `items` is empty and handle it appropriately before proceeding to determine which items to pick up or drop.\n\nHere's a brief fix:\n\n```python\ndef go_to_item_to_pickup(self):\n    level = self.agent.current_level()\n    dis = self.agent.bfs()\n\n    mask = dis > 0\n    mask[mask] = np.vectorize(len)(level.items[mask]) != 0\n\n    items = {}\n    for",
+  "sha": "bde22a3",
+  "symptom": "Fix go_to_item bug",
+  "target": "item.py:go_to_item_to_pickup",
+  "loc_hit": true
+ },
+ {
+  "search_terms": [
+   "get_available",
+   "available_actions",
+   "available",
+   "actions"
+  ],
+  "retrieved": [
+   "fight_heur.py:get_available_actions",
+   "fight_heur.py:build_priority_map",
+   "twentyone.py:__init__",
+   "tictactoe.py:__init__",
+   "spiel.py:__init__",
+   "simple_grid.py:__init__"
+  ],
+  "gate": "BUG The function get_available_actions incorrectly returns after the first monster iteration, missing other potential actions for other monsters.",
+  "diagnosis": "### Function: `get_available_actions`\n#### Bug:\nThe `return` statement is inside the `for` loop, causing the function to return after processing the first monster instead of all monsters.\n\n#### Fix:\nMove the `return` statement outside the `for` loop so that all available actions are collected before returning.\n\n```python\ndef get_available_actions(agent, monsters):\n    actions = []\n    for _, y, x, mon, _ in monsters:\n        if utils.adjacent((y, x), (agent.blstats.y, agent.blstats.x)):\n            priority = melee_monster_priority(agent, monsters, mon)\n            actions.append((priority, 'm",
+  "sha": "4b536a3",
+  "symptom": "Fix get_available_actions",
+  "target": "agent.py:fight2",
+  "loc_hit": false
+ },
+ {
+  "search_terms": [
+   "sokoban"
+  ],
+  "retrieved": [
+   "global_logic.py:current_strategy",
+   "global_logic.py:global_strategy",
+   "global_logic.py:__init__",
+   "global_logic.py:solve_sokoban_strategy",
+   "exploration_logic.py:levels_to_explore_to_get_to",
+   "agent.py:bfs"
+  ],
+  "gate": "BUG The code provided contains issues in identifying and solving Sokoban puzzles correctly, particularly in matching the Sokoban map to the game state accurately.",
+  "diagnosis": "**Function:** `solve_sokoban_strategy`\n\n**Bug:** The code snippet for `solve_sokoban_strategy` contains an incomplete and incorrect implementation of the Sokoban puzzle-solving logic. Specifically, the last part of the function where it attempts to find and move boulders based on the Sokoban map solution is missing crucial details and has syntax errors.\n\n**Fix:** To properly implement the Sokoban solving strategy, the function should correctly identify the Sokoban map within the game environment, apply the precomputed solution to move boulders, and ensure that the movement logic is correctly i",
+  "sha": "e3328d1",
+  "symptom": "Fix sokoban",
+  "target": "global_logic.py:solve_sokoban_strategy",
+  "loc_hit": true
+ },
+ {
+  "search_terms": [],
+  "retrieved": [],
+  "gate": "BUG\n\nThe issue described seems to stem from technical problems within the bot's code rather than the inherent complexity of the game itself.",
+  "diagnosis": "**Function:** Forging/Forking\n\n**Bug:** The current implementation of forking does not work as expected, leading to issues in replicating or cloning processes correctly.\n\n**Fix:** Implement a robust forking mechanism that ensures accurate replication and management of processes.\n\n---\n\n**Function:** Agent Reloading\n\n**Bug:** Agents cannot be reloaded dynamically, which restricts the ability to update or modify agents during runtime without restarting the entire system.\n\n**Fix:** Develop a feature that allows for dynamic reloading of agents, enabling updates and modifications without needing to ",
+  "sha": "179a676",
+  "symptom": "Fix forking, add agent reloading",
+  "target": "agent.py:main",
+  "loc_hit": false
+ },
+ {
+  "search_terms": [
+   "solving",
+   "sokoban",
+   "strategy"
+  ],
+  "retrieved": [
+   "global_logic.py:__init__",
+   "global_logic.py:current_strategy",
+   "global_logic.py:global_strategy",
+   "exploration_logic.py:go_to_random_level_to_explore",
+   "global_logic.py:solve_sokoban_strategy",
+   "agent.py:f"
+  ],
+  "gate": "BUG The code lacks proper handling for aligning the Sokoban map correctly with the game environment, leading to misalignment issues when attempting to solve Sokoban puzzles.",
+  "diagnosis": "**Function:** `solve_sokoban_strategy` in `global_logic.py`\n\n**Bug:** The code snippet has an incomplete line where the variable `offset` is referenced but not properly defined due to a syntax error. Specifically, the line `mask = boulder_map[offse]` is missing the rest of the indexing.\n\n**Fix:** Complete the indexing for `boulder_map` and ensure that `offset` is correctly used. Here's the corrected line:\n\n```python\nmask = boulder_map[offset[0]:offset[0] + sokomap.sokomap.shape[0], offset[1]:offset[1] + sokomap.sokomap.shape[1]]\n```\n\nThis ensures that the correct section of the map is being ch",
+  "sha": "0114ad4",
+  "symptom": "Fix sokoban solving strategy",
+  "target": "global_logic.py:solve_sokoban_strategy",
+  "loc_hit": true
+ },
+ {
+  "search_terms": [
+   "eating"
+  ],
+  "retrieved": [
+   "objects.py:COIN"
+  ],
+  "gate": "FUNDAMENTAL\n\nThe issue described seems to be related to the strategy or behavior of the bot rather than a specific bug in the provided code snippets.",
+  "diagnosis": "",
+  "sha": "326741c",
+  "symptom": "Fix eating habits",
+  "target": "agent.py:eat1",
+  "loc_hit": false
+ },
+ {
+  "search_terms": [
+   "and_popup",
+   "message_and",
+   "get_message",
+   "message"
+  ],
+  "retrieved": [
+   "agent.py:get_message_and_popup",
+   "agent.py:update_map",
+   "visualize.py:_draw_message_log",
+   "visualize.py:_draw_topbar",
+   "agent.py:parse",
+   "visualize.py:__init__"
+  ],
+  "gate": "BUG The function get_message_and_popup has issues with correctly parsing extended messages and popups due to incorrect handling of '--More--' prompts.",
+  "diagnosis": "### Function: `get_message_and_popup`\n\n#### Bug:\nThe `get_message_and_popup` function has a logical error where it incorrectly handles the extraction of extended messages and popups when encountering '--More--'. Specifically, the condition `if b'--More--' not in line:` is inside a loop that iterates over lines, which can lead to incorrect message and popup parsing.\n\n#### Fix:\nTo correctly handle the extraction of extended messages and popups, the logic should be adjusted to ensure that the message and popup are parsed only once per '--More--' encounter. Here's a revised version of the function",
+  "sha": "97a231d",
+  "symptom": "Fix get_message_and_popup",
+  "target": "agent.py:get_message_and_popup",
+  "loc_hit": true
+ }
+]

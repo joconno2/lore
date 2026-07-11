@@ -40,22 +40,32 @@ gate → diagnose. Scorecard (symptoms only, Qwen-14B, `autonomous_debug5.py`):
 | container empty-sack (cross-file int-vs-str id) | plausible-but-wrong ✗ |
 | DL8+ diverse combat (fundamental, no bug) | correctly DECLINED ✓ |
 
-**Envelope:** clear/local bugs reliable (4/4 localized), fundamental correctly
-declined (calibration gate). Diagnosis CEILING is high: a controlled benchmark of 8
-isolated Python bug types scored **8/8** — recall gotchas 3/3 (mutable default,
-late-binding closure, shadowed builtin) AND value-tracing 5/5 (is-vs-==, off-by-one,
-unbound-after-discard, type-key-mismatch, and/or-precedence). It FOUND the int-vs-str
-type-mismatch in isolation — even UN-annotated (a controlled test isolating the
-comments as the only variable: both annotated and un-annotated isolated versions were
-FOUND). So two tidy hypotheses for the one real failure were tested and DISPROVEN —
-"value-tracing fails" (wrong: 8/8) and "annotation inflates" (wrong: un-annotated
-isolated found). The characterization is EMPIRICAL, not mechanistic: the LLM diagnoses
-isolated/synthetic bugs near-perfectly (8/8) but can miss bugs in COMPLEX REAL code
-(the one failure is the actual AA container, given directly — its real logic
-complexity, multiple id sources, and the `_recheck` interaction), and the exact cause
-was not cleanly isolated. **Methodological caveat (a genuine contribution): synthetic
-bug benchmarks OVERESTIMATE debuggers because real code is more complex — so the
-reliable number is the real-bug scorecard (4/5), not the synthetic 8/8.**
+**Envelope (corrected by an unbiased real-bug benchmark).** The scorecard above is
+hand-picked and OVERESTIMATES. An unbiased benchmark — every qualifying bug-fix commit
+from the upstream AutoAscend git history (254 commits → 15 cases, the debugger run on
+each parent tree from the author's commit-subject symptom alone; `realbug_benchmark/`)
+— gives the real ladder:
+
+| eval set | diagnosis correct |
+|---|---|
+| synthetic isolated Python bugs | 8/8 = 100% |
+| hand-picked real (the scorecard) | 4/5 = 80% |
+| **unbiased real (clean-9, fair)** | **2/9 = 22% strict, 4/9 = 44% lenient** |
+| unbiased real (all-15) | 2/15 = 13% / 5/15 = 33% |
+
+So the reliable number is ~22%, not 80% and not the synthetic 8/8 — synthetic
+benchmarks overestimate by ~4x, and even a hand-picked real scorecard overestimates the
+unbiased real rate by ~4x. **The two-factor mechanism (from the benchmark):** every
+CORRECT diagnosis was also a localization hit (localization NECESSARY), but localization
+is NOT sufficient — 5/9 localized, only 2 diagnosed (the 3 localized-but-wrong are
+complex multi-line logic rewrites the LLM reached but could not diagnose). So
+**correct diagnosis = grounded-symptom-localization × bug-locality**, both required.
+Failure modes are all consistent with it: ungroundable symptom (0 search terms:
+"Fixes", "Fix RL") → boilerplate (the exact-token floor again); localized-but-complex →
+vague or FABRICATED (invented a syntax error that wasn't the bug); one gate false-decline.
+The controlled synthetic ceiling still holds (8/8 isolated, value-tracing 5/5, un-annotated
+found — "value-tracing fails" and "annotation inflates" both DISPROVEN), but isolated
+bugs are the easy tail: the debugger is REAL but NARROW.
 Retrieval had to be GROUNDED: LLM-generated search terms (keyword / name-select /
 agentic) all hallucinated non-existent identifiers and failed — the same floor as
 the wish decision. Grounding the search (real symptom-terms) unlocks it. The LLM
@@ -77,11 +87,14 @@ not AA-specific: it diagnosed a real Python bug in the LORE tooling too.
 
 ## The paper
 
-"LLMs can't out-DECIDE a symbolic SOTA in a rule-governed game, but a grounded
-LLM pipeline can autonomously DEBUG it (find real bugs, decline fundamental ones)."
-One mechanism (grounding unlocks; exact-token hallucination floors) ties the null
-decisions and the working debugger together. Negative + positive + a working,
-characterized artifact.
+"LLMs can't out-DECIDE a symbolic SOTA in a rule-governed game; a grounded LLM
+pipeline CAN autonomously debug it, but only within a sharp envelope — correct
+diagnosis = grounded-symptom-localization × bug-locality, ~22% on unbiased real bugs
+(not the 80% a hand-picked scorecard implies)." One mechanism (grounding unlocks;
+exact-token hallucination floors; locality bounds) ties all three together: the null
+decisions, the bounded debugger, and its measured failure modes. The contribution is
+the ENVELOPE, mapped and mechanistically explained on a real 15K-line agent — negative
++ bounded-positive + the two-factor law that predicts which bugs it gets.
 
 Detail: `Agent/daily/2026-07-11.md`. Code: `experiments/autoascend/` (oracle.py,
 wish_grounded.py, llm_debug_*.py, autonomous_debug{4,5}.py, the *_fix/*_safety patches).
