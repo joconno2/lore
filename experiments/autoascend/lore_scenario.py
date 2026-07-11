@@ -475,6 +475,8 @@ def install_descent(target_depth, wishes=()):
                 for it in wishes:
                     _do_wish(agent, it)
                 lore_patches.COUNTERS["wishes"] = len(wishes)
+                try: lore_patches.COUNTERS["t_after_wishes"] = int(agent.blstats.time)
+                except Exception: pass
                 try:
                     agent.step(_ag3.A.Command.ESC)
                     agent.inventory.update()
@@ -493,11 +495,17 @@ def install_descent(target_depth, wishes=()):
                     except Exception:
                         break
                 lore_patches.COUNTERS["xl_before_tp"] = int(agent.blstats.experience_level)
+                try: lore_patches.COUNTERS["t_after_quaff"] = int(agent.blstats.time)
+                except Exception: pass
                 import os as _os
                 if _os.environ.get("LORE_NO_EAT") != "1":
                     _eat_for_intrinsics(agent)  # poison res from wished corpses
+                try: lore_patches.COUNTERS["t_after_eat"] = int(agent.blstats.time)
+                except Exception: pass
                 if _os.environ.get("LORE_NO_EQUIP") != "1":
                     _equip_endgame(agent)       # wear armor + put on amulet/rings
+                try: lore_patches.COUNTERS["t_after_equip"] = int(agent.blstats.time)
+                except Exception: pass
                 _do_teleport(agent, target_depth)
                 lore_patches._bump("scenario_teleport")
                 lore_patches.COUNTERS["tp_depth"] = int(agent.blstats.depth)
