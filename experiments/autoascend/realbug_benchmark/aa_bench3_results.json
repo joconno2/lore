@@ -1,0 +1,410 @@
+[
+ {
+  "search_terms": [
+   "handling",
+   "cyclic"
+  ],
+  "retrieved": [
+   "agent.py:move",
+   "agent.py:f",
+   "agent.py:main"
+  ],
+  "gate": "BUG The cyclic panic handling needs to be fixed to prevent infinite loops or unexpected behavior during game play.",
+  "diagnosis": "### Function: `agent.py:main`\n#### Bug:\nThe `main` function contains an assertion that checks for a cyclic panic condition. However, the assertion message is incomplete and incorrectly formatted, leading to potential confusion and errors in debugging.\n\n#### Fix:\nEnsure the assertion message is properly formatted and complete. The corrected assertion should look like:\n\n```python\nassert inactivity_counter < 5, ('cyclic panic', sorted([p.args[0] for p in self.panics]))\n```\n\nThis ensures that the error message is clear and provides useful information about the nature of the panic.\n\n### Function: `",
+  "sha": "073d7703f3d0cfb5a80f404da4ecacdabca546a6",
+  "symptom": "Fix cyclic panic handling, quit after 5000 score",
+  "changed_funcs": [
+   "agent.py:main"
+  ],
+  "groundable": true,
+  "loc_hit_any": true
+ },
+ {
+  "search_terms": [
+   "gas_spore"
+  ],
+  "retrieved": [
+   "stats_logger.py:__init__",
+   "fight_heur.py:melee_monster_priority"
+  ],
+  "gate": "BUG\n\nThe issue arises from a specific condition not being fully accounted for in the `melee_monster_priority` function, leading to suboptimal handling of the gas spore scenario.",
+  "diagnosis": "**Function:** `melee_monster_priority` from the file `fight_heur.py`\n\n**Bug:** The code does not properly handle the scenario where the player is effectively blocked by a `gas spore`. Specifically, the logic to log the event `melee_gas_spore` and adjust the priority value based on the player's condition when encountering a `gas spore` is flawed.\n\n**Fix:** Ensure that the `melee_gas_spore` event is logged correctly and adjust the priority value appropriately when the player is surrounded by a `gas spore`.\n\nHere\u2019s a refined version of the relevant part of the function:\n\n```python\nif mon.mname ==",
+  "sha": "bf8617acf028637e21149b62949ff3037314b493",
+  "symptom": "Fix case with being blocked by gas spore, measure longer",
+  "changed_funcs": [
+   "fight_heur.py:get_move_actions",
+   "fight_heur.py:get_priorities"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [],
+  "retrieved": [],
+  "gate": "BUG\n\nThe issue described could be due to a coding error in how the bot interacts with or interprets game mechanics, which can be identified and corrected.",
+  "diagnosis": "**Function:** RL (Reinforcement Learning)\n\n**Bug:** The term \"Fix RL\" is ambiguous and doesn't specify the exact issue within the Reinforcement Learning context.\n\n**Fix:** Clarify the specific problem or error in the RL algorithm. For example, if it's about convergence issues, reward shaping problems, or instability during training, provide more details to address the bug effectively.",
+  "sha": "ec3cc35ec7dc917766e1a6b16e4b18be636d5007",
+  "symptom": "Fix RL",
+  "changed_funcs": [
+   "agent.py:_init_fight3_model",
+   "agent.py:fight3",
+   "agent.py:keep_distance",
+   "global_logic.py:global_strategy"
+  ],
+  "groundable": false,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [
+   "only_ranged",
+   "process",
+   "ranged"
+  ],
+  "retrieved": [
+   "fight_heur.py:draw_monster_priority_negative",
+   "fight_heur.py:draw_monster_priority_positive",
+   "agent.py:fight2",
+   "visualize.py:start_display_thread",
+   "filter_for_vis.py:process",
+   "fight_heur.py:get_available_actions"
+  ],
+  "gate": "BUG The issue seems to stem from an incorrect handling of process joining in the fight2 method, leading to improper behavior when dealing with certain monsters like the acid blob.",
+  "diagnosis": "**Function:** `draw_monster_priority_negative`\n\n**Bug:** The function does not correctly handle the scenario where the agent should avoid melee combat with certain monsters that are only effective at range but slow. Specifically, the condition to avoid melee with these monsters is missing or incorrectly applied.\n\n**Fix:** Add a condition to check if the monster is in `ONLY_RANGED_SLOW_MONSTERS` and ensure the agent avoids melee combat with such monsters unless it has ranged weapons available. This can be done by adding an additional check before drawing the priority map:\n\n```python\nif mon.mnam",
+  "sha": "5cc0b5b07edcb6e7eaa6443837beb836a2cd3785",
+  "symptom": "Fix process joining, add acid blob to only ranged",
+  "changed_funcs": [
+   "exploration_logic.py:to_search_func",
+   "fight_heur.py:goto_action"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [
+   "monster_tracker",
+   "tracker",
+   "monster"
+  ],
+  "retrieved": [
+   "agent.py:fight3",
+   "agent.py:get_visible_monsters",
+   "agent.py:__init__",
+   "agent.py:move",
+   "agent.py:bfs",
+   "agent.py:_update_level_shops"
+  ],
+  "gate": "BUG The issue seems to stem from an incorrect handling of peaceful monsters in the walkable area calculation, leading to navigation errors around non-hostile creatures.",
+  "diagnosis": "**Function:** `get_visible_monsters` in `agent.py`\n\n**Bug:** The `get_visible_monsters` function incorrectly filters out some monsters that should be visible. Specifically, the condition `if self.glyphs[y, x] == nh.GLYPH_INVISIBLE or not MON.is_monster(self.glyphs[y, x]):` might exclude valid monsters, especially those that are not marked as peaceful but are still considered as monsters.\n\n**Fix:** Modify the condition to ensure that only non-monster glyphs or peaceful monsters are excluded. This can be done by adjusting the condition to:\n\n```python\nif self.glyphs[y, x] != nh.GLYPH_INVISIBLE an",
+  "sha": "88a1b9b96d92993d6f7e0123f3ced1c30926b328",
+  "symptom": "Fix monster tracker",
+  "changed_funcs": [
+   "item.py:gather_items"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [
+   "ranged_priority",
+   "only_ranged",
+   "ranged",
+   "monsters",
+   "priority"
+  ],
+  "retrieved": [
+   "fight_heur.py:draw_monster_priority_negative",
+   "fight_heur.py:get_available_actions",
+   "fight_heur.py:ranged_priority",
+   "fight_heur.py:draw_monster_priority_positive",
+   "agent.py:fight2",
+   "fight_heur.py:get_priorities"
+  ],
+  "gate": "BUG The issue seems to stem from an incorrect handling of ONLY_RANGED_SLOW_MONSTERS in the logic, leading to suboptimal decisions on whether to engage in melee or use ranged attacks.",
+  "diagnosis": "### Function: `draw_monster_priority_negative`\n\n#### Bug:\nThe current implementation does not properly prioritize avoiding melee combat with only ranged monsters unless they are slow. This can lead to the agent engaging in unnecessary melee combat with faster ranged-only monsters.\n\n#### Fix:\nTweak the logic to ensure that the agent avoids melee combat with only ranged monsters, even if they are not considered slow. This can be achieved by adding a condition to check if the monster is in the `ONLY_RANGED_MONSTERS` list before deciding to avoid melee combat.\n\n### Function: `get_available_actions",
+  "sha": "e3287381ca04df76d91459801a578f157cd34f74",
+  "symptom": "Add small fight fix (ranged priority tweak for \"only ranged monsters\"),     untrap template",
+  "changed_funcs": [
+   "agent.py:eat",
+   "agent.py:is_safe_to_pray",
+   "exploration_logic.py:open_visit_search",
+   "fight_heur.py:get_available_actions",
+   "fight_heur.py:get_potential_wand_usages",
+   "fight_heur.py:is_dangerous_monster"
+  ],
+  "groundable": true,
+  "loc_hit_any": true
+ },
+ {
+  "search_terms": [
+   "engrave"
+  ],
+  "retrieved": [
+   "item.py:wand_engrave_identify",
+   "item.py:_determine_possible_wands",
+   "agent.py:gen",
+   "agent.py:can_engrave",
+   "agent.py:emergency_strategy",
+   "item.py:__init__"
+  ],
+  "gate": "BUG The issue seems to stem from an incomplete implementation in handling all possible engraving responses, particularly missing some regex patterns or conditions for certain wand effects.",
+  "diagnosis": "**Function:** `wand_engrave_identify` in `item.py`\n\n**Bug:** The function `wand_engrave_identify` incorrectly skips engraving identification when it should not. Specifically, the condition `if self.agent.character.prop.blind or self.skip_engrave_counter > 0:` causes the function to yield `False` prematurely.\n\n**Fix:** Modify the condition to ensure that engraving identification proceeds correctly even when the player is blind or the skip counter is positive. This could involve restructuring the logic to handle these conditions more appropriately.\n\nExample Fix:\n```python\ndef wand_engrave_identi",
+  "sha": "68dfb02da2e0cd8cd128dd0b5fad1f85bb1bf33a",
+  "symptom": "Fix engrave identifiation",
+  "changed_funcs": [
+   "item.py:action_generator",
+   "item.py:parse_text",
+   "item.py:smsg"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [
+   "step_calling",
+   "calling",
+   "engraving",
+   "atom_operation",
+   "operation"
+  ],
+  "retrieved": [
+   "strategy.py:f",
+   "agent.py:disallow_step_calling",
+   "agent.py:call_update_functions",
+   "heur.py:run_profiling",
+   "item.py:_determine_possible_wands",
+   "item.py:action_generator"
+  ],
+  "gate": "BUG The issue seems to stem from an incorrect step calling order in the visualizer and the need to ensure that wand engraving operations are handled as atomic actions to prevent race conditions or inconsistent states.",
+  "diagnosis": "**Function:** `item.py:action_generator`\n\n**Bug:** The function `action_generator` does not handle the atomic nature of wand engraving properly. Specifically, it may incorrectly modify the state of the game due to the way it handles the iteration and step calling.\n\n**Fix:** Ensure that the step calling order is fixed and that the wand engraving operation is treated as an atomic operation. This can be achieved by wrapping the entire engraving process within a context that prevents other steps from interfering during the engraving process.\n\nHere\u2019s a brief example of how this might look:\n\n```pyth",
+  "sha": "bad5143a896798c1bb9e80bc68bb70f7e74fecab",
+  "symptom": "Fix visualizer step calling order, make wand engraving atom operation",
+  "changed_funcs": [
+   "item.py:action_generator",
+   "item.py:wand_engrave_identify"
+  ],
+  "groundable": true,
+  "loc_hit_any": true
+ },
+ {
+  "search_terms": [
+   "summary"
+  ],
+  "retrieved": [
+   "heur.py:single_simulation",
+   "muzero.py:logging_loop",
+   "muzero.py:get_initial_weights",
+   "heur.py:step",
+   "heur.py:run_single_interactive_game",
+   "muzero.py:__init__"
+  ],
+  "gate": "BUG The timeout error in single_simulation function can be addressed by properly handling timeouts and exceptions.",
+  "diagnosis": "### Function: `heur.py:single_simulation`\n**Bug:** The `ThreadPool` is initialized but never used properly. The `apply_async` method should be called on the `pool` object, and the `get` method should be called on the result of `apply_async`.\n\n**Fix:** Correctly initialize and use the `ThreadPool`. Ensure that the `apply_async` method returns a result object which can then be used to retrieve the result or handle timeouts.\n\n```python\nfrom multiprocessing.pool import ThreadPool\n\ndef single_simulation(args, seed_offset, timeout=720):\n    start_time = time.time()\n    env = prepare_env(args, seed_o",
+  "sha": "5565c97c8ae04bd2a6a4698f774c829232d4166c",
+  "symptom": "Add summary.py, fixes",
+  "changed_funcs": [
+   "global_logic.py:offer_corpses",
+   "item.py:parse_text"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [],
+  "retrieved": [],
+  "gate": "BUG\n\nThe failure might be due to a specific bug in pathfinding or action prioritization that can be identified and corrected.",
+  "diagnosis": "It seems like you're asking for an example of a function with a related bug and its fix. Here's a simple example:\n\nFunction: `calculate_sum(a, b)`\nBug: The function incorrectly calculates the sum when one or both of the inputs are negative.\nFix: Ensure the function correctly handles all input values, including negative numbers.\n\nExample code before fix:\n```python\ndef calculate_sum(a, b):\n    return a + b  # This line is correct but the comment below indicates a potential issue in handling.\n```\n\nExample code after fix:\n```python\ndef calculate_sum(a, b):\n    return a + b  # Correct implementatio",
+  "sha": "6bd6eee6efd28b1d71c03d28b922a0e89ad4e532",
+  "symptom": "Fixes",
+  "changed_funcs": [
+   "agent.py:eat",
+   "agent.py:pray",
+   "item.py:parse_text"
+  ],
+  "groundable": false,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [
+   "double",
+   "ranged",
+   "priority"
+  ],
+  "retrieved": [
+   "objects.py:COIN",
+   "fight_heur.py:draw_monster_priority_negative",
+   "fight_heur.py:draw_monster_priority_positive",
+   "agent.py:fight2",
+   "fight_heur.py:get_available_actions",
+   "fight_heur.py:build_priority_map"
+  ],
+  "gate": "BUG\n\nThe issue described seems to stem from a specific logic error in how the bot prioritizes ranged attacks over melee ones, particularly when the player's health is low, indicating a fixable bug in the decision-making ",
+  "diagnosis": "### Function: `draw_monster_priority_negative`\n**Bug:** The function does not correctly handle the case where the agent should prioritize staying within the range of their ranged weapons. Specifically, there's an incomplete condition check and missing code to properly adjust the priority for ranged attacks.\n\n**Fix:** Ensure that when dealing with certain monsters (like molds), the function correctly prioritizes staying within the range of the agent\u2019s ranged weapons. This involves completing the conditional logic and ensuring the `_draw_ranged` function is called appropriately.\n\n### Function: `",
+  "sha": "de0f93a3fe2ec8f16682a5e057ee1b3f0fdb6065",
+  "symptom": "Improve ranged priority, fix double 'y' in eat",
+  "changed_funcs": [
+   "agent.py:eat",
+   "agent.py:pray",
+   "fight_heur.py:get_available_actions",
+   "fight_heur.py:melee_monster_priority",
+   "fight_heur.py:ranged_monster_priority"
+  ],
+  "groundable": true,
+  "loc_hit_any": true
+ },
+ {
+  "search_terms": [
+   "total_time",
+   "pyinstrument"
+  ],
+  "retrieved": [
+   "heur.py:run_profiling",
+   "visualize.py:__init__",
+   "visualize.py:_update_dynamic_frame_skipping",
+   "heur.py:parse_args"
+  ],
+  "gate": "BUG The issue seems to be related to how the total profiling time is calculated and reported when using pyinstrument, indicating a specific coding issue rather than an inherent difficulty of the game.",
+  "diagnosis": "**Function:** `heur.py:run_profiling`\n\n**Bug:** The total time reported by `pyinstrument` is incorrect. Specifically, the total time calculated does not accurately reflect the time spent inside the profiling block.\n\n**Fix:** Ensure that the total time reported by `pyinstrument` is accurate by properly stopping the profiler and accessing the correct session information.\n\nHere\u2019s an updated version of the `run_profiling` function:\n\n```python\ndef run_profiling(args):\n    if args.profiler == 'cProfile':\n        import cProfile, pstats\n    elif args.profiler == 'pyinstrument':\n        from pyinstrum",
+  "sha": "3b25d57084c533a7cd1e8fcf7fbcef4538725647",
+  "symptom": "Fix pyinstrument total time",
+  "changed_funcs": [
+   "agent.py:move"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [],
+  "retrieved": [],
+  "gate": "BUG\n\nThe issue described seems to stem from a programming oversight rather than an inherent complexity of the game, suggesting there's a specific bug related to how monk armor habits are handled programmatically.",
+  "diagnosis": "**Function:** Monk Armor Mechanics\n\n**Bug:** The current implementation of monk armor does not accurately reflect the intended mechanics, leading to unexpected behavior or incorrect stats.\n\n**Fix:** Adjust the monk armor calculation to ensure that it adheres to the intended design specifications, such as proper scaling with skill levels and correct application of defensive bonuses. This involves reviewing and possibly modifying the underlying code that handles armor calculations for monks.",
+  "sha": "195eaad9bcbf9df81a7ce635bf311948e5767037",
+  "symptom": "Fix monk armor habits",
+  "changed_funcs": [
+   "item.py:get_best_armorset",
+   "item.py:get_best_weapon",
+   "item.py:key_gen"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [
+   "to_item"
+  ],
+  "retrieved": [
+   "item.py:gather_items",
+   "item.py:check_items",
+   "item.py:go_to_item_to_pickup"
+  ],
+  "gate": "BUG The issue lies within the logic of selecting and prioritizing items to pick up, specifically in how it handles the decision-making process for which items to approach next.",
+  "diagnosis": "**Function:** `item.py:go_to_item_to_pickup`\n\n**Bug:** The function does not properly handle the case where there are no items to pick up or drop, leading to an infinite loop or unexpected behavior.\n\n**Fix:** Add a condition to check if `items` is empty and handle it appropriately before proceeding to calculate distances and priorities.\n\nHere's a brief fix:\n\n```python\ndef go_to_item_to_pickup(self):\n    level = self.agent.current_level()\n    dis = self.agent.bfs()\n\n    mask = dis > 0\n    mask[mask] = np.vectorize(len)(level.items[mask]) != 0\n\n    items = {}\n    for y, x in sorted(zip(*mask.non",
+  "sha": "bde22a308ea1c00c9df7f8ed5e18190738c4d1ad",
+  "symptom": "Fix go_to_item bug",
+  "changed_funcs": [
+   "item.py:go_to_item_to_pickup"
+  ],
+  "groundable": true,
+  "loc_hit_any": true
+ },
+ {
+  "search_terms": [
+   "moving",
+   "stairs"
+  ],
+  "retrieved": [
+   "exploration_logic.py:explore_stairs",
+   "lunarlander.py:action_to_string",
+   "objects.py:COIN",
+   "heur.py:fork_with_nethack_env",
+   "exploration_logic.py:get_unexplored_stairs",
+   "exploration_logic.py:_level_dfs"
+  ],
+  "gate": "BUG\n\nThe issue seems to stem from an incorrect assertion or handling of the direction when moving on stairs, which can be fixed by ensuring the correct glyphs are used to determine the direction ('>' for down, '<' for up",
+  "diagnosis": "**Function:** `exploration_logic.py:explore_stairs`\n\n**Bug:** The agent does not correctly move up and down on stairs. Specifically, the assertion `(self.agent.blstats.y, self.agent.blstats.x) == (y, x)` might fail because the agent may not be positioned exactly at the stair's coordinates after executing the `go_to_strategy`. This can lead to incorrect movement direction (`dir`) being assigned, causing the agent to either not move at all or move incorrectly.\n\n**Fix:** Ensure that the agent is correctly positioned at the stair's coordinates before attempting to move up or down. This can be achi",
+  "sha": "65cb1978959b7e18b30754fa278709e5f889458b",
+  "symptom": "Fix moving up and down on stairs",
+  "changed_funcs": [
+   "agent.py:main",
+   "agent.py:move",
+   "exploration_logic.py:go_to_least_explored_level"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [],
+  "retrieved": [],
+  "gate": "BUG\n\nThe issue described seems to stem from technical problems within the bot's code rather than the inherent complexity of the game itself.",
+  "diagnosis": "**Function:** Forging/Forking\n\n**Bug:** The current implementation of forking agents does not work as expected, leading to inconsistent behavior or crashes.\n\n**Fix:** Implement a robust mechanism for forking agents to ensure consistent and reliable operation.\n\n---\n\n**Function:** Agent Reloading\n\n**Bug:** Agents cannot be reloaded dynamically without restarting the entire system, which is inefficient and inconvenient.\n\n**Fix:** Add functionality to reload agents dynamically without needing to restart the system, enhancing efficiency and convenience.",
+  "sha": "179a676848f974a3f0c23776533d0dd0b1db36b7",
+  "symptom": "Fix forking, add agent reloading",
+  "changed_funcs": [
+   "agent.py:eat_from_inventory",
+   "agent.py:main"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [
+   "solving",
+   "sokoban",
+   "strategy"
+  ],
+  "retrieved": [
+   "global_logic.py:__init__",
+   "global_logic.py:current_strategy",
+   "global_logic.py:global_strategy",
+   "exploration_logic.py:go_to_random_level_to_explore",
+   "global_logic.py:solve_sokoban_strategy",
+   "agent.py:f"
+  ],
+  "gate": "BUG The code lacks proper handling for aligning the Sokoban map correctly with the game environment, leading to incorrect offsets and failed solutions.",
+  "diagnosis": "**Function:** `solve_sokoban_strategy` in `global_logic.py`\n\n**Bug:** The code snippet has an incomplete implementation where the variable `offset` is calculated but not used correctly in the subsequent logic. Specifically, there's a typo in the final line where `offset` should be used but it's incorrectly written as `offse`.\n\n**Fix:** Correct the typo in the last line of the code snippet. Replace `offse` with `offset`. Here\u2019s the corrected line:\n\n```python\nmask = boulder_map[offset[0]:offset[0] + sokomap.sokomap.shape[0], \n                   offset[1]:offset[1] + sokomap.sokomap.shape[1]]\n```",
+  "sha": "0114ad4556b61127fa4654156fb5d1beb67316b0",
+  "symptom": "Fix sokoban solving strategy",
+  "changed_funcs": [
+   "global_logic.py:__init__",
+   "global_logic.py:solve_sokoban_strategy"
+  ],
+  "groundable": true,
+  "loc_hit_any": true
+ },
+ {
+  "search_terms": [
+   "evaluation"
+  ],
+  "retrieved": [
+   "self_play.py:backpropagate"
+  ],
+  "gate": "BUG\n\nThe issue might stem from an incorrect propagation of values in the backpropagation step, affecting decision-making quality.",
+  "diagnosis": "**Function:** `self_play.py:backpropagate`\n\n**Bug:** The `backpropagate` function incorrectly updates the `min_max_stats` with `-node.value()` when there are two players. This can lead to incorrect statistics and potentially affect the performance of the algorithm.\n\n**Fix:** Update the `min_max_stats` correctly without the negative sign when updating from the `Node`'s value.\n\nHere is the corrected code snippet:\n\n```python\ndef backpropagate(self, search_path, value, to_play, min_max_stats):\n    \"\"\"\n    At the end of a simulation, we propagate the evaluation all the way up the tree\n    to the ro",
+  "sha": "4873b5551a9267b034bfb1499106454f555ffecd",
+  "symptom": "Fix item to take evaluation",
+  "changed_funcs": [
+   "item.py:get_dps",
+   "item.py:get_to_hit",
+   "item.py:is_launcher",
+   "item.py:update_interesting_items"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ },
+ {
+  "search_terms": [
+   "eating"
+  ],
+  "retrieved": [
+   "objects.py:COIN"
+  ],
+  "gate": "FUNDAMENTAL\n\nThe issue described seems to be related to the strategy or behavior of the bot rather than a specific bug in the provided code snippets.",
+  "diagnosis": "",
+  "sha": "326741cd2ae71e760236379d9856a444c2d17f47",
+  "symptom": "Fix eating habits",
+  "changed_funcs": [
+   "agent.py:eat1"
+  ],
+  "groundable": true,
+  "loc_hit_any": false
+ }
+]

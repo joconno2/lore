@@ -46,16 +46,19 @@ from the upstream AutoAscend git history (254 commits → 15 cases, the debugger
 each parent tree from the author's commit-subject symptom alone; `realbug_benchmark/`)
 — gives the real ladder:
 
-| eval set | diagnosis correct |
-|---|---|
-| synthetic isolated Python bugs | 8/8 = 100% |
-| hand-picked real (the scorecard) | 4/5 = 80% |
-| **unbiased real (clean-9, fair)** | **2/9 = 22% strict, 4/9 = 44% lenient** |
-| unbiased real (all-15) | 2/15 = 13% / 5/15 = 33% |
+| eval set | diagnosis strict | lenient |
+|---|---|---|
+| synthetic isolated Python bugs | 8/8 = 100% | — |
+| hand-picked real (the scorecard) | 4/5 = 80% | — |
+| unbiased real v2 (clean-9) | 2/9 = 22% | 4/9 = 44% |
+| **unbiased real v3 (all-19, match-any)** | **1/19 = 5% [CI 1-25%]** | **6/19 = 32%** |
 
-So the reliable number is ~22%, not 80% and not the synthetic 8/8 — synthetic
-benchmarks overestimate by ~4x, and even a hand-picked real scorecard overestimates the
-unbiased real rate by ~4x. **The two-factor mechanism (from the benchmark):** every
+So the reliable strict-correct rate is **~5-22%** (single-to-low-double digits), not 80%
+and not the synthetic 8/8 — synthetic benchmarks overestimate ~4-20x, and even a
+hand-picked real scorecard overestimates the unbiased rate ~4-16x. And it is NON-
+DETERMINISTIC: the cyclic-panic case scored correct in v2 and partial in v3 (same input,
+temp 0.2). The sole reliably-correct case in both runs is `go_to_item` (empty-mask guard)
+— the maximally grounded + local bug. **The two-factor mechanism (from the benchmark):** every
 CORRECT diagnosis was also a localization hit (localization NECESSARY), but localization
 is NOT sufficient — 5/9 localized, only 2 diagnosed (the 3 localized-but-wrong are
 complex multi-line logic rewrites the LLM reached but could not diagnose). So

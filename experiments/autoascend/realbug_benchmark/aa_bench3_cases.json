@@ -1,0 +1,294 @@
+[
+ {
+  "sha": "073d7703f3d0cfb5a80f404da4ecacdabca546a6",
+  "symptom": "Fix cyclic panic handling, quit after 5000 score",
+  "changed_funcs": [
+   "agent.py:main"
+  ],
+  "n_changed": 14,
+  "symptom_tokens": [
+   "cyclic",
+   "handling"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/agent.py b/heur/agent.py\nindex 0c9b29f..c045574 100644\n--- a/heur/agent.py\n+++ b/heur/agent.py\n@@ -1647,14 +1647,22 @@ class Agent:\n                 inactivity_counter += 1\n                 if self.step_count != last_step:\n                     inactivity_counter = 0\n-                assert inactivity_counter < 5, ('cyclic panic', sorted({p.args[0] for p in self.all_panics[-5:]}))\n \n-                try:\n-                    self.step(A.Command.ESC)\n-                    self.step(A.Command.ESC)\n-                    self.on_panic()\n+                if inactivity_counter >= 5:\n+                    try:\n+                        panics = sorted({p.args[0] for p in self.all_panics[-5:]})\n+                    except (TypeError, IndexError):\n+                        panics = 'UNKNOWN'\n \n-                    last_step = self.step_count\n+                    raise RuntimeError(f'Cyclic Panic: {panics}')\n+\n+                try:\n+                    try:\n+                        self.step(A.Command.ESC)\n+                        self.step(A.Command.ESC)\n+                        self.on_panic()\n+                    finally:\n+                        last_step = self.step_count\n \n                     self.global_logic.global_strategy().run()\n                     assert 0"
+ },
+ {
+  "sha": "bf8617acf028637e21149b62949ff3037314b493",
+  "symptom": "Fix case with being blocked by gas spore, measure longer",
+  "changed_funcs": [
+   "fight_heur.py:get_move_actions",
+   "fight_heur.py:get_priorities"
+  ],
+  "n_changed": 9,
+  "symptom_tokens": [
+   "blocked"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/fight_heur.py b/heur/fight_heur.py\nindex 760e020..730ec5d 100644\n--- a/heur/fight_heur.py\n+++ b/heur/fight_heur.py\n@@ -533,9 +533,9 @@ def get_priorities(agent):\n     priority -= priority[agent.blstats.y, agent.blstats.x]\n \n     actions = get_available_actions(agent, monsters)\n-    if not actions:\n+    if not any(a[1][0] in ('melee', 'ranged') for a in actions):\n         actions.extend(goto_action(agent, priority, monsters))\n-    return priority, actions \n+    return priority, actions\n \n \n def get_move_actions(agent, dis, move_priority_heatmap):"
+ },
+ {
+  "sha": "ec3cc35ec7dc917766e1a6b16e4b18be636d5007",
+  "symptom": "Fix RL",
+  "changed_funcs": [
+   "agent.py:_init_fight3_model",
+   "agent.py:fight3",
+   "agent.py:keep_distance",
+   "global_logic.py:global_strategy"
+  ],
+  "n_changed": 39,
+  "symptom_tokens": [],
+  "groundable": false,
+  "fix_diff": "diff --git a/heur/agent.py b/heur/agent.py\nindex 1bbef9f..7c2f0bb 100644\n--- a/heur/agent.py\n+++ b/heur/agent.py\n@@ -1102,10 +1102,12 @@ class Agent:\n         return False\n \n     def _init_fight3_model(self):\n-        self._fight3_model = rl_utils.RLModel({\n-            'walkable': ((7, 7), bool),\n-            'monster_mask': ((7, 7), bool),\n-        },\n+        self._fight3_map_size = 7\n+        self._fight3_model = rl_utils.RLModel(\n+            (\n+                ('walkable', ((self._fight3_map_size, self._fight3_map_size), bool)),\n+                ('monster_mask', ((self._fight3_map_size, self._fight3_map_size), bool)),\n+            ),\n             [(y, x) for y in [-1, 0, 1] for x in [-1, 0, 1]],\n             train=self.rl_model_to_train == 'fight3',\n             training_comm=self.rl_model_training_comm,\n@@ -1121,7 +1123,7 @@ class Agent:\n             # get only monsters with path to them\n             monsters = [m for m in monsters if m[0] != -1]\n \n-            if not monsters or all(dis > 7 for dis, *_ in monsters):\n+            if not monsters or all(dis > self._fight3_map_size for dis, *_ in monsters):\n                 if not yielded:\n                     yield False\n                 return\n@@ -1140,8 +1142,7 @@ class Agent:\n                        ~self.monster_tracker.peaceful_monster_mask & \\\n                        ~utils.isin(level.objects, G.TRAPS)\n \n-            radius_y = self._fight3_model.observation_def['walkable'][0][0] // 2\n-            radius_x = self._fight3_model.observation_def['walkable'][0][1] // 2\n+            radius_y = radius_x = self._fight3_map_size // 2\n             y1, y2, x1, x2 = self.blstats.y - radius_y, self.blstats.y + radius_y + 1, \\\n                              self.blstats.x - radius_x, self.blstats.x + radius_x + 1\n \n@@ -1153,7 +1154,7 @@ class Agent:\n                        if 0 <= self.blstats.y + y < C.SIZE_Y and 0 <= self.blstats.x + x < C.SIZE_X \\\n                        and level.walkable[self.blstats.y + y, self.blstats.x + x]]\n \n-            off_y, off_x = self._fight3_model.choose_action(observation, actions)\n+            off_y, off_x = self._fight3_model.choose_action(self, observation, actions)\n \n             y, x = self.blstats.y + off_y, self.blstats.x + off_x\n             if self.monster_tracker.monster_mask[y, x]:\ndiff --git a/heur/global_logic.py b/heur/global_logic.py\nindex 8745ca1..fe494e2 100644\n--- a/heur/global_logic.py\n+++ b/heur/global_logic.py\n@@ -603,7 +603,7 @@ class GlobalLogic:\n                 self.follow_guard(),\n             ])\n             .preempt(self.agent, [\n-                self.agent.fight2(),\n+                self.agent.fight3(),\n             ])\n             .preempt(self.agent, [\n                 self.agent.engulfed_fight(),"
+ },
+ {
+  "sha": "5cc0b5b07edcb6e7eaa6443837beb836a2cd3785",
+  "symptom": "Fix process joining, add acid blob to only ranged",
+  "changed_funcs": [
+   "exploration_logic.py:to_search_func",
+   "fight_heur.py:goto_action"
+  ],
+  "n_changed": 19,
+  "symptom_tokens": [
+   "process",
+   "joining",
+   "ranged"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/exploration_logic.py b/heur/exploration_logic.py\nindex f97d216..07fe7ec 100644\n--- a/heur/exploration_logic.py\n+++ b/heur/exploration_logic.py\n@@ -317,6 +317,11 @@ class ExplorationLogic:\n             prio = np.zeros((C.SIZE_Y, C.SIZE_X), np.float32)\n             prio[:] = -1\n             prio -= level.search_count ** 2 * 2\n+\n+            counts = level.search_count[level.search_count > 0]\n+            if len(counts):\n+                self.agent.stats_logger.log_max_value('search_diff', np.max(counts) - np.quantile(counts, 0.3))\n+\n             # is_on_corridor = utils.isin(level.objects, G.CORRIDOR)\n             is_on_door = utils.isin(level.objects, G.DOORS)\n \ndiff --git a/heur/fight_heur.py b/heur/fight_heur.py\nindex c72f84d..a5f9790 100644\n--- a/heur/fight_heur.py\n+++ b/heur/fight_heur.py\n@@ -10,7 +10,7 @@ import utils\n from glyph import G\n from item import flatten_items\n \n-ONLY_RANGED_SLOW_MONSTERS = ['floating eye', 'blue jelly', 'brown mold', 'gas spore']\n+ONLY_RANGED_SLOW_MONSTERS = ['floating eye', 'blue jelly', 'brown mold', 'gas spore', 'acid blob']\n # COLD_MONSTERS = ['brown mold']\n # COLD_MONSTERS = []\n \n@@ -473,6 +473,7 @@ def goto_action(agent, priority, monsters):\n     for monster in monsters:\n         _, my, mx, mon, _ = monster\n         if not utils.adjacent((agent.blstats.y, agent.blstats.x), (my, mx)):\n+            # and not mon.mname in ONLY_RANGED_SLOW_MONSTERS:\n             return [(1, 'go_to', my, mx, monster)]\n     assert 0, monsters"
+ },
+ {
+  "sha": "88a1b9b96d92993d6f7e0123f3ced1c30926b328",
+  "symptom": "Fix monster tracker",
+  "changed_funcs": [
+   "item.py:gather_items"
+  ],
+  "n_changed": 8,
+  "symptom_tokens": [
+   "monster",
+   "tracker"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/item.py b/heur/item.py\nindex ad712e2..30b7160 100644\n--- a/heur/item.py\n+++ b/heur/item.py\n@@ -1851,8 +1851,8 @@ class Inventory:\n             .before(self.wear_best_stuff())\n             .before(self.wand_engrave_identify())\n             .before(self.go_to_unchecked_containers())\n-            .before(self.check_items().before(self.go_to_item_to_pickup())\n-                    .before(self.check_items()).repeat().every(5)\n+            .before(self.check_items()\n+                    .before(self.go_to_item_to_pickup()).repeat().every(5)\n                     .preempt(self.agent, [\n                         self.pickup_and_drop_items(),\n                         self.check_containers(),"
+ },
+ {
+  "sha": "e3287381ca04df76d91459801a578f157cd34f74",
+  "symptom": "Add small fight fix (ranged priority tweak for \"only ranged monsters\"),     untrap template",
+  "changed_funcs": [
+   "agent.py:eat",
+   "agent.py:is_safe_to_pray",
+   "exploration_logic.py:open_visit_search",
+   "fight_heur.py:get_available_actions",
+   "fight_heur.py:get_potential_wand_usages",
+   "fight_heur.py:is_dangerous_monster"
+  ],
+  "n_changed": 37,
+  "symptom_tokens": [
+   "ranged",
+   "priority",
+   "ranged",
+   "monsters",
+   "untrap",
+   "template"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/agent.py b/heur/agent.py\nindex 9bc3358..c348e75 100644\n--- a/heur/agent.py\n+++ b/heur/agent.py\n@@ -624,6 +624,20 @@ class Agent:\n                 raise AgentPanic('no food is lying here')\n             assert 0, self.message\n \n+    def untrap(self, trap_y, trap_x):\n+        with self.atom_operation():\n+            self.type_text('#u')\n+            self.step(A.MiscAction.MORE) # , iter('b'))\n+            assert self.single_message == \"In what direction?\", self.single_message\n+            self.direction(trap_y, trap_x)\n+            if self.single_message == 'You know of no traps there.':\n+                # assert 0, \"Trying to untrap already untraped trap\"\n+                return True\n+            if self.single_message == 'You disarm the trap.':\n+                self.stats_logger.log_event('untrap_success')\n+                return True\n+            return False\n+\n     def is_safe_to_pray(self):\n         return (\n                 (self.last_prayer_turn is None and self.blstats.time > 300) or\ndiff --git a/heur/exploration_logic.py b/heur/exploration_logic.py\nindex 05970e2..b3740d0 100644\n--- a/heur/exploration_logic.py\n+++ b/heur/exploration_logic.py\n@@ -1,11 +1,13 @@\n-import numpy as np\n import re\n+\n+import cv2\n+import numpy as np\n from nle import nethack as nh\n from nle.nethack import actions as A\n \n import utils\n from character import Character\n-from glyph import G, C\n+from glyph import G, C, SS\n from level import Level\n from strategy import Strategy\n \n@@ -420,8 +422,69 @@ class ExplorationLogic:\n             open_visit_search(search_prio_limit)\n             .preempt(self.agent, [\n                 self.agent.inventory.gather_items(),\n+                # self.disarm_traps().every(10),\n             ])\n             .preempt(self.agent, [\n                 self.search_neighbors_for_traps(trap_search_offset),\n             ])\n         )\n+\n+    @utils.debug_log('disarm_traps')\n+    @Strategy.wrap\n+    def disarm_traps(self):\n+        \"\"\"\n+        You can untrap containers, and following types of traps:\n+\n+        1. Spider web or bear trap. If there is a monster in it, you try to save it from the trap, otherwise you try to remove the trap. In case of success with bear trap, you receive bear trap as a tool.\n+        2. Pit or spiked pit. If there is a monster in it, you try to untrap it, otherwise nothing happens. (\"You are already on the edge of the pit\", or \"Try filling the pit first.\")\n+        3. Landmine. In case of success, you receive landmine as a tool.\n+        4. Squeeky board. You are asked for an object to untrap it with. The object must be either noncursed, nonlit potion of oil, or noncursed can of grease with charges. In case of success, one potion of oil, or one charge of the can, is spent, the potion of oil becomes known (if you used it), and the trap is removed. \"You repair the squeeky board.\"\n+        5. Dart trap or arrow trap. In case of success, 50-rnl(50) darts or arrows are recovered.\n+\n+        Other kinds of traps cannot be untrapped. (\"You cannot disable this/that trap.\") However, there are alternative methods to remove most of them.\n+        \"\"\"\n+        disarmable_traps = [SS.S_web, SS.S_bear_trap, SS.S_land_mine, SS.S_dart_trap, SS.S_arrow_trap]\n+        # TODO: consider strategy for SS.S_pit, SS.S_spiked_pit\n+        level = self.agent.current_level()\n+        trap_mask = utils.isin(level.objects, disarmable_traps)\n+\n+        if not trap_mask.any():\n+            yield False\n+            return\n+\n+        trap_locations = list(zip(*trap_mask.nonzero()))\n+\n+        trap_mask = cv2.dilate(trap_mask.astype(np.uint8), kernel=np.ones((3, 3))).astype(bool)\n+        bfs = self.agent.bfs()\n+        trap_mask[self.agent.blstats.y, self.agent.blstats.x] = 0  # don't try to disarm when standing on it\n+        trap_mask &= (bfs >= 0)\n+        trap_mask &= bfs == bfs[trap_mask].min()\n+        assert trap_mask.any()\n+\n+        if not trap_mask.any():\n+            yield False\n+            return\n+        yield True\n+\n+        closest_y, closest_x = trap_mask.nonzero()\n+        target_y, target_x = closest_y[0], closest_x[0]\n+        assert target_y != self.agent.blstats.y or target_x != self.agent.blstats.x\n+\n+        self.agent.go_to(target_y, target_x, debug_tiles_args=dict(color=(255, 120, 0), is_path=True))\n+        for trap_y, trap_x in trap_locations:\n+            if utils.adjacent((self.agent.blstats.y, self.agent.blstats.x), (trap_y, trap_x)):\n+                trap_glyph = level.objects[trap_y, trap_x]\n+                assert trap_glyph in disarmable_traps\n+                # assert 0, trap_glyph\n+                assert level.objects[trap_y, trap_x] == trap_glyph\n+                for _ in range(15):\n+                    if trap_y == self.agent.blstats.y and trap_x == self.agent.blstats.x:\n+                        break\n+                    if self.agent.untrap(trap_y, trap_x):\n+                        self.agent.check_terrain(force=True)\n+                        break\n+                else:\n+                    assert 0, \"Disarming the trap didn't work after too many attempts\"\n+                break\n+        # else:\n+        #     assert 0, 'No longer can reach targeted trap'\n\\ No newline at end of file\ndiff --git a/heur/fight_heur.py b/heur/fight_heur.py\nindex 6e914eb..3f9e160 100644\n--- a/heur/fight_heur.py\n+++ b/heur/fight_heur.py\n@@ -333,6 +333,7 @@ def is_dangerous_monster(monster):\n              or 'horse' in mon.mname\n     return is_pet or mon.mname in INSECTS\n \n+\n def get_potential_wand_usages(agent, monsters, dy, dx):\n     ret = []\n     player_hp_ratio = agent.blstats.hitpoints / agent.blstats.max_hitpoints\n@@ -424,6 +425,8 @@ def get_available_actions(agent, monsters):\n                 pri, y, x, monster = ranged_pr\n                 if agent.inventory.engraving_below_me.lower() == 'elbereth':\n                     pri -= 100\n+                if all(monster[3].mname in ONLY_RANGED_SLOW_MONSTERS for monster in monsters):\n+                    pri += 10\n                 actions.append((pri, 'ranged', y, x, monster))\n \n             actions.extend(get_potential_wand_usages(agent, monsters, dy, dx))"
+ },
+ {
+  "sha": "68dfb02da2e0cd8cd128dd0b5fad1f85bb1bf33a",
+  "symptom": "Fix engrave identifiation",
+  "changed_funcs": [
+   "item.py:action_generator",
+   "item.py:parse_text",
+   "item.py:smsg"
+  ],
+  "n_changed": 26,
+  "symptom_tokens": [
+   "engrave",
+   "identifiation"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/item.py b/heur/item.py\nindex fa3634f..f79bf27 100644\n--- a/heur/item.py\n+++ b/heur/item.py\n@@ -585,6 +585,7 @@ class ItemManager:\n \n         count = int({'a': 1, 'an': 1, 'the': 1}.get(count, count))\n         status = {'': Item.UNKNOWN, 'cursed': Item.CURSED, 'uncursed': Item.UNCURSED, 'blessed': Item.BLESSED}[status]\n+        # TODO: should be uses -- but the score is better this way\n         if uses is not None and status == Item.UNKNOWN:\n             status = Item.UNCURSED\n         modifier = None if not modifier else {'+': 1, '-': -1}[modifier[0]] * int(modifier[1:])\n@@ -2055,11 +2056,12 @@ class Inventory:\n             return self.agent.single_message\n \n         self.agent.step(A.Command.LOOK)\n-        if 'written' in msg() or 'engraved' in msg() or 'see' not in msg() or 'read' not in msg():\n+        if 'written' in msg() or 'engraved' in msg() or 'see' not in msg() or 'read' in msg():\n             return None\n \n         skip_engraving = [False]\n \n+\n         def action_generator():\n             assert smsg().startswith('What do you want to write with?'), smsg()\n             yield '-'\n@@ -2132,9 +2134,9 @@ class Inventory:\n         if skip_engraving[0]:\n             return None\n \n-        if 'Do you want to add to the current engraving' in msg():\n+        if 'Do you want to add to the current engraving' in smsg():\n             self.agent.type_text('q')\n-            assert msg().strip() == 'Never mind.', msg()\n+            assert smsg().strip() == 'Never mind.', smsg()\n \n         return possible_wand_types"
+ },
+ {
+  "sha": "bad5143a896798c1bb9e80bc68bb70f7e74fecab",
+  "symptom": "Fix visualizer step calling order, make wand engraving atom operation",
+  "changed_funcs": [
+   "item.py:action_generator",
+   "item.py:wand_engrave_identify"
+  ],
+  "n_changed": 20,
+  "symptom_tokens": [
+   "visualizer",
+   "calling",
+   "engraving",
+   "operation"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/item.py b/heur/item.py\nindex 1014d9d..7f256a8 100644\n--- a/heur/item.py\n+++ b/heur/item.py\n@@ -1362,14 +1362,18 @@ class Inventory:\n             yielded = True\n             self.skip_engrave_counter = 8\n \n-            wand_types = self._engrave_single_wand(item)\n-            if wand_types is None:\n-                # there is a problem with engraving on this tile\n-                continue\n+            with self.agent.atom_operation():\n+                wand_types = self._engrave_single_wand(item)\n+\n+                if wand_types is None:\n+                    # there is a problem with engraving on this tile\n+                    continue\n+\n+                self.item_manager._glyph_to_possible_wand_types[item.glyphs[0]] = wand_types\n+                self.item_manager._already_engraved_glyphs.add(item.glyphs[0])\n+                self.item_manager.possible_objects_from_glyph(item.glyphs[0])\n \n-            self.item_manager._glyph_to_possible_wand_types[item.glyphs[0]] = wand_types\n-            self.item_manager._already_engraved_glyphs.add(item.glyphs[0])\n-            self.item_manager.possible_objects_from_glyph(item.glyphs[0])\n+            # uncomment for debugging (stopping when there is a new wand being identified)\n             # print(len(self.item_manager.possible_objects_from_glyph(item.glyphs[0])))\n             # print(self.item_manager._glyph_to_possible_wand_types)\n             # input('==================3')\n@@ -1454,6 +1458,10 @@ class Inventory:\n         if skip_engraving[0]:\n             return None\n \n+        if 'Do you want to add to the current engraving' in msg():\n+            self.agent.type_text('q')\n+            assert msg().strip() == 'Never mind.', msg()\n+\n         return possible_wand_types\n \n     @utils.debug_log('inventory.wear_best_stuff')"
+ },
+ {
+  "sha": "5565c97c8ae04bd2a6a4698f774c829232d4166c",
+  "symptom": "Add summary.py, fixes",
+  "changed_funcs": [
+   "global_logic.py:offer_corpses",
+   "item.py:parse_text"
+  ],
+  "n_changed": 20,
+  "symptom_tokens": [
+   "summary"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/global_logic.py b/heur/global_logic.py\nindex 86e531f..8a4b7cc 100644\n--- a/heur/global_logic.py\n+++ b/heur/global_logic.py\n@@ -413,7 +413,8 @@ class GlobalLogic:\n                 if self.can_sacrify(item):\n                     with self.agent.atom_operation():\n                         self.agent.step(A.Command.OFFER)\n-                        while 'There is ' in self.agent.message and 'sacrifice it?' in self.agent.message:\n+                        while ('There is ' in self.agent.message or 'There are ' in self.agent.message) and \\\n+                                ('sacrifice it?' in self.agent.message or 'sacrifice one?' in self.agent.message):\n                             self.agent.type_text('n')\n                         assert 'What do you want to sacrifice?' in self.agent.message, self.agent.message\n                         self.agent.type_text(self.agent.inventory.items.get_letter(item))\ndiff --git a/heur/item.py b/heur/item.py\nindex 71ddaaa..3ebc5e8 100644\n--- a/heur/item.py\n+++ b/heur/item.py\n@@ -384,7 +384,7 @@ class ItemManager:\n             r'( ([+-]\\d+))? '\n             r\"([a-zA-z0-9-!'# ]+)\"\n             r'( \\(([0-9]+:[0-9]+|no charge)\\))?'\n-            r'( \\(((, flickering|[a-zA-Z0-9; ])+)\\))?'\n+            r'( \\(([a-zA-Z0-9; ]+(, flickering)?[a-zA-Z0-9; ]+)\\))?'\n             r'( \\((for sale|unpaid), (\\d+ aum, )?((\\d+)[a-zA-Z- ]+|no charge)\\))?'\n             r'$',\n             text)\n@@ -560,6 +560,26 @@ class ItemManager:\n             name = 'silver saber'\n             dmg_bonus = 15  # TODO: x2 + 1d20\n             to_hit_bonus = 3  # 1d5\n+        elif name == 'Stormbringer':\n+            name = 'runesword'\n+            dmg_bonus = 6  # 1d2+1d8\n+            to_hit_bonus = 3  # 1d5\n+        elif name == 'Snickersnee':\n+            name = 'katana'\n+            dmg_bonus = 4.5  # 1d8\n+            to_hit_bonus = 1  # +1\n+        elif name == 'Trollsbane':\n+            name = 'morning star'\n+            dmg_bonus = 5.25  # TODO: x2\n+            to_hit_bonus = 3  # 1d5\n+        elif name == 'Ogresmasher':\n+            name = 'war hammer'\n+            dmg_bonus = 3  # TODO: x2\n+            to_hit_bonus = 3  # 1d5\n+        elif name == 'Dragonbane':\n+            name = 'broadsword'\n+            dmg_bonus = 4.75  # TODO: x2\n+            to_hit_bonus = 3  # 1d5\n \n         objs, ret_glyphs = ItemManager.parse_name(name)\n         assert category is None or category == O.get_category(objs[0]), (text, category, O.get_category(objs[0]))"
+ },
+ {
+  "sha": "6bd6eee6efd28b1d71c03d28b922a0e89ad4e532",
+  "symptom": "Fixes",
+  "changed_funcs": [
+   "agent.py:eat",
+   "agent.py:pray",
+   "item.py:parse_text"
+  ],
+  "n_changed": 20,
+  "symptom_tokens": [],
+  "groundable": false,
+  "fix_diff": "diff --git a/heur/agent.py b/heur/agent.py\nindex 0b15db0..2142993 100644\n--- a/heur/agent.py\n+++ b/heur/agent.py\n@@ -561,13 +561,11 @@ class Agent:\n             if ' eat it? [ynq]' in self.message or \\\n                     ' eat one? [ynq]' in self.message:\n                 self.type_text('y')\n-            if \"You don't have anything to eat.\" in self.message:\n-                return False\n-            self.type_text('y')\n-            if \"You don't have that object.\" in self.message:\n-                self.step(A.Command.ESC)\n-                return False\n-        return True\n+                return True\n+            if \"What do you want to eat?\" in self.message or \\\n+                    \"You don't have anything to eat.\" in self.message:\n+                raise AgentPanic('no food is lying here')\n+            assert 0, self.message\n \n     def pray(self):\n         self.step(A.Command.PRAY)\ndiff --git a/heur/item.py b/heur/item.py\nindex f134fa7..1697baa 100644\n--- a/heur/item.py\n+++ b/heur/item.py\n@@ -495,7 +495,8 @@ class ItemManager:\n         if glyph is not None:\n             assert glyph in ret_glyphs\n             pos = O.possibilities_from_glyph(glyph)\n-            assert all(map(lambda o: o in pos, objs)), (objs, pos)\n+            if objs[0].name not in ['elven broadsword', 'runed broadsword']:\n+                assert all(map(lambda o: o in pos, objs)), (objs, pos)\n             ret_glyphs = [glyph]\n             objs = sorted(set(objs).intersection(O.possibilities_from_glyph(glyph)))"
+ },
+ {
+  "sha": "de0f93a3fe2ec8f16682a5e057ee1b3f0fdb6065",
+  "symptom": "Improve ranged priority, fix double 'y' in eat",
+  "changed_funcs": [
+   "agent.py:eat",
+   "agent.py:pray",
+   "fight_heur.py:get_available_actions",
+   "fight_heur.py:melee_monster_priority",
+   "fight_heur.py:ranged_monster_priority"
+  ],
+  "n_changed": 44,
+  "symptom_tokens": [
+   "ranged",
+   "priority",
+   "double"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/agent.py b/heur/agent.py\nindex cac117c..3c506b3 100644\n--- a/heur/agent.py\n+++ b/heur/agent.py\n@@ -563,10 +563,10 @@ class Agent:\n                 self.type_text('y')\n             if \"You don't have anything to eat.\" in self.message:\n                 return False\n-            self.type_text('y')\n             if \"You don't have that object.\" in self.message:\n-                self.step(A.Command.ESC)\n-                return False\n+                assert 0, self.message\n+                # self.step(A.Command.ESC)\n+                # return False\n         return True\n \n     def pray(self):\ndiff --git a/heur/fight_heur.py b/heur/fight_heur.py\nindex 38d2024..698bb6f 100644\n--- a/heur/fight_heur.py\n+++ b/heur/fight_heur.py\n@@ -161,12 +161,27 @@ def melee_monster_priority(agent, monsters, monster):\n     return ret\n \n \n-def ranged_monster_priority(agent, y, x, mon):\n+def _line_dis_from(agent, y, x):\n+    return max(abs(agent.blstats.x - x), abs(agent.blstats.y - y))\n+\n+\n+def ranged_monster_priority(agent, y, x, taret_monster, monsters):\n     ret = 0\n     if not (agent.blstats.y == y or agent.blstats.x == x or abs(agent.blstats.y - y) == abs(agent.blstats.x - x)):\n         return None\n \n-    dis = max(abs(agent.blstats.x - x), abs(agent.blstats.y - y))\n+    closest_mon_dis = float('inf')\n+    for monster in monsters:\n+        if monster is taret_monster:\n+            continue\n+        _, my, mx, mon, _ = monster\n+        if mon not in WEAK_MONSTERS + ONLY_RANGED_SLOW_MONSTERS:\n+            closest_mon_dis = min(closest_mon_dis, _line_dis_from(agent, my, mx))\n+\n+    if closest_mon_dis == 1:\n+        ret -= 5\n+\n+    dis = _line_dis_from(agent, y, x)\n     if dis in (1, 2):\n         ret -= 5\n     if dis == 1:\n@@ -182,15 +197,14 @@ def ranged_monster_priority(agent, y, x, mon):\n     if launcher is not None and not launcher.equipped:\n         ret -= 5\n \n-\n     # search for obstacles along the line of shot\n     assert y != agent.blstats.y or x != agent.blstats.x\n     dir_y = np.sign(y - agent.blstats.y)\n     dir_x = np.sign(x - agent.blstats.x)\n     y1, x1 = agent.blstats.y + dir_y, agent.blstats.x + dir_x\n     while y1 != y or x1 != x:\n-        if agent.glyphs[y1, x1] in G.PETS or agent.monster_tracker.peaceful_monster_mask[y1, x1] or \\\n-                not agent.current_level().walkable[y1, x1]:\n+        if agent.glyphs[y1, x1] in G.PETS or agent.glyphs[y1, x1] in G.MONS \\\n+                or not agent.current_level().walkable[y1, x1]:\n             ret -= 100\n         y1 += dir_y\n         x1 += dir_x\n@@ -211,7 +225,7 @@ def get_available_actions(agent, monsters):\n             priority = melee_monster_priority(agent, monsters, monster)\n             actions.append((priority, 'melee', y, x, monster))\n \n-        ranged_pr = ranged_monster_priority(agent, y, x, mon)\n+        ranged_pr = ranged_monster_priority(agent, y, x, monster, monsters)\n         if ranged_pr is not None:\n             actions.append((ranged_pr, 'ranged', y, x, monster))\n     return actions"
+ },
+ {
+  "sha": "3b25d57084c533a7cd1e8fcf7fbcef4538725647",
+  "symptom": "Fix pyinstrument total time",
+  "changed_funcs": [
+   "agent.py:move"
+  ],
+  "n_changed": 7,
+  "symptom_tokens": [
+   "pyinstrument"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/agent.py b/heur/agent.py\nindex d7dbba2..5f5c6d5 100644\n--- a/heur/agent.py\n+++ b/heur/agent.py\n@@ -589,7 +589,7 @@ class Agent:\n         expected_x = self.blstats.x + ('e' in dir) - ('w' in dir)\n \n         if (expected_y != self.blstats.y or expected_x != self.blstats.x) \\\n-                and self.glyphs[expected_y, expected_x] in MON.ALL_MONS:\n+                and self.monster_tracker.monster_mask[expected_y, expected_x]:\n             # TODO: consider handling it in different way, since this situation is sometimes expected\n             raise AgentPanic(f'Monster on a next tile when moving: ({expected_y},{expected_x})')"
+ },
+ {
+  "sha": "195eaad9bcbf9df81a7ce635bf311948e5767037",
+  "symptom": "Fix monk armor habits",
+  "changed_funcs": [
+   "item.py:get_best_armorset",
+   "item.py:get_best_weapon",
+   "item.py:key_gen"
+  ],
+  "n_changed": 15,
+  "symptom_tokens": [
+   "habits"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/item.py b/heur/item.py\nindex 7408971..f6506db 100644\n--- a/heur/item.py\n+++ b/heur/item.py\n@@ -940,6 +940,9 @@ class Inventory:\n     ######## STRATEGIES helpers\n \n     def get_best_weapon(self, return_dps=False, items=None):\n+        if self.agent.character.role == Character.MONK:\n+            return None\n+\n         if items is None:\n             items = self.items\n         # select the best\n@@ -968,9 +971,14 @@ class Inventory:\n             if item.is_armor() and item.is_ambiguous():\n                 slot = item.object.sub\n                 ac = item.get_ac()\n+\n+                if self.agent.character.role == Character.MONK and slot == O.ARM_SUIT:\n+                    continue\n+\n                 if best_ac[slot] is None or best_ac[slot] > ac:\n                     best_ac[slot] = ac\n                     best_items[slot] = item\n+\n         if return_ac:\n             return best_items, best_ac\n         return best_items"
+ },
+ {
+  "sha": "bde22a308ea1c00c9df7f8ed5e18190738c4d1ad",
+  "symptom": "Fix go_to_item bug",
+  "changed_funcs": [
+   "item.py:go_to_item_to_pickup"
+  ],
+  "n_changed": 6,
+  "symptom_tokens": [
+   "go_to_item"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/item.py b/heur/item.py\nindex f80a6b9..7408971 100644\n--- a/heur/item.py\n+++ b/heur/item.py\n@@ -1063,6 +1063,9 @@ class Inventory:\n         dis = self.agent.bfs()\n \n         mask = dis > 0\n+        if not mask.any():\n+            yield False\n+\n         mask[mask] = np.vectorize(len)(self.agent.current_level().items[mask]) != 0\n \n         items = {}"
+ },
+ {
+  "sha": "65cb1978959b7e18b30754fa278709e5f889458b",
+  "symptom": "Fix moving up and down on stairs",
+  "changed_funcs": [
+   "agent.py:main",
+   "agent.py:move",
+   "exploration_logic.py:go_to_least_explored_level"
+  ],
+  "n_changed": 35,
+  "symptom_tokens": [
+   "moving",
+   "stairs"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/agent.py b/heur/agent.py\nindex c969038..e06849a 100644\n--- a/heur/agent.py\n+++ b/heur/agent.py\n@@ -540,9 +540,9 @@ class Agent:\n         else:\n             self.direction(dir)\n \n-        if self.blstats.y != expected_y or self.blstats.x != expected_x:\n-            raise AgentPanic(f'agent position do not match after \"move\": '\n-                             f'expected ({expected_y}, {expected_x}), got ({self.blstats.y}, {self.blstats.x})')\n+            if self.blstats.y != expected_y or self.blstats.x != expected_x:\n+                raise AgentPanic(f'agent position do not match after \"move\": '\n+                                 f'expected ({expected_y}, {expected_x}), got ({self.blstats.y}, {self.blstats.x})')\n \n     ######## NON-TRIVIAL HELPERS\n \n@@ -1014,7 +1014,7 @@ class Agent:\n         self.character.parse()\n         self.character.parse_enhance_view()\n         self.step(A.Command.AUTOPICKUP)\n-        if 'Autopickup: ON.' in self.message:\n+        if 'Autopickup: ON' in self.message:\n             self.step(A.Command.AUTOPICKUP)\n \n         try:\ndiff --git a/heur/exploration_logic.py b/heur/exploration_logic.py\nindex 168de9d..f87dfd9 100644\n--- a/heur/exploration_logic.py\n+++ b/heur/exploration_logic.py\n@@ -129,6 +129,11 @@ class ExplorationLogic:\n                     yield False\n \n                 exploration_levels = {level: self.agent.levels[level].search_count.sum() for level in levels_to_search}\n+\n+                for level in sorted(levels_to_search):\n+                    if len(self.get_unexplored_stairs(*level, all=True)) > 0:\n+                        exploration_levels[level] -= 10000\n+\n                 min_exploration_level = min(exploration_levels.values())\n                 if self.agent.current_level().key() in levels_to_search and \\\n                         exploration_levels[self.agent.current_level().key()] < min_exploration_level + 150:\n@@ -146,13 +151,6 @@ class ExplorationLogic:\n                 self.follow_level_path_strategy(path, go_to_strategy).run()\n                 assert self.agent.current_level().key() == target_level\n \n-            for level in sorted(levels_to_search):  # TODO: iteration order\n-                if len(self.get_unexplored_stairs(*level, all=True)) > 0:\n-                    path = self.get_path_to_level(*level)\n-                    self.follow_level_path_strategy(path, go_to_strategy).run()\n-                    assert self.agent.current_level().key() == level\n-                    continue\n-\n             if self.agent.current_level().key() not in levels_to_search:\n                 go_to_least_explored_level().run()\n                 assert self.agent.current_level().key() in levels_to_search"
+ },
+ {
+  "sha": "179a676848f974a3f0c23776533d0dd0b1db36b7",
+  "symptom": "Fix forking, add agent reloading",
+  "changed_funcs": [
+   "agent.py:eat_from_inventory",
+   "agent.py:main"
+  ],
+  "n_changed": 7,
+  "symptom_tokens": [
+   "forking",
+   "reloading"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/agent.py b/heur/agent.py\nindex 15c6c0f..f9bcd1d 100644\n--- a/heur/agent.py\n+++ b/heur/agent.py\n@@ -903,7 +903,7 @@ class Agent:\n     ####### MAIN\n \n     def main(self):\n-        self.update({k: v.copy() for k, v in self.env.reset().items()})\n+        self.step(A.Command.ESC)\n         self.current_level().stair_destination[self.blstats.y, self.blstats.x] = \\\n                 ((Level.PLANE, 1), (None, None)) # TODO: check level num\n         self.character.parse()"
+ },
+ {
+  "sha": "0114ad4556b61127fa4654156fb5d1beb67316b0",
+  "symptom": "Fix sokoban solving strategy",
+  "changed_funcs": [
+   "global_logic.py:__init__",
+   "global_logic.py:solve_sokoban_strategy"
+  ],
+  "n_changed": 13,
+  "symptom_tokens": [
+   "sokoban",
+   "solving",
+   "strategy"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/global_logic.py b/heur/global_logic.py\nindex 7873ecd..bb7f774 100644\n--- a/heur/global_logic.py\n+++ b/heur/global_logic.py\n@@ -26,7 +26,7 @@ class GlobalLogic:\n     @Strategy.wrap\n     def solve_sokoban_strategy(self):\n         # TODO: refactor\n-        if not utils.isin(self.agent.last_observation['chars'], [ord('^')]).any():\n+        if not utils.isin(self.agent.current_level().objects, G.TRAPS).any():\n             yield False\n         yield True\n \n@@ -54,6 +54,9 @@ class GlobalLogic:\n                 self.agent.go_to(ty, tx, debug_tiles_args=dict(color=(255, 255, 255), is_path=True))\n                 self.agent.move(ty + dy, tx + dx)\n \n+                if not utils.isin(self.agent.current_level().objects, G.TRAPS).any():\n+                    return\n+\n             sokomap.move(y, x, dy, dx)\n \n         assert 0, 'sakomap unsolvable'"
+ },
+ {
+  "sha": "4873b5551a9267b034bfb1499106454f555ffecd",
+  "symptom": "Fix item to take evaluation",
+  "changed_funcs": [
+   "item.py:get_dps",
+   "item.py:get_to_hit",
+   "item.py:is_launcher",
+   "item.py:update_interesting_items"
+  ],
+  "n_changed": 17,
+  "symptom_tokens": [
+   "evaluation"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/item.py b/heur/item.py\nindex 7d0398d..0ef9978 100644\n--- a/heur/item.py\n+++ b/heur/item.py\n@@ -68,9 +68,6 @@ class Item:\n \n         return to_hit\n \n-    def get_dps(self, large_monster):\n-        return self.get_dmg(large_monster) * self.get_to_hit()\n-\n     def is_launcher(self):\n         if not self.is_weapon():\n             return False\n@@ -746,8 +743,8 @@ class Inventory:\n                     continue\n \n                 if isinstance(obj, O.Weapon): # TODO: WepTool\n-                    dps = item.get_dps(large_monster=False)\n-                    if dps > best_weapon_dps:\n+                    dps = utils.calc_dps(*self.agent.character.get_weapon_bonus(item, large_monster=False))\n+                    if dps > best_weapon_dps or obj.sub in [O.P_DAGGER, O.P_KNIFE]:\n                         self._interesting_item_glyphs.add(glyph)\n                         self._interesting_items.add(obj)\n                 elif isinstance(obj, O.Armor):"
+ },
+ {
+  "sha": "326741cd2ae71e760236379d9856a444c2d17f47",
+  "symptom": "Fix eating habits",
+  "changed_funcs": [
+   "agent.py:eat1"
+  ],
+  "n_changed": 7,
+  "symptom_tokens": [
+   "eating",
+   "habits"
+  ],
+  "groundable": true,
+  "fix_diff": "diff --git a/heur/agent.py b/heur/agent.py\nindex f15eee8..8b39046 100644\n--- a/heur/agent.py\n+++ b/heur/agent.py\n@@ -796,7 +796,12 @@ class Agent:\n     def eat1(self):\n         level = self.current_level()\n \n-        mask = utils.isin(self.glyphs, G.BODIES) & (self.blstats.time - level.corpse_age <= 100)\n+        if self.character.race == Character.ORC:\n+            flags = MON.M1_ACID\n+        else:\n+            flags = MON.M1_ACID | MON.M1_POIS\n+        editable_bodies = [b for b in G.BODIES if MON.permonst(b).mflags1 & flags == 0]\n+        mask = utils.isin(self.glyphs, editable_bodies) & (self.blstats.time - level.corpse_age <= 50)\n         mask |= utils.isin(self.glyphs, G.FOOD_OBJECTS)\n         mask &= ~level.shop\n         if not mask.any():"
+ }
+]

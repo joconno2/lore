@@ -22,22 +22,37 @@ qualifying bug-fix commit from the upstream AutoAscend git history, not cherry-p
 
 ## Result
 
+Two unbiased runs. **v2** (`aa_extract.py`/`bench_run.py`/`aa_score.py`): 15 single-
+primary-function cases, scored vs the one extracted function. **v3** (`*3.py`, bigger +
+cleaner): 19 cases capped to bug-sized diffs, localization/diagnosis scored as match
+against ANY changed function in the commit — this dissolves the bundled-commit confound
+that forced v2's clean/bundled split.
+
 The overestimate ladder (diagnosis correct):
 
-| eval set | rate |
-|---|---|
-| synthetic isolated Python bugs | 8/8 = 100% |
-| hand-picked real (AA scorecard) | 4/5 = 80% |
-| **unbiased real, clean-9 (fair)** | **2/9 strict = 22%, 4/9 lenient = 44%** |
-| unbiased real, all-15 | 2/15 = 13% / 5/15 = 33% |
+| eval set | strict | lenient (+right-theme) |
+|---|---|---|
+| synthetic isolated Python bugs | 8/8 = 100% | — |
+| hand-picked real (AA scorecard) | 4/5 = 80% | — |
+| unbiased real v2, clean-9 | 2/9 = 22% | 4/9 = 44% |
+| **unbiased real v3, all-19 (match-any)** | **1/19 = 5% [CI 1-25%]** | **6/19 = 32% [CI 15-54%]** |
 
-Localization (target function in top-6 retrieved): 5/15, 5/9 clean.
+So the reliable strict-correct rate on unbiased real bugs is **~5-22%** (single-to-low-
+double digits), not the 80% the hand-picked scorecard implied; lenient (right theme,
+wrong specifics) ~32-44%. Localization (any changed function in top-6): v3 6/19 = 32%,
+v2 clean 5/9 = 56%. The sole reliably-correct case in BOTH runs is `go_to_item` (empty-
+mask guard) — the maximally grounded + local bug.
 
-**Mechanism (two-factor).** Every CORRECT diagnosis was also a localization hit
-(localization is NECESSARY), but localization is NOT sufficient: 5 localized, only 2
-diagnosed correctly. The 3 localized-but-wrong are complex multi-line logic rewrites
-(2 Sokoban, 1 --More-- parser) the LLM could reach but not diagnose. So
-**correct diagnosis = grounded-symptom-localization x bug-locality** — both required.
+**Non-determinism (v2 vs v3):** the cyclic-panic case scored CORRECT in v2 and PARTIAL
+in v3 — same input, temp 0.2, flipped. The debugger is not deterministic; the true rate
+has run-to-run spread on top of the sampling CI.
+
+**Mechanism (two-factor, confirmed in both runs).** Every CORRECT diagnosis was also a
+localization hit (localization is NECESSARY), but localization is NOT sufficient: in v3,
+6 localized but only 1 diagnosed strictly; the localized-but-wrong cases are complex
+multi-line logic rewrites (Sokoban trap-detection, --More-- parser) the LLM could reach
+but not diagnose. So **correct diagnosis = grounded-symptom-localization x bug-locality**
+— both required.
 
 Failure modes, all consistent with grounding-x-locality:
 1. Ungroundable symptom (0 search terms: "Fixes", "Fix RL", "monk armor habits",
