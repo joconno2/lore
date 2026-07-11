@@ -31,11 +31,11 @@ def _do_genocide(agent, classes):
     for cls in classes:
         slt = None
         try:
-            for nm, oc, lt in zip(agent.last_observation['inv_strs'],
-                                  agent.last_observation['inv_oclasses'],
-                                  agent.last_observation['inv_letters']):
-                if int(oc) == _nh.SCROLL_CLASS and int(lt) != 0 and \
-                        'genocide' in bytes(nm).decode('latin1').lower():
+            for oc, lt in zip(agent.last_observation['inv_oclasses'],
+                              agent.last_observation['inv_letters']):
+                # wished scrolls are UNIDENTIFIED (display as "scroll labeled XXX"),
+                # so detect by CLASS -- the kit's only scrolls are genocide scrolls.
+                if int(oc) == _nh.SCROLL_CLASS and int(lt) != 0 and chr(int(lt)) not in done:
                     slt = chr(int(lt)); break
         except Exception:
             break
