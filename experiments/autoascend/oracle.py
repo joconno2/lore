@@ -644,12 +644,23 @@ WISH_SYSTEM = (
 
 
 def _mock_wish(state):
-    """FIXED expert list -- wishes in a set priority order, NOT adapting to what the
-    character already holds (the non-adaptive baseline, like AA's hardcoded list)."""
-    idx = int(state.get("wish_index", 0))
-    if idx < len(WISH_ITEMS):
-        return {"wish": WISH_ITEMS[idx], "reason": "fixed list[%d]" % idx}
-    return {"wish": WISH_ITEMS[-1], "reason": "fixed list overflow"}
+    """ADAPTIVE expert RULE (the fair baseline): wish the highest-priority survival
+    property the character does NOT already have. The test is whether the LLM beats
+    THIS good rule, not a dumb fixed list."""
+    have = " ".join(str(h).lower() for h in (state.get("have") or []))
+    PRIORITY = [
+        (("magic resistance", "gray dragon"), "blessed +3 gray dragon scale mail"),
+        (("reflection",), "blessed amulet of reflection"),
+        (("free action",), "blessed ring of free action"),
+        (("speed",), "blessed +3 speed boots"),
+        (("conflict",), "blessed ring of conflict"),
+        (("fire resistance",), "blessed ring of fire resistance"),
+        (("cold resistance",), "blessed ring of cold resistance"),
+    ]
+    for keys, wish in PRIORITY:
+        if not any(k in have for k in keys):
+            return {"wish": wish, "reason": "adaptive: fill %s" % keys[0]}
+    return {"wish": WISH_ITEMS[-1], "reason": "all covered"}
 
 
 def query_wish(state, base_url=None, model=None, mock=False):
