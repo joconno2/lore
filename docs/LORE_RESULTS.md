@@ -84,6 +84,15 @@ And rich's misses are overwhelmingly EXACT-TOKEN edits (add `~` to a URL regex, 
 off-by-one `len(text)-1`, `assert`→default): the model sees WHERE but not WHAT-exactly,
 the same exact-token floor as hallucinated NetHack item names and the Sokoban `'^'`
 constant. So the diagnosis ceiling and the exact-token mechanism are domain-general.
+**And it has ZERO standalone bug-DETECTION (`discrim.py`).** The 5-22% is recall under
+prompts that ASSERT a bug ("what bug, what fix?"). With a neutral prompt that offers
+"NO BUG", run on both buggy and fixed versions: P(BUG|buggy)=P(BUG|fixed)=1/15 —
+discrimination 0.00. Offered the option it says "NO BUG" ~93% regardless of ground truth.
+So the debugger cannot tell buggy from fixed code; its diagnoses appear only when a
+failure is ASSERTED (the symptom is itself part of the grounding). It is strictly a
+POST-FAILURE diagnoser (legitimate — you invoke it because the bot died), never an
+autonomous bug finder. This forecloses the "autonomous bug-finder" overclaim; the real
+positive is: given a real failure, a 5-22% grounded fix-suggester.
 The controlled synthetic ceiling still holds (8/8 isolated, value-tracing 5/5, un-annotated
 found — "value-tracing fails" and "annotation inflates" both DISPROVEN), but isolated
 bugs are the easy tail: the debugger is REAL but NARROW.

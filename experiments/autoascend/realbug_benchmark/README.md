@@ -103,6 +103,25 @@ Failure modes, all consistent with grounding-x-locality:
    (invented a syntax error that wasn't the bug). The complex-real-code limit, quantified.
 3. Gate false-declined one real bug ("eating habits") as FUNDAMENTAL. Calibration costs recall.
 
+## Detection vs diagnosis: ZERO standalone bug-detection (`discrim.py`, `discrim_buggy.py`)
+
+The 5-22% is RECALL under prompts that ASSERT a bug exists ("what bug, what fix?"). The
+complement — can it DETECT a bug? — is measured with a neutral prompt that explicitly
+offers "NO BUG", run on both the buggy and the fixed version of each function:
+
+| neutral prompt ("does this have the bug, or is it fine?") | says BUG |
+|---|---|
+| on the BUGGY function | 1/15 = 7% |
+| on the FIXED function | 1/15 = 7% |
+
+Discrimination = 0.00. Offered the option, the model says "NO BUG" ~93% of the time
+regardless of ground truth — it cannot tell buggy from fixed code. So the debugger has
+NO intrinsic bug-detection; its diagnoses appear only when a failure is ASSERTED (the
+symptom). This quantifies "symptom-driven, not a proactive linter": the failure
+assertion is itself part of the grounding — remove it and detection collapses to chance.
+The tool is strictly a POST-FAILURE diagnoser (legitimate: you invoke it because the bot
+died), never a bug finder. Even given the failure, diagnosis is 5-22%.
+
 ## Reading
 
 The autonomous debugger is REAL but NARROW: it reliably diagnoses only bugs that are

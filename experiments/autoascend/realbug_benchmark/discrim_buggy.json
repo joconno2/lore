@@ -1,0 +1,92 @@
+[
+ {
+  "sha": "073d770",
+  "symptom": "Fix cyclic panic handling, quit after 5000 score",
+  "verdict": "BUG",
+  "reply": "BUG: The line `assert 0` (line 36) will always raise an assertion error, causing an infinite loop and preventing the bot from quitting after reaching a certain score. This does not directly address th"
+ },
+ {
+  "sha": "bf8617a",
+  "symptom": "Fix case with being blocked by gas spore, measure longer",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The provided description does not specify what exactly the \"being blocked by gas spore\" issue entails, nor does it indicate which lines of the given code might be responsible for such a bug. W"
+ },
+ {
+  "sha": "ec3cc35",
+  "symptom": "Fix RL",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code checks for nearby monsters before deciding whether to yield control back to the main loop or to continue fighting, ensuring that it does not unnecessarily yield when there are still c"
+ },
+ {
+  "sha": "88a1b9b",
+  "symptom": "Fix monster tracker",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The provided code snippet does not include a specific implementation detail that would allow for identifying a \"monster tracker\" issue directly from the given context. The function `gather_ite"
+ },
+ {
+  "sha": "bad5143",
+  "symptom": "Fix visualizer step calling order, make wand engraving atom operation",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code checks if the player is blind or if the skip_engrave_counter is greater than 0 before proceeding to engrave, which addresses the concern about the visualizer step calling order.\n\nHowe"
+ },
+ {
+  "sha": "6bd6eee",
+  "symptom": "Fixes",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code checks for messages indicating whether there is something to eat or if the object does not exist, preventing the bot from proceeding with an invalid action.\n\nHowever, there seems to b"
+ },
+ {
+  "sha": "3b25d57",
+  "symptom": "Fix pyinstrument total time",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code does not seem to have a direct issue related to the \"pyinstrument total time\" concern as presented. The reported concern appears to be more about performance profiling rather than a l"
+ },
+ {
+  "sha": "195eaad",
+  "symptom": "Fix monk armor habits",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code does not explicitly contain logic related to \"monk armor habits,\" which typically refers to a preference or restriction for monks regarding certain types of armor (e.g., preferring ro"
+ },
+ {
+  "sha": "bde22a3",
+  "symptom": "Fix go_to_item bug",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code appears to handle item selection and prioritization correctly without any apparent bugs based on the provided description. However, the concern \"Fix go_to_item bug\" does not specify w"
+ },
+ {
+  "sha": "4b536a3",
+  "symptom": "Fix get_available_actions",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The function `fight2` does not seem to have a direct issue related to getting available actions as per the provided context. The function appears to handle its logic around combat actions and "
+ },
+ {
+  "sha": "e3328d1",
+  "symptom": "Fix sokoban",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code checks if there are any traps present before proceeding with the Sokoban strategy, which seems to be an initial condition check rather than a bug related to the Sokoban solving logic "
+ },
+ {
+  "sha": "179a676",
+  "symptom": "Fix forking, add agent reloading",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The provided code snippet does not include any specific indication of a forking issue or agent reloading mechanism. The reported concern seems to be more about the design or implementation str"
+ },
+ {
+  "sha": "0114ad4",
+  "symptom": "Fix sokoban solving strategy",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code checks for the presence of a Sokoban map within the environment before proceeding to solve it, which seems to be the primary concern addressed by the \"Fix sokoban solving strategy\" co"
+ },
+ {
+  "sha": "326741c",
+  "symptom": "Fix eating habits",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The function seems to prioritize finding edible items within a reasonable age range and non-shop areas, then moves towards the closest item. The reported concern \"Fix eating habits\" does not p"
+ },
+ {
+  "sha": "97a231d",
+  "symptom": "Fix get_message_and_popup",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The function correctly differentiates between message and popup content and ensures that only one of them should be populated based on the game's output.\n\nHowever, there are some concerns and "
+ }
+]

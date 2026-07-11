@@ -1,0 +1,107 @@
+[
+ {
+  "sha": "073d770",
+  "symptom": "Fix cyclic panic handling, quit after 5000 score",
+  "func": "main",
+  "verdict": "BUG",
+  "reply": "BUG: The line `raise RuntimeError(f'Cyclic Panic: {panics}')` raises an exception when there is a cyclic panic detected, but it does not handle quitting after reaching a score of 5000. The reported concern about quitting after 5000 score is not addressed in the provided code.\n\nHowever, the question "
+ },
+ {
+  "sha": "bf8617a",
+  "symptom": "Fix case with being blocked by gas spore, measure longer",
+  "func": "get_priorities",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The provided description does not directly correlate to the code snippet given. The concern mentioned seems to be about handling a specific scenario with a \"gas spore\" which blocks movement or action, but there is no explicit reference to gas spores or similar blocking entities in the provid"
+ },
+ {
+  "sha": "ec3cc35",
+  "symptom": "Fix RL",
+  "func": "fight3",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code correctly yields `True` when there are monsters within a certain distance (`_fight3_map_size`) and processes them accordingly, ensuring the bot engages in combat or moves towards enemies as needed.\n\nHowever, the phrase \"Fix RL\" could imply an issue related to Reinforcement Learning "
+ },
+ {
+  "sha": "88a1b9b",
+  "symptom": "Fix monster tracker",
+  "func": "gather_items",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The provided code snippet does not include any specific lines related to a \"monster tracker\" functionality or any obvious bugs regarding such a feature. Therefore, without additional context about what exactly the \"monster tracker\" does and how it should be fixed, it's not possible to identi"
+ },
+ {
+  "sha": "bad5143",
+  "symptom": "Fix visualizer step calling order, make wand engraving atom operation",
+  "func": "wand_engrave_identify",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code correctly wraps the engraving operation within an atomic operation context using `with self.agent.atom_operation():`.\n\nThe use of `self.agent.atom_operation()` ensures that the wand engraving is treated as an atomic operation, which aligns with the requirement mentioned in the repor"
+ },
+ {
+  "sha": "6bd6eee",
+  "symptom": "Fixes",
+  "func": "eat",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The function checks for specific prompts related to eating and handles them appropriately without the described bug.\n\nHowever, if we're looking for potential improvements or addressing the concern about clarity and completeness, the function does seem to lack a clear specification on what it"
+ },
+ {
+  "sha": "3b25d57",
+  "symptom": "Fix pyinstrument total time",
+  "func": "move",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The provided code does not seem to have a direct issue related to the \"pyinstrument total time\" concern as described. The reported concern seems to be more about performance measurement tools rather than the logic within the `move` function itself. There's no indication in the given code sni"
+ },
+ {
+  "sha": "195eaad",
+  "symptom": "Fix monk armor habits",
+  "func": "get_best_armorset",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code already skips over armor suits for monks by checking `if self.agent.character.role == Character.MONK and slot == O.ARM_SUIT:` and continuing to the next iteration when applicable."
+ },
+ {
+  "sha": "bde22a3",
+  "symptom": "Fix go_to_item bug",
+  "func": "go_to_item_to_pickup",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code checks if there are any items to pick up using `if not mask.any(): yield False` and later verifies if there are items to process before attempting to move towards them. This ensures that the bot does not attempt to go to an item when none are available or when no valid items can be "
+ },
+ {
+  "sha": "4b536a3",
+  "symptom": "Fix get_available_actions",
+  "func": "fight2",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The function `fight2` does not seem to have a direct issue related to the availability of actions based on the provided context. However, the concern \"Fix get_available_actions\" is vague without more context about what `get_available_actions` is supposed to do and how it's implemented elsewh"
+ },
+ {
+  "sha": "e3328d1",
+  "symptom": "Fix sokoban",
+  "func": "solve_sokoban_strategy",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code checks for traps before proceeding with the Sokoban strategy, which seems to be an attempt to address potential issues related to player safety or game state integrity when dealing with Sokoban puzzles. This check is performed at the beginning of the function and appears to be a pre"
+ },
+ {
+  "sha": "179a676",
+  "symptom": "Fix forking, add agent reloading",
+  "func": "main",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The provided code snippet does not explicitly show any issues related to forking or agent reloading based on the description. The reported concern seems to be more about the logic or configuration outside of the visible code, such as how processes or agents are managed and reloaded, which is"
+ },
+ {
+  "sha": "0114ad4",
+  "symptom": "Fix sokoban solving strategy",
+  "func": "solve_sokoban_strategy",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code checks for traps on the level before proceeding with the Sokoban solving strategy, which seems to be a precautionary measure rather than a bug.\n\nHowever, the concern \"Fix sokoban solving strategy\" could refer to various issues within the strategy implementation, such as efficiency, "
+ },
+ {
+  "sha": "326741c",
+  "symptom": "Fix eating habits",
+  "func": "eat1",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The code checks for edible bodies and food objects before attempting to eat, ensuring that the character does not attempt to eat non-edible or harmful items based on race-specific criteria."
+ },
+ {
+  "sha": "97a231d",
+  "symptom": "Fix get_message_and_popup",
+  "func": "get_message_and_popup",
+  "verdict": "NOBUG",
+  "reply": "NO BUG: The function appears to handle the parsing of messages and popups correctly by using a marker detection mechanism to identify when more content needs to be read.\n\nHowever, the response does not directly address whether there is a specific bug as described in the initial report without more c"
+ }
+]
