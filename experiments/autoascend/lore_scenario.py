@@ -608,11 +608,20 @@ def install_descent(target_depth, wishes=()):
             return False
 
         def prim_explore():
-            """Frontier explorer for Gehennom: AA's explore1 stalls in the maze
-            (stops with reachable UNEXPLORED cells still on the frontier), so drive
-            exploration directly -- go to the nearest reachable walkable cell we
-            have not stepped on. When no reachable frontier remains, SEARCH for
-            hidden passages (Gehennom maze corridors are often hidden)."""
+            """Gehennom maze explorer. AA's explore1 follows corridors well but
+            plateaus (leaves reachable frontier + never searches hidden passages,
+            which Gehennom mazes have). So: (1) explore1 while it can progress,
+            (2) else BFS to the nearest reachable-unexplored cell, (3) else SEARCH
+            for hidden corridors. Loop through these until the downstair reveals."""
+            # 1) AA's corridor follower (best at normal corridors)
+            try:
+                e = agent.exploration.explore1(0)
+                if e.check_condition():
+                    e.run()
+                    return
+            except Exception:
+                pass
+            # 2) frontier: go to nearest reachable cell not yet stepped on
             try:
                 lvl0 = agent.current_level()
                 bf = agent.bfs()
@@ -620,7 +629,7 @@ def install_descent(target_depth, wishes=()):
                 cand = list(zip(*mask.nonzero()))
                 if cand:
                     cand.sort(key=lambda p: bf[p[0], p[1]])
-                    for yy, xx in cand[:4]:      # try the few nearest frontier cells
+                    for yy, xx in cand[:4]:
                         try:
                             agent.go_to(int(yy), int(xx))
                             return
@@ -628,16 +637,9 @@ def install_descent(target_depth, wishes=()):
                             continue
             except Exception:
                 pass
-            # frontier exhausted -> search walls for hidden passages, then fall back
+            # 3) plateau -> search current spot for hidden passages (Gehennom mazes)
             try:
-                agent.search(8)
-                return
-            except Exception:
-                pass
-            try:
-                e = agent.exploration.explore1(0)
-                if e.check_condition():
-                    e.run()
+                agent.search(10)
             except Exception:
                 pass
 
@@ -786,7 +788,7 @@ def install_descent(target_depth, wishes=()):
                 # DIAGNOSTIC (bug #3): once, report whether a down-stair GLYPH is
                 # known on this Gehennom level and whether it is BFS-reachable, so
                 # we distinguish "not revealed" from "revealed but behind moat/lava".
-                if lore_patches.COUNTERS.get("descend_iters", 0) == 60 and \
+                if lore_patches.COUNTERS.get("descend_iters", 0) == 400 and \
                         "down_diag" not in lore_patches.COUNTERS:
                     try:
                         _lvl = agent.current_level()
