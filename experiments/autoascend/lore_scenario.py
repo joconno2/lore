@@ -750,6 +750,24 @@ def install_descent(target_depth, wishes=()):
                     lore_patches.COUNTERS["dungeon_num"] = int(agent.current_level().dungeon_number)
                 except Exception:
                     pass
+                # DIAGNOSTIC (bug #3): once, report whether a down-stair GLYPH is
+                # known on this Gehennom level and whether it is BFS-reachable, so
+                # we distinguish "not revealed" from "revealed but behind moat/lava".
+                if lore_patches.COUNTERS.get("descend_iters", 0) == 60 and \
+                        "down_diag" not in lore_patches.COUNTERS:
+                    try:
+                        _lvl = agent.current_level()
+                        _down = _u.isin(_lvl.objects, G.STAIR_DOWN)
+                        _bf = agent.bfs()
+                        _st = [(int(yy), int(xx), int(_bf[yy, xx]))
+                               for yy, xx in zip(*_down.nonzero())]
+                        _wat = int(_u.isin(_lvl.objects, G.WATER).sum()) if hasattr(G, "WATER") else -1
+                        lore_patches.COUNTERS["down_diag"] = {
+                            "n_downstairs_known": len(_st), "stairs_yx_reach": _st,
+                            "explored": int(_lvl.was_on.sum()), "water_cells": _wat,
+                            "my_pos": [int(agent.blstats.y), int(agent.blstats.x)]}
+                    except Exception as _de:
+                        lore_patches.COUNTERS["down_diag"] = "err %r" % _de
                 # --- decide the action (policy-dependent), then execute it ---
                 try:
                     action = _decide_action()
