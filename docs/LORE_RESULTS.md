@@ -105,10 +105,20 @@ diversity (pass@5 ≈ pass@1) NOR prompt diversity (5 distinct framings, recall@
 exact token (they trade cases: one framing recovers a bug single-prompt missed but loses
 another). So the 67% ranker is human-in-the-loop (or tool-fed candidates), not autonomous.
 
+**7. Scale does NOT break the generation ceiling (`bigger_model/`).** Ran the same benchmarks on
+Qwen2.5-32B-Instruct-AWQ (swapped into the trx vLLM, then restored the 14B). Recognition rose
+67%→**93%** (near-perfect), but open generation stayed floored — concise one-line-fix generation
+**0/15**, verbose co-pilot ~7% (flat-to-worse vs the 14B's 13%). The 32B produces confident,
+plausible, WRONG one-liners (bumps `assert<5` to `<5000`, keeps the buggy `glyphs[...] in
+MON.ALL_MONS`, invents methods). So the model increasingly KNOWS the fix (93%) but still cannot
+GENERATE it — the recognition-generation gap WIDENS with scale (54pt→86pt). The exact-token
+generation floor does not scale away; a bigger model is a better RANKER, not a better generator.
+
 **Net:** the positive is a *general, post-failure, grounded fix-suggester* — ~5-22% strict open
-generation but ~67% as a candidate ranker, ~45% right-area, cross-domain, ceiling in exact-token
-GENERATION (knowledge largely present). Real and usable as a ranking co-pilot; not the
-"autonomous debugger beats the symbolic SOTA's weakness" overclaim.
+generation (does not scale: 32B still ~0-13%) but ~67% as a candidate ranker rising to ~93% with
+scale, ~45% right-area, cross-domain, ceiling in exact-token GENERATION (knowledge largely
+present and scales). Real and usable as a ranking co-pilot; not the "autonomous debugger beats
+the symbolic SOTA's weakness" overclaim.
 
 ## Two-factor law (predicts which bugs it gets)
 
