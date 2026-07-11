@@ -45,10 +45,17 @@ declined (calibration gate). Diagnosis CEILING is high: a controlled benchmark o
 isolated Python bug types scored **8/8** — recall gotchas 3/3 (mutable default,
 late-binding closure, shadowed builtin) AND value-tracing 5/5 (is-vs-==, off-by-one,
 unbound-after-discard, type-key-mismatch, and/or-precedence). It FOUND the int-vs-str
-type-mismatch in isolation — the same pattern it MISSED in the AA container bug — so
-the real failure mode is **implicit/indirect bugs needing cross-path inference in
-larger, noisier context** (the AA container's numeric-vs-string id comes from two
-different code paths with no explicit int()/str()), NOT value-tracing per se.
+type-mismatch in isolation — even UN-annotated (a controlled test isolating the
+comments as the only variable: both annotated and un-annotated isolated versions were
+FOUND). So two tidy hypotheses for the one real failure were tested and DISPROVEN —
+"value-tracing fails" (wrong: 8/8) and "annotation inflates" (wrong: un-annotated
+isolated found). The characterization is EMPIRICAL, not mechanistic: the LLM diagnoses
+isolated/synthetic bugs near-perfectly (8/8) but can miss bugs in COMPLEX REAL code
+(the one failure is the actual AA container, given directly — its real logic
+complexity, multiple id sources, and the `_recheck` interaction), and the exact cause
+was not cleanly isolated. **Methodological caveat (a genuine contribution): synthetic
+bug benchmarks OVERESTIMATE debuggers because real code is more complex — so the
+reliable number is the real-bug scorecard (4/5), not the synthetic 8/8.**
 Retrieval had to be GROUNDED: LLM-generated search terms (keyword / name-select /
 agentic) all hallucinated non-existent identifiers and failed — the same floor as
 the wish decision. Grounding the search (real symptom-terms) unlocks it. The LLM
