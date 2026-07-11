@@ -645,7 +645,35 @@ def install_descent(target_depth, wishes=()):
                             continue
             except Exception:
                 pass
-            # 3) plateau -> search current spot for hidden passages (Gehennom mazes)
+            # 3) plateau -> DIG horizontally toward the unexplored half to expand
+            # past the walled-off reachable pocket (the core Gehennom-reach blocker).
+            # Pick the cardinal with the most never-seen cells; rotate on 'too hard'.
+            try:
+                lvl0 = agent.current_level()
+                y, x = int(agent.blstats.y), int(agent.blstats.x)
+                was = lvl0.was_on
+                cnt = {'h': int((~was[:, :x]).sum()), 'l': int((~was[:, x + 1:]).sum()),
+                       'k': int((~was[:y, :]).sum()), 'j': int((~was[y + 1:, :]).sum())}
+                tried = agent.__dict__.setdefault("_lore_dig_tried", set())
+                order = [d for d, _ in sorted(cnt.items(), key=lambda t: -t[1]) if d not in tried]
+                wl = _wand_letter()
+                if wl and order:
+                    dchar = order[0]
+                    b4 = int((agent.bfs() != -1).sum())
+                    with agent.atom_operation():
+                        agent.step(_agz.A.Command.ZAP); agent.type_text(wl); agent.type_text(dchar)
+                    if 'too hard' in str(agent.message):
+                        tried.add(dchar)          # undiggable border -> don't retry
+                    elif int((agent.bfs() != -1).sum()) <= b4:
+                        tried.add(dchar)          # dug but no expansion -> try another
+                    else:
+                        agent.__dict__["_lore_dig_tried"] = set()   # progress -> reset
+                    lore_patches.COUNTERS["dig_expand"] = \
+                        lore_patches.COUNTERS.get("dig_expand", 0) + 1
+                    return
+            except Exception:
+                pass
+            # last resort: search for hidden passages
             try:
                 agent.search(10)
             except Exception:
