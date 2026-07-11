@@ -493,3 +493,81 @@ def query_unstick(state, base_url=None, model=None, mock=False):
             if a in UNSTICK_ACTIONS: return {"action": a, "reason": o.get("reason", ""), "raw": t}
         except Exception: pass
     return {"action": "KEEP_FARMING", "reason": "parse_fail_default_stay", "raw": t}
+
+
+# ---------------------------------------------------------------------------
+# MACRO oracle: the LLM drives AutoAscend's long-horizon GAME PLAN (which
+# strategic objective to pursue), NOT in-the-moment tactics. AA's flaw is macro:
+# a rigid myopic milestone order (grind food-scarce DL1 to XL8 -> starves;
+# never builds a kit). The LLM sequences the early/mid game like an expert -- go
+# to the food-rich Mines early, do Sokoban for the bag/reflection, build strength
+# BEFORE diving -- so the agent reaches mid-game strong and the deaths never
+# arise. Queried at low frequency (per level / phase), so it sets direction, not
+# decisions. Objective maps to AA's own Milestone machinery.
+# ---------------------------------------------------------------------------
+MACRO_OBJECTIVES = ["BUILD_DL1", "GO_MINES", "FIND_MINETOWN", "GO_SOKOBAN",
+                    "SOLVE_SOKOBAN", "MINES_END", "DESCEND"]
+
+MACRO_SYSTEM = (
+    "You are the long-horizon STRATEGIST for an expert NetHack 3.6 bot. You do NOT "
+    "make moment-to-moment moves -- you set the current STRATEGIC OBJECTIVE, every "
+    "so often, to give the bot a winning early/mid-game game plan. The bot's base "
+    "AI is tactically strong but strategically myopic: by default it grinds Dungeon "
+    "Level 1 for experience until XL8, but DL1 has almost no food, so it routinely "
+    "STARVES on DL1 and never builds the items needed to win.\n"
+    "Expert macro plan (preventing those deaths before they happen):\n"
+    "- Do NOT grind DL1. Leave with a small cushion (XL ~3-5). The Gnomish Mines "
+    "have far more food AND faster XP -- go there early to fix the food economy and "
+    "level safely.\n"
+    "- Get to Minetown (shops, altar for identify/BUC, often a temple) -- a major "
+    "strength spike.\n"
+    "- Do SOKOBAN: its prize is a bag of holding OR an amulet of reflection -- "
+    "key ascension-kit items. Hugely worth it.\n"
+    "- Build strength/kit (reflection, magic resistance, good armor) BEFORE diving "
+    "deep. Only DESCEND the main dungeon for real once kitted, or to make progress "
+    "when the branches are exhausted.\n"
+    "Choose the single best objective for the current state. Reply ONLY compact "
+    "JSON: {\"objective\": <one of: " + ", ".join(MACRO_OBJECTIVES) + ">, "
+    "\"reason\": <short>}."
+)
+
+
+def query_macro(state, base_url=None, model=None, mock=False):
+    """state: xl, depth, hp_frac, hunger, turn, did_mines, did_minetown,
+    solved_sokoban, key_items, current_objective."""
+    if mock:
+        return _mock_macro(state)
+    base_url = base_url or os.environ.get("LORE_ORACLE_URL", "http://localhost:8000/v1")
+    model = model or os.environ.get("LORE_ORACLE_MODEL", "served-model")
+    resp = _post(base_url.rstrip("/") + "/chat/completions", {
+        "model": model,
+        "messages": [{"role": "system", "content": MACRO_SYSTEM},
+                     {"role": "user", "content": "State:\n" + json.dumps(state, indent=2)}],
+        "temperature": 0.0, "max_tokens": 70,
+    })
+    t = resp["choices"][0]["message"]["content"].strip()
+    s, e = t.find("{"), t.rfind("}")
+    if s != -1 and e != -1:
+        try:
+            o = json.loads(t[s:e + 1]); a = str(o.get("objective", "")).upper()
+            if a in MACRO_OBJECTIVES:
+                return {"objective": a, "reason": o.get("reason", ""), "raw": t}
+        except Exception:
+            pass
+    return {"objective": "GO_MINES", "reason": "parse_fail_default", "raw": t}
+
+
+def _mock_macro(state):
+    """Perfect-ish expert macro plan: Mines early (food+XP) -> Minetown -> Sokoban
+    (kit) -> descend. Never grind DL1 to starvation."""
+    xl = int(state.get("xl", 1))
+    if not state.get("did_mines"):
+        # leave DL1 for the food-rich Mines with a small cushion (or now if hungry)
+        if xl >= 3 or state.get("hunger") in ("hungry", "weak", "fainting"):
+            return {"objective": "GO_MINES", "reason": "fix food economy in the Mines"}
+        return {"objective": "BUILD_DL1", "reason": "tiny cushion first"}
+    if not state.get("did_minetown"):
+        return {"objective": "FIND_MINETOWN", "reason": "shops/altar strength spike"}
+    if not state.get("solved_sokoban"):
+        return {"objective": "GO_SOKOBAN", "reason": "bag/reflection prize"}
+    return {"objective": "DESCEND", "reason": "kitted; progress deeper"}

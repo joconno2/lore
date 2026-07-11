@@ -7,7 +7,10 @@ internal event counters. Designed to aggregate over hundreds of seeds."""
 import sys, json, gym, nle, time, os
 seed = int(sys.argv[1]); OUT = sys.argv[2]
 
-if os.environ.get("LORE_UNSTICK") == "1":
+if os.environ.get("LORE_MACRO") in ("mock", "llm"):
+    import lore_patches
+    lore_patches.apply_macro_director(mock=os.environ.get("LORE_MACRO") == "mock")
+elif os.environ.get("LORE_UNSTICK") == "1":
     import lore_patches
     lore_patches.apply_unstick_dl1()
 elif os.environ.get("LORE_UNSTICK_LLM") in ("1", "mock"):
@@ -16,6 +19,12 @@ elif os.environ.get("LORE_UNSTICK_LLM") in ("1", "mock"):
 if os.environ.get("LORE_CRASHREC") == "1":
     import lore_patches
     lore_patches.apply_crash_recovery()
+if os.environ.get("LORE_SOKOPATCH") == "1":
+    import lore_patches
+    lore_patches.apply()   # route Sokoban solver desync -> graceful abandon (survive past)
+if os.environ.get("LORE_SOKOFIX") == "1":
+    import lore_patches
+    lore_patches.apply_sokoban_fix()   # structural: strip 4-col map indent (unblocks the solve)
 if os.environ.get("LORE_CRVETO") in ("1", "mock", "llm"):
     # crash_recovery + knowledge-gated instadeath veto (petrification etc.) --
     # the two things that kill the high-score TAIL. veto isolated on top of CR.

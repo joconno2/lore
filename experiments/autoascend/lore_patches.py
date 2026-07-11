@@ -901,3 +901,86 @@ def apply_unstick_llm(mock=False, base_url=None, model=None, query_every=120, mi
 
     _gl.GlobalLogic.update = patched
     return ["unstick_llm (mock=%s, every=%d)" % (mock, query_every)]
+
+
+def apply_macro_director(mock=True, base_url=None, model=None, query_every=400):
+    """LLM drives AutoAscend's long-horizon GAME PLAN. AA's macro is its rigid
+    Milestone order (grind DL1 to XL8 -> starves; fixed branch sequence). We let
+    the LLM set the active objective (mapped to AA's own Milestone machinery) at
+    low frequency, so it directs strategy not tactics: e.g. leave food-scarce DL1
+    for the food-rich Mines EARLY (fixing starvation at the root), do Sokoban for
+    the kit, build strength before diving. Addresses the macro gap the data found,
+    where every per-decision lever was null."""
+    import oracle as _oracle
+    from autoascend import global_logic as _gl
+    from autoascend.level import Level
+    M = _gl.Milestone
+    OBJ2MS = {"BUILD_DL1": M.BE_ON_FIRST_LEVEL, "GO_MINES": M.FIND_GNOMISH_MINES,
+              "FIND_MINETOWN": M.FIND_MINETOWN, "GO_SOKOBAN": M.FIND_SOKOBAN,
+              "SOLVE_SOKOBAN": M.SOLVE_SOKOBAN, "MINES_END": M.FIND_MINES_END,
+              "DESCEND": M.GO_DOWN}
+    MS2OBJ = {v: k for k, v in OBJ2MS.items()}
+    orig_update = _gl.GlobalLogic.update
+
+    def patched(self):
+        orig_update(self)
+        try:
+            ag = self.agent; bl = ag.blstats; now = int(bl.time)
+            last = ag.__dict__.get("_lore_macro_t", -99999)
+            if now - last < query_every:
+                return
+            ag.__dict__["_lore_macro_t"] = now
+            # Do NOT override the plan while a branch task is in progress -- the
+            # director set the agent onto Sokoban; yanking the milestone back to
+            # FIND_SOKOBAN mid-solve restarts the solver and it never finishes.
+            # Hold once solving Sokoban or in the Sokoban/Mines-end branch until AA
+            # advances the milestone itself.
+            in_soko = ag.current_level().dungeon_number == Level.SOKOBAN
+            if self.milestone in (M.SOLVE_SOKOBAN,) or (in_soko and int(self.milestone) >= int(M.FIND_SOKOBAN)):
+                _bump("macro_hold_sokoban")
+                return
+            dnums = {k[0] for k in ag.levels.keys()}
+            state = {"xl": int(bl.experience_level), "depth": int(bl.depth),
+                     "hp_frac": round(bl.hitpoints / max(1, bl.max_hitpoints), 2),
+                     "hunger": {0: "satiated", 1: "ok", 2: "hungry", 3: "weak",
+                                4: "fainting"}.get(int(bl.hunger_state), "ok"),
+                     "turn": now, "did_mines": Level.GNOMISH_MINES in dnums,
+                     "did_minetown": self.minetown_level is not None,
+                     "did_sokoban": Level.SOKOBAN in dnums,
+                     "solved_sokoban": int(self.milestone) > int(M.SOLVE_SOKOBAN),
+                     "current_objective": MS2OBJ.get(self.milestone, "?")}
+            dec = _oracle.query_macro(state, base_url=base_url, model=model, mock=mock)
+            _bump("macro_query")
+            ms = OBJ2MS.get(dec.get("objective"))
+            if ms is not None and ms != self.milestone:
+                self.milestone = ms
+                _bump("macro_set_" + dec.get("objective"))
+        except Exception:
+            pass
+
+    _gl.GlobalLogic.update = patched
+    return ["macro_director (mock=%s, every=%d)" % (mock, query_every)]
+
+
+def apply_sokoban_fix():
+    """STRUCTURAL fix to AutoAscend's OWN Sokoban solver (NOT an LLM thing --
+    Sokoban is deterministic; AA solves it correctly modulo this bug). Root cause:
+    the vendored `soko_solver/maps.py` map strings carry a 4-space SOURCE
+    indentation, but `convert_map` maps ' '->IGNORE without stripping it, so every
+    parsed cell is shifted 4 columns right of the coordinate frame the `answer`
+    push-sequences use. Result: the very first move of EVERY map's answer lands on
+    the wrong cell -> bare AssertionError -> 100% of Sokoban attempts crash here.
+    Verified: stripping exactly 4 leading columns makes ALL 8 maps' answers replay
+    to boulders_left==0 (fully solved). Patch convert_map to strip 4 columns
+    (matching AND solving both go through it, so they stay consistent). Unblocks
+    the ascension-kit gateway (bag of holding / amulet of reflection)."""
+    from autoascend import soko_solver
+    orig = soko_solver.convert_map
+
+    def patched_convert(text):
+        stripped = "\n".join(l[4:] for l in text.splitlines())
+        return orig(stripped)
+
+    soko_solver.convert_map = patched_convert
+    _bump("sokoban_fix_applied")
+    return ["sokoban_fix (strip 4-col map indent)"]
