@@ -64,12 +64,17 @@ pass@5 ≈ pass@1 (`pass_k.py`): failures are consistent, not random — best-of
 Whole functions (no truncation) still leave 4/6 wrong. When stumped the model CONFIDENTLY
 FABRICATES a plausible bug (invents a syntax error that isn't there).
 
-**4. Zero standalone bug-DETECTION.**
+**4. Zero standalone bug-DETECTION, and it cannot SELF-FILTER.**
 Neutral prompt offering "NO BUG", run on buggy AND fixed versions (`discrim.py`):
 P(BUG|buggy) = P(BUG|fixed) = 1/15, discrimination 0.00. Offered the option it says "NO BUG"
 ~93% regardless of ground truth. The 5-22% is recall only when a failure is ASSERTED — the
 symptom is itself part of the grounding. So it is a POST-FAILURE diagnoser (you invoke it
-because the bot died), never an autonomous bug finder.
+because the bot died), never an autonomous bug finder. And its confidence is UNCALIBRATED
+(`copilot_conf.py`): mean self-confidence WRONG 61 ≥ CORRECT 55 (values cluster ~37-75
+regardless of correctness) — it is confidently wrong and sometimes underconfident when
+right, so it cannot flag its own correct diagnoses. Deployment consequence: a candidate
+generator requiring EXTERNAL verification (run the fix / human review), not a trustworthy
+autonomous diagnoser; ~13% of its confident outputs are the real fix and it can't tell which.
 
 **5. Domain-general, not an AA artifact.**
 Same co-pilot protocol on `rich` (pure-Python terminal rendering, different domain;
