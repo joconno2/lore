@@ -1,0 +1,192 @@
+[
+ {
+  "sha": "073d770",
+  "symptom": "Fix cyclic panic handling, quit after 50",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "bf8617a",
+  "symptom": "Fix case with being blocked by gas spore",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "ec3cc35",
+  "symptom": "Fix RL",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "5cc0b5b",
+  "symptom": "Fix process joining, add acid blob to on",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "88a1b9b",
+  "symptom": "Fix monster tracker",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "e328738",
+  "symptom": "Add small fight fix (ranged priority twe",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "68dfb02",
+  "symptom": "Fix engrave identifiation",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "bad5143",
+  "symptom": "Fix visualizer step calling order, make ",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "5565c97",
+  "symptom": "Add summary.py, fixes",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "6bd6eee",
+  "symptom": "Fixes",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "de0f93a",
+  "symptom": "Improve ranged priority, fix double 'y' ",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "3b25d57",
+  "symptom": "Fix pyinstrument total time",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "195eaad",
+  "symptom": "Fix monk armor habits",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "bde22a3",
+  "symptom": "Fix go_to_item bug",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "65cb197",
+  "symptom": "Fix moving up and down on stairs",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "179a676",
+  "symptom": "Fix forking, add agent reloading",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "0114ad4",
+  "symptom": "Fix sokoban solving strategy",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "4873b55",
+  "symptom": "Fix item to take evaluation",
+  "verdicts": [
+   "BUG",
+   "BUG",
+   "BUG"
+  ],
+  "flip": false
+ },
+ {
+  "sha": "326741c",
+  "symptom": "Fix eating habits",
+  "verdicts": [
+   "FUND",
+   "FUND",
+   "FUND"
+  ],
+  "flip": false
+ }
+]

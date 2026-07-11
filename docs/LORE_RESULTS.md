@@ -58,7 +58,11 @@ and not the synthetic 8/8 — synthetic benchmarks overestimate ~4-20x, and even
 hand-picked real scorecard overestimates the unbiased rate ~4-16x. And it is NON-
 DETERMINISTIC: the cyclic-panic case scored correct in v2 and partial in v3 (same input,
 temp 0.2). The sole reliably-correct case in both runs is `go_to_item` (empty-mask guard)
-— the maximally grounded + local bug. **The two-factor mechanism (from the benchmark):** every
+— the maximally grounded + local bug. Pipeline decomposition (`gate_stability.py`, 3
+runs): retrieval is deterministic (~32% localization) and the BUG/FUNDAMENTAL gate is
+STABLE (0/19 flips, 95% BUG-recall) — the variance and the low accuracy live entirely in
+the generative DIAGNOSIS stage. The reliable parts are retrieval + triage; generative
+diagnosis of complex real logic is the weak link (the exact-token-generation floor). **The two-factor mechanism (from the benchmark):** every
 CORRECT diagnosis was also a localization hit (localization NECESSARY), but localization
 is NOT sufficient — 5/9 localized, only 2 diagnosed (the 3 localized-but-wrong are
 complex multi-line logic rewrites the LLM reached but could not diagnose). So

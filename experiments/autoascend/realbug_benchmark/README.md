@@ -43,9 +43,15 @@ wrong specifics) ~32-44%. Localization (any changed function in top-6): v3 6/19 
 v2 clean 5/9 = 56%. The sole reliably-correct case in BOTH runs is `go_to_item` (empty-
 mask guard) — the maximally grounded + local bug.
 
-**Non-determinism (v2 vs v3):** the cyclic-panic case scored CORRECT in v2 and PARTIAL
-in v3 — same input, temp 0.2, flipped. The debugger is not deterministic; the true rate
-has run-to-run spread on top of the sampling CI.
+**Non-determinism is in DIAGNOSIS, not triage (`gate_stability.py`, 3 runs).** Retrieval
+is deterministic (term-rarity + grep, no sampling). The BUG/FUNDAMENTAL gate is also
+stable: 0/19 flips across 3 runs, 18/19 stably BUG (95% recall on real bugs), the one
+decline (`326741c`, a race-conditional corpse filter) stably declined. So the pipeline
+decomposes cleanly: retrieval (deterministic, ~32% localization) and gate (stable, 95%
+BUG-recall) are the RELIABLE parts; the generative DIAGNOSIS stage is where both the
+low accuracy (~5-22%) and the run-to-run variance live (the cyclic-panic case flipped
+CORRECT→PARTIAL v2→v3). The weak link is generative diagnosis of complex real logic —
+exactly the exact-token-generation floor the whole result turns on.
 
 **Mechanism (two-factor, confirmed in both runs).** Every CORRECT diagnosis was also a
 localization hit (localization is NECESSARY), but localization is NOT sufficient: in v3,
