@@ -33,6 +33,15 @@ def _hook_step(a):
     r=_orig_step(a)
     try:
         obs=r[0]
+        # RELIABLE vibrating-square detection: check EVERY step's message (the
+        # per-descend-iteration check misses it -- explore1 takes many steps and
+        # the transient 'strange vibration' message gets overwritten).
+        try:
+            m=bytes(obs["message"]).decode("latin1").lower()
+            if "vibrat" in m and lore_patches.COUNTERS.get("vibration_found") is None:
+                lore_patches.COUNTERS["vibration_found"]=1
+                lore_patches.COUNTERS["vibration_msg"]=m.strip()[:60]
+        except Exception: pass
         tc=obs["tty_chars"] if isinstance(obs,dict) else obs[0]
         import numpy as _np
         txt="\n".join(bytes(row).decode("latin1").rstrip() for row in tc)
