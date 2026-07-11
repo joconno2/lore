@@ -34,6 +34,16 @@ optimum on a rule-determined decision.
 - **Progress engine** (hand-rule macro director + `crash_recovery` + `sokoban_fix`):
   beats base AA on ascension-progress — median DL1→DL4, mean 2.78→4.97, deepest
   9→17, starvation 45%→21%, wins 68/100, Wilcoxon p=1.9e-9. A **hand rule**, not the LLM.
+  **Integrity caveat (measured 2026-07-11):** this margin is dominated by ONE AA
+  bug fix. Base AA sticks at DL1 on ~52% of seeds (n=300) — AA's `BE_ON_FIRST_LEVEL`
+  milestone gates leaving DL1 on `experience_level>=8`, so seeds whose DL1 can't
+  grant XL8 farm to starvation and never descend (`descend_cmd`=0, stairs visible
+  from turn 1). This is AA's own known flaw (authors left a commented-out escape;
+  ~42% in their notes). `apply_unstick_dl1` re-enables the escape → the 3 verified
+  stuck seeds descend (DL1→DL4/DL3/DL8). So "beats AA" is largely "fixed the DL1
+  starvation deadlock," a legitimate structural fix but not a novel method beating
+  SOTA. After the unstick, the next wall is early-mid **combat** (68% of engine
+  deaths, median XL6/DL5, underleveled diving into the Mines).
 - **Endgame capability extension** (structural crash-fixes + iterative-teleport +
   genocide survival + fixed invocation ritual): the layer reaches DL49, survives
   1479 turns in Gehennom, and executes the invocation ritual — all milestones AA
