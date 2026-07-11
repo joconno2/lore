@@ -16,7 +16,7 @@ KIT=["12 blessed potions of gain level","12 blessed potions of gain level",
      "5 blessed food rations","5 blessed food rations",  # extra: descent eats too
      "blessed wand of digging (0:8)","blessed wand of digging (0:8)",
      "blessed wand of digging (0:8)","blessed wand of digging (0:8)"] + \
-    ["blessed scroll of genocide" for _ in range(8)]   # for LORE_GENOCIDE demo
+    ["blessed scroll of genocide" for _ in range(22)]   # for LORE_GENOCIDE demo
 if lore:
     lore_scenario.install_descent(target, wishes=KIT)
 else:
