@@ -496,7 +496,9 @@ def apply_descent_gate(mock=True, base_url=None, model=None, max_holds_per_level
             d = self.calc_direction(self.blstats.y, self.blstats.x, y, x) if x is not None else y
         except Exception:
             d = y
-        if d == ">":
+        # Never gate leaving DL1 -- that is the OPPOSITE failure (DL1 deadlock);
+        # we always want to descend off DL1. Only pace descent at depth >= 2.
+        if d == ">" and int(getattr(self.blstats, "depth", 1)) >= 2:
             try:
                 bl = self.blstats
                 key = self.current_level().key()
@@ -516,8 +518,10 @@ def apply_descent_gate(mock=True, base_url=None, model=None, max_holds_per_level
                     holds[key] = holds.get(key, 0) + 1
                     if holds[key] <= max_holds_per_level:
                         _bump("descent_hold")
-                        raise AgentPanic("lore: build before descending DL%d (XL%d)"
-                                         % (int(bl.depth), int(bl.experience_level)))
+                        # Vary the message by hold count so AA's cyclic-panic
+                        # guard does not trip; the per-level cap bounds the thrash.
+                        raise AgentPanic("lore: build before descending DL%d (XL%d) #%d"
+                                         % (int(bl.depth), int(bl.experience_level), holds[key]))
                     _bump("descent_cap_reached")
                 else:
                     _bump("descent_go")
@@ -940,8 +944,29 @@ def apply_macro_director(mock=True, base_url=None, model=None, query_every=400):
                 _bump("macro_hold_sokoban")
                 return
             dnums = {k[0] for k in ag.levels.keys()}
+            # Richer readiness/threat state so the LLM can make the dive-vs-
+            # consolidate call with info a fixed rule can't use: gear (AC/kit),
+            # and live danger (visible hostiles + how close). Lower AC = better.
+            try:
+                mons = ag.get_visible_monsters()
+                threats = len(mons)
+                near = min((int(m[0]) for m in mons), default=-1)
+            except Exception:
+                threats, near = -1, -1
+            try:
+                from autoascend.item import flatten_items as _fi
+                KEY = ("bag of holding", "reflection", "unicorn horn", "wand of",
+                       "ring of", "dragon scale", "magic marker", "amulet", "excalibur")
+                kit = sorted({k for it in _fi(ag.inventory.items)
+                              for k in KEY if k in str(it).lower()})
+            except Exception:
+                kit = []
             state = {"xl": int(bl.experience_level), "depth": int(bl.depth),
                      "hp_frac": round(bl.hitpoints / max(1, bl.max_hitpoints), 2),
+                     "ac": int(getattr(bl, "armor_class", 10)),
+                     "gold": int(getattr(bl, "gold", 0)),
+                     "visible_hostiles": threats, "nearest_hostile_dist": near,
+                     "kit": kit,
                      "hunger": {0: "satiated", 1: "ok", 2: "hungry", 3: "weak",
                                 4: "fainting"}.get(int(bl.hunger_state), "ok"),
                      "turn": now, "did_mines": Level.GNOMISH_MINES in dnums,

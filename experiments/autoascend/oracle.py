@@ -526,6 +526,13 @@ MACRO_SYSTEM = (
     "- Build strength/kit (reflection, magic resistance, good armor) BEFORE diving "
     "deep. Only DESCEND the main dungeon for real once kitted, or to make progress "
     "when the branches are exhausted.\n"
+    "READINESS matters: the bot dies most from COMBAT while descending under-geared. "
+    "Read the state's ac (lower=better armor), kit, xl, hp_frac, visible_hostiles and "
+    "nearest_hostile_dist. If under-geared for the depth (high ac, thin kit, low xl) "
+    "or actively threatened (hostiles close, low hp), prefer the SAFER strength-"
+    "building objective (Minetown for shops/altar, or Sokoban's puzzle XP + kit) over "
+    "pushing deeper into the Mines where packs kill under-leveled bots. Do not chase "
+    "raw depth while fragile.\n"
     "Choose the single best objective for the current state. Reply ONLY compact "
     "JSON: {\"objective\": <one of: " + ", ".join(MACRO_OBJECTIVES) + ">, "
     "\"reason\": <short>}."
@@ -558,16 +565,42 @@ def query_macro(state, base_url=None, model=None, mock=False):
 
 
 def _mock_macro(state):
-    """Perfect-ish expert macro plan: Mines early (food+XP) -> Minetown -> Sokoban
-    (kit) -> descend. Never grind DL1 to starvation."""
+    """Expert macro plan with a BRANCH-ORDER knob (LORE_ORDER). The default
+    'mines_first' is the food-first plan (Mines early). 'soko_first' does Sokoban's
+    SAFE puzzle-XP + kit before the dangerous dwarf/gnome-pack Mines -- testing
+    whether the mid-game combat wall (DL4-8, under-leveled, Mines killers) is a
+    consequence of entering the Mines too early. Hunger always overrides to the
+    food-rich Mines so we never starve. Never grind DL1 to starvation."""
+    import os
     xl = int(state.get("xl", 1))
-    if not state.get("did_mines"):
-        # leave DL1 for the food-rich Mines with a small cushion (or now if hungry)
-        if xl >= 3 or state.get("hunger") in ("hungry", "weak", "fainting"):
+    dl1_cushion = int(os.environ.get("LORE_DL1_XL", 3))
+    hungry = state.get("hunger") in ("hungry", "weak", "fainting")
+    did_mines = state.get("did_mines")
+    did_town = state.get("did_minetown")
+    solved_soko = state.get("solved_sokoban")
+
+    # soko_first: safe puzzle XP + bag/reflection kit BEFORE the pack-heavy Mines.
+    # Hunger still overrides to the food-rich Mines so we never starve.
+    if os.environ.get("LORE_ORDER") == "soko_first":
+        if state.get("depth", 1) <= 1 and not did_mines and xl < dl1_cushion and not hungry:
+            return {"objective": "BUILD_DL1", "reason": "build XP cushion before leaving DL1"}
+        if hungry and not did_mines:
+            return {"objective": "GO_MINES", "reason": "emergency food (Mines)"}
+        if not solved_soko and not state.get("did_sokoban"):
+            return {"objective": "GO_SOKOBAN", "reason": "safe puzzle XP + kit before Mines"}
+        if not did_mines:
+            return {"objective": "GO_MINES", "reason": "food + XP, now kitted"}
+        if not did_town:
+            return {"objective": "FIND_MINETOWN", "reason": "shops/altar strength spike"}
+        return {"objective": "DESCEND", "reason": "kitted; progress deeper"}
+
+    # default: mines_first (the current food-first expert plan) -- unchanged.
+    if not did_mines:
+        if xl >= dl1_cushion or hungry:
             return {"objective": "GO_MINES", "reason": "fix food economy in the Mines"}
-        return {"objective": "BUILD_DL1", "reason": "tiny cushion first"}
-    if not state.get("did_minetown"):
+        return {"objective": "BUILD_DL1", "reason": "build XP cushion before leaving DL1"}
+    if not did_town:
         return {"objective": "FIND_MINETOWN", "reason": "shops/altar strength spike"}
-    if not state.get("solved_sokoban"):
+    if not solved_soko:
         return {"objective": "GO_SOKOBAN", "reason": "bag/reflection prize"}
     return {"objective": "DESCEND", "reason": "kitted; progress deeper"}

@@ -16,6 +16,13 @@ elif os.environ.get("LORE_UNSTICK") == "1":
 elif os.environ.get("LORE_UNSTICK_LLM") in ("1", "mock"):
     import lore_patches
     lore_patches.apply_unstick_llm(mock=os.environ.get("LORE_UNSTICK_LLM") == "mock")
+if os.environ.get("LORE_DGATE") in ("1", "mock", "llm"):
+    # dive-readiness gate: hold '>' descent (consolidate XP/gear) until strong
+    # enough for the depth. Composes ON TOP of the macro director -- macro sets
+    # the deep objective, the gate paces the actual descent to cut the combat
+    # deaths from rushing under-leveled. mock=fixed rule; llm=oracle judges.
+    import lore_patches
+    lore_patches.apply_descent_gate(mock=os.environ.get("LORE_DGATE") != "llm")
 if os.environ.get("LORE_CRASHREC") == "1":
     import lore_patches
     lore_patches.apply_crash_recovery()
