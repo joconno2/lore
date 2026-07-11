@@ -70,6 +70,13 @@ complex multi-line logic rewrites the LLM reached but could not diagnose). So
 Failure modes are all consistent with it: ungroundable symptom (0 search terms:
 "Fixes", "Fix RL") → boilerplate (the exact-token floor again); localized-but-complex →
 vague or FABRICATED (invented a syntax error that wasn't the bug); one gate false-decline.
+**Which factor binds? Bug-complexity, not localization (`copilot.py`).** Handed ONLY the
+exact buggy function + symptom (perfect localization — the realistic co-pilot), strict-
+correct is still 2/15 = 13% (≈ autonomous), lenient rises only 32%→47%. So surfacing the
+code does NOT rescue diagnosis — it refutes "better retrieval would fix it" and corrects
+the earlier "co-pilot works because a human surfaces the code" claim: the co-pilot points
+at the right AREA ~half the time but names the specific fix ~13%. Localization gates
+attempting; bug-simplicity gates succeeding, and most real bugs are not simple.
 The controlled synthetic ceiling still holds (8/8 isolated, value-tracing 5/5, un-annotated
 found — "value-tracing fails" and "annotation inflates" both DISPROVEN), but isolated
 bugs are the easy tail: the debugger is REAL but NARROW.

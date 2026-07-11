@@ -78,6 +78,17 @@ mode surfaced: on whole code the model invented a DIFFERENT fake syntax error ("
 closing paren") on another case — it CONFIDENTLY FABRICATES a plausible bug when it can't
 find the real one. Fabrication-when-stumped is general, not a truncation side-effect.
 
+**Localization is NOT the bottleneck — diagnosis is (`copilot.py`, perfect-localization
+test).** Hand the model ONLY the exact buggy function + symptom (the realistic co-pilot:
+a dev points at suspect code). Strict-correct stays 2/15 = 13% — essentially the same as
+fully-autonomous (5-22%); lenient rises modestly 32%→47%. So perfect localization does
+NOT rescue diagnosis: the "if only retrieval were better, the debugger would work" story
+is refuted. The co-pilot points at the right AREA ~half the time but names the specific
+fix only ~13%. (Bright spot: the Sokoban truncation hallucination vanished with the full
+function — it found the real `'^'` char-check bug.) This CORRECTS the earlier "the
+co-pilot works because a human surfaces the code" claim: surfacing the code helps the
+area, not the fix. The binding constraint is BUG COMPLEXITY, not retrieval.
+
 **Mechanism (two-factor, confirmed in both runs).** Every CORRECT diagnosis was also a
 localization hit (localization is NECESSARY), but localization is NOT sufficient: in v3,
 6 localized but only 1 diagnosed strictly; the localized-but-wrong cases are complex

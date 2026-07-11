@@ -43,10 +43,14 @@ exactly when the exact tokens are PROVIDED, and fails when it must GENERATE them
   (autonomous retrieval — keyword, name-selection, and agentic search all tried) it
   hallucinates non-existent identifiers and fails. Same floor.
 
-So the debugging co-pilot works because a human/tool surfaces the code; full autonomy
-fails on the same hallucination floor as the wish decision. LLM-value ≈ f(grounding),
-floored by exact-token hallucination. (Model-dependent caveat: Qwen-14B; a larger
-model may hallucinate less in agentic search — future work.)
+Full autonomy fails on the same hallucination floor as the wish decision. But surfacing
+the code (the co-pilot) only PARTLY helps: a perfect-localization test (exact buggy
+function + symptom, `realbug_benchmark/copilot.py`, n=15) still diagnoses only 2/15=13%
+strictly (≈ the autonomous rate), 7/15=47% to the right area. So localization is not the
+binding constraint — bug COMPLEXITY is; the co-pilot narrows the search but rarely names
+the fix. LLM-value ≈ f(grounding) gates ATTEMPTING; bug-simplicity gates SUCCEEDING.
+(Model-dependent caveat: Qwen-14B; a larger model may raise the diagnosis ceiling —
+future work, currently GPU-blocked on trx.)
 
 ## What is NOT the LLM (the real, engineering contributions)
 
