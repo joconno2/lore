@@ -608,11 +608,38 @@ def install_descent(target_depth, wishes=()):
             return False
 
         def prim_explore():
-            e = agent.exploration.explore1(0)
-            if e.check_condition():
-                e.run()
-            else:
-                agent.search(1)
+            """Frontier explorer for Gehennom: AA's explore1 stalls in the maze
+            (stops with reachable UNEXPLORED cells still on the frontier), so drive
+            exploration directly -- go to the nearest reachable walkable cell we
+            have not stepped on. When no reachable frontier remains, SEARCH for
+            hidden passages (Gehennom maze corridors are often hidden)."""
+            try:
+                lvl0 = agent.current_level()
+                bf = agent.bfs()
+                mask = (bf != -1) & lvl0.walkable & (~lvl0.was_on)
+                cand = list(zip(*mask.nonzero()))
+                if cand:
+                    cand.sort(key=lambda p: bf[p[0], p[1]])
+                    for yy, xx in cand[:4]:      # try the few nearest frontier cells
+                        try:
+                            agent.go_to(int(yy), int(xx))
+                            return
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+            # frontier exhausted -> search walls for hidden passages, then fall back
+            try:
+                agent.search(8)
+                return
+            except Exception:
+                pass
+            try:
+                e = agent.exploration.explore1(0)
+                if e.check_condition():
+                    e.run()
+            except Exception:
+                pass
 
         def prim_fight():
             f = agent.fight2()
@@ -730,6 +757,12 @@ def install_descent(target_depth, wishes=()):
             while 1:
                 lore_patches.COUNTERS["descend_iters"] = \
                     lore_patches.COUNTERS.get("descend_iters", 0) + 1
+                # Hard cap: a fed char in a safe Gehennom pocket never dies, so
+                # without this the loop runs forever (the frontier-explorer hang).
+                # Bail cleanly so results are written and the run can't wedge.
+                if lore_patches.COUNTERS["descend_iters"] > int(_os2.environ.get("LORE_MAX_ITERS", 600)):
+                    lore_patches.COUNTERS["hit_iter_cap"] = 1
+                    raise AgentFinished()
                 d = int(agent.blstats.depth)
                 if d > lore_patches.COUNTERS.get("max_depth", 0):
                     lore_patches.COUNTERS["max_depth"] = d
@@ -761,10 +794,15 @@ def install_descent(target_depth, wishes=()):
                         _bf = agent.bfs()
                         _st = [(int(yy), int(xx), int(_bf[yy, xx]))
                                for yy, xx in zip(*_down.nonzero())]
-                        _wat = int(_u.isin(_lvl.objects, G.WATER).sum()) if hasattr(G, "WATER") else -1
+                        _bfreach = int((_bf != -1).sum())            # cells reachable now
+                        _walk = int(_lvl.walkable.sum())             # known walkable cells
+                        # frontier: walkable-but-unexplored reachable cells (explorer
+                        # stopped early if this is large)
+                        _frontier = int(((_bf != -1) & _lvl.walkable & (~_lvl.was_on)).sum())
                         lore_patches.COUNTERS["down_diag"] = {
                             "n_downstairs_known": len(_st), "stairs_yx_reach": _st,
-                            "explored": int(_lvl.was_on.sum()), "water_cells": _wat,
+                            "explored": int(_lvl.was_on.sum()), "reachable_now": _bfreach,
+                            "known_walkable": _walk, "frontier_unexplored_reachable": _frontier,
                             "my_pos": [int(agent.blstats.y), int(agent.blstats.x)]}
                     except Exception as _de:
                         lore_patches.COUNTERS["down_diag"] = "err %r" % _de
