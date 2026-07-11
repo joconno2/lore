@@ -571,15 +571,40 @@ def install_descent(target_depth, wishes=()):
             return False
 
         def prim_descend_stairs():
-            """travel to a known downstair and take it. returns True if descended."""
-            st = agent.exploration.explore_stairs(agent.exploration.go_to_strategy, down=True)
-            if st.check_condition():
-                before = agent.current_level().key()
-                st.run()
-                if agent.current_level().key() != before:
-                    lore_patches.COUNTERS["stair_descents"] = \
-                        lore_patches.COUNTERS.get("stair_descents", 0) + 1
-                    return True
+            """MODEL-FREE: BFS to a down-stair GLYPH and take it via raw '>'. AA's
+            explore_stairs relies on its dungeon model, which has NO Gehennom, so it
+            never reaches the maze downstairs -- the endgame-reach blocker. The glyph
+            grid + agent.bfs() work regardless of dungeon, so navigate directly."""
+            try:
+                lvl0 = agent.current_level()
+                bf = agent.bfs()
+                downs = list(zip(*((_u.isin(lvl0.objects, G.STAIR_DOWN)) & (bf != -1)).nonzero()))
+            except Exception:
+                return False
+            if not downs:
+                return False
+            before = int(agent.blstats.depth)
+            y, x = downs[0]
+            try:
+                if (int(agent.blstats.y), int(agent.blstats.x)) != (int(y), int(x)):
+                    agent.go_to(int(y), int(x))
+            except Exception:
+                return False
+            low = agent.env.env.unwrapped.env
+            try:
+                low.step(ord('>')); low.step(13); low.step(13)
+                agent.step(_agz.A.Command.ESC)
+                agent.inventory.update()
+            except Exception:
+                pass
+            if int(agent.blstats.depth) > before:
+                lore_patches.COUNTERS["stair_descents"] = \
+                    lore_patches.COUNTERS.get("stair_descents", 0) + 1
+                try:
+                    agent.levels.clear()
+                except Exception:
+                    pass
+                return True
             return False
 
         def prim_explore():
