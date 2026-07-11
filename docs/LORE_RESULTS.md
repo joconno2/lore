@@ -32,8 +32,14 @@ where the LLM beats the rule.
 Failure-diagnosis has no pre-existing expert rule, so the parity ceiling does not apply.
 Built an autonomous LLM+grounded-retrieval debugger for the 15K-line agent: from a failure
 symptom, extract terms → validate against the codebase vocabulary → rarity-rank → grep to
-the function → BUG/FUNDAMENTAL gate → diagnose (`autonomous_debug5.py`). It co-found 2 real
-novel bugs this way (prayer-while-adjacent, floating-eye-melee), both fixed.
+the function → BUG/FUNDAMENTAL gate → diagnose (`autonomous_debug5.py`). The existence proof:
+from real in-game death symptoms it surfaced 2 code-verified gaps in the frozen bot, both
+fixed — (1) prayer-while-adjacent: `is_safe_to_pray` (agent.py:739) checks ONLY the prayer
+timeout, no adjacency, so AA prays next to a hostile and dies mid-prayer (fix cut prayer
+deaths 5→1/100); (2) floating-eye-melee: `melee_monster_priority` (fight_heur.py:28-34)
+applies only a SOFT −110 penalty, no hard block when other hostiles are near, so it still
+melees the eye in multi-monster fights → paralysis → death. Both are real gaps in the frozen
+SOTA, though depth-neutral (the DL5 wall is fundamental combat mortality, not these).
 
 Then bounded it with an unbiased real-bug benchmark (`realbug_benchmark/`) — every
 qualifying bug-fix commit from the upstream AutoAscend git history, the debugger run from
