@@ -320,9 +320,24 @@ def install_scenario(target_depth, wishes=()):
                 for _ in range(40):
                     pot = None
                     for it in _ag3.flatten_items(agent.inventory.items):
-                        if getattr(it, "category", None) == _nh.POTION_CLASS:
-                            pot = it
-                            break
+                        if getattr(it, "category", None) != _nh.POTION_CLASS:
+                            continue
+                        # SKIP healing potions -> keep them for the heal reflex.
+                        # Identify via raw inv_strs name (the AA item object's str
+                        # is NOT the name). Default to quaffing if lookup fails.
+                        try:
+                            _lt = agent.inventory.items.get_letter(it)
+                            _nm = ""
+                            for nm, ltr in zip(agent.last_observation['inv_strs'],
+                                               agent.last_observation['inv_letters']):
+                                if int(ltr) != 0 and chr(int(ltr)) == _lt:
+                                    _nm = bytes(nm).decode('latin1').lower(); break
+                            if 'healing' in _nm:
+                                continue
+                        except Exception:
+                            pass
+                        pot = it
+                        break
                     if pot is None:
                         break
                     try:
@@ -330,6 +345,17 @@ def install_scenario(target_depth, wishes=()):
                     except Exception:
                         break
                 lore_patches.COUNTERS["xl_before_tp"] = int(agent.blstats.experience_level)
+                try:
+                    _hk = 0
+                    for nm, oc, ltr in zip(agent.last_observation['inv_strs'],
+                                           agent.last_observation['inv_oclasses'],
+                                           agent.last_observation['inv_letters']):
+                        if int(oc) == _nh.POTION_CLASS and int(ltr) != 0 and \
+                                'healing' in bytes(nm).decode('latin1').lower():
+                            _hk += 1
+                    lore_patches.COUNTERS["healing_kept"] = _hk
+                except Exception:
+                    pass
                 _do_teleport(agent, target_depth)
                 lore_patches._bump("scenario_teleport")
                 lore_patches.COUNTERS["tp_depth"] = int(agent.blstats.depth)
@@ -485,9 +511,24 @@ def install_descent(target_depth, wishes=()):
                 for _ in range(40):
                     pot = None
                     for it in _ag3.flatten_items(agent.inventory.items):
-                        if getattr(it, "category", None) == _nh.POTION_CLASS:
-                            pot = it
-                            break
+                        if getattr(it, "category", None) != _nh.POTION_CLASS:
+                            continue
+                        # SKIP healing potions -> keep them for the heal reflex.
+                        # Identify via raw inv_strs name (the AA item object's str
+                        # is NOT the name). Default to quaffing if lookup fails.
+                        try:
+                            _lt = agent.inventory.items.get_letter(it)
+                            _nm = ""
+                            for nm, ltr in zip(agent.last_observation['inv_strs'],
+                                               agent.last_observation['inv_letters']):
+                                if int(ltr) != 0 and chr(int(ltr)) == _lt:
+                                    _nm = bytes(nm).decode('latin1').lower(); break
+                            if 'healing' in _nm:
+                                continue
+                        except Exception:
+                            pass
+                        pot = it
+                        break
                     if pot is None:
                         break
                     try:
@@ -495,6 +536,17 @@ def install_descent(target_depth, wishes=()):
                     except Exception:
                         break
                 lore_patches.COUNTERS["xl_before_tp"] = int(agent.blstats.experience_level)
+                try:
+                    _hk = 0
+                    for nm, oc, ltr in zip(agent.last_observation['inv_strs'],
+                                           agent.last_observation['inv_oclasses'],
+                                           agent.last_observation['inv_letters']):
+                        if int(oc) == _nh.POTION_CLASS and int(ltr) != 0 and \
+                                'healing' in bytes(nm).decode('latin1').lower():
+                            _hk += 1
+                    lore_patches.COUNTERS["healing_kept"] = _hk
+                except Exception:
+                    pass
                 try: lore_patches.COUNTERS["t_after_quaff"] = int(agent.blstats.time)
                 except Exception: pass
                 import os as _os
@@ -735,6 +787,43 @@ def install_descent(target_depth, wishes=()):
             except Exception:
                 return False
 
+        def _heal_reflex():
+            """Quaff a potion of healing when HP is low, to sustain the long
+            Gehennom traversal (prayer alone can't -- ~1000-turn cooldown). Returns
+            True ONLY if a game turn actually passed (TURN-GUARD: a reflex that
+            returns True without a step makes the descend loop spin to the cap)."""
+            try:
+                # top up at 65% -- Gehennom deaths are BURSTS (multiple strong
+                # monsters), so heal before HP is low enough for one to be lethal.
+                if agent.blstats.hitpoints > 0.65 * max(1, agent.blstats.max_hitpoints):
+                    return False
+                t0 = int(agent.blstats.time)
+            except Exception:
+                return False
+            low = agent.env.env.unwrapped.env
+            try:
+                lt = None
+                for nm, oc, ltr in zip(agent.last_observation['inv_strs'],
+                                       agent.last_observation['inv_oclasses'],
+                                       agent.last_observation['inv_letters']):
+                    s = bytes(nm).decode('latin1').lower()
+                    if int(oc) == _nh2.POTION_CLASS and int(ltr) != 0 and 'healing' in s:
+                        lt = chr(int(ltr)); break
+                if lt is None:
+                    return False
+                low.step(ord('q')); low.step(ord(lt)); low.step(13); low.step(13)
+                agent.step(_agz.A.Command.ESC); agent.inventory.update()
+            except Exception:
+                return False
+            try:
+                if int(agent.blstats.time) > t0:      # TURN-GUARD
+                    lore_patches.COUNTERS["descent_heals"] = \
+                        lore_patches.COUNTERS.get("descent_heals", 0) + 1
+                    return True
+            except Exception:
+                pass
+            return False
+
         def prim_fight():
             f = agent.fight2()
             if f.check_condition():
@@ -921,11 +1010,13 @@ def install_descent(target_depth, wishes=()):
                             "ascii": "\n".join(_rows)}
                     except Exception as _de:
                         lore_patches.COUNTERS["down_diag"] = "err %r" % _de
-                # NOTE: eat/heal survival reflexes removed -- they SPIN on some
-                # seeds (increment descend_iters without a game step -> hit the cap
-                # with few turns, e.g. seeds 48/56/57). Reimplement carefully fresh
-                # (ensure every reflex path takes exactly one game step, multi-seed
-                # tested) as part of the holistic descent agent.
+                # survival reflex: heal when hurt (TURN-GUARDED so it can't spin --
+                # only continues if a real game step happened).
+                try:
+                    if _heal_reflex():
+                        continue
+                except Exception:
+                    pass
                 # --- decide the action (policy-dependent), then execute it ---
                 try:
                     action = _decide_action()
