@@ -78,6 +78,8 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "first_reach":{int(k.split("_")[-1]):C[k] for k in C if k.startswith("firstreach_")},
           "survived_depth":{K:(max([int(k.split("_")[-1]) for k in C if k.startswith("firstreach_") and (int(s.get("turns") or 0)-C[k])>=K], default=0)) for K in (20,50,100)},
           "death":death,"end_reason":str(getattr(w,"end_reason",""))[:120],
+          "af_action":C.get("agentfinished_action"),"af_iter":C.get("agentfinished_iter"),
+          "af_tb":C.get("agentfinished_tb"),
           "down_diag":C.get("down_diag"),"level_no_dig":C.get("level_no_dig"),
           "stair_descents":C.get("stair_descents"),
           "t":round(time.time()-t0),"xl_after":C.get("xl_after"),"wishes":C.get("wishes")},

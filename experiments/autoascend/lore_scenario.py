@@ -844,6 +844,11 @@ def install_descent(target_depth, wishes=()):
                         lore_patches.COUNTERS["descents"] = \
                             lore_patches.COUNTERS.get("descents", 0) + 1
                 except AgentFinished:
+                    import traceback as _tb
+                    lore_patches.COUNTERS["agentfinished_action"] = str(action)
+                    lore_patches.COUNTERS["agentfinished_tb"] = _tb.format_exc()[-500:]
+                    lore_patches.COUNTERS["agentfinished_iter"] = \
+                        lore_patches.COUNTERS.get("descend_iters")
                     raise
                 except _gl_exc.AgentChangeStrategy:
                     raise
