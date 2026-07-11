@@ -799,11 +799,32 @@ def install_descent(target_depth, wishes=()):
                         # frontier: walkable-but-unexplored reachable cells (explorer
                         # stopped early if this is large)
                         _frontier = int(((_bf != -1) & _lvl.walkable & (~_lvl.was_on)).sum())
+                        # ASCII render so we can SEE the level (sealed pocket vs
+                        # hidden stair vs glyph-detection issue): @ me, > down, < up,
+                        # | wall, } water, . reachable, , explored-elsewhere, space unknown.
+                        _rows = []
+                        _wall = _u.isin(_lvl.objects, G.WALL)
+                        _up = _u.isin(_lvl.objects, G.STAIR_UP)
+                        _wa = _u.isin(_lvl.objects, G.WATER) if hasattr(G, "WATER") else _down & False
+                        _my = (int(agent.blstats.y), int(agent.blstats.x))
+                        for ry in range(_lvl.objects.shape[0]):
+                            _r = ""
+                            for rx in range(_lvl.objects.shape[1]):
+                                if (ry, rx) == _my: _r += "@"
+                                elif _down[ry, rx]: _r += ">"
+                                elif _up[ry, rx]: _r += "<"
+                                elif _wa[ry, rx]: _r += "}"
+                                elif _wall[ry, rx]: _r += "|"
+                                elif _bf[ry, rx] != -1: _r += "."
+                                elif _lvl.was_on[ry, rx]: _r += ","
+                                else: _r += " "
+                            _rows.append(_r.rstrip())
                         lore_patches.COUNTERS["down_diag"] = {
                             "n_downstairs_known": len(_st), "stairs_yx_reach": _st,
                             "explored": int(_lvl.was_on.sum()), "reachable_now": _bfreach,
                             "known_walkable": _walk, "frontier_unexplored_reachable": _frontier,
-                            "my_pos": [int(agent.blstats.y), int(agent.blstats.x)]}
+                            "my_pos": [int(agent.blstats.y), int(agent.blstats.x)],
+                            "ascii": "\n".join(_rows)}
                     except Exception as _de:
                         lore_patches.COUNTERS["down_diag"] = "err %r" % _de
                 # --- decide the action (policy-dependent), then execute it ---
