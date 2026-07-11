@@ -214,13 +214,32 @@ def _do_teleport(agent, target_depth):
     # via self.env.step(keypress)).
     genv = agent.env.env
     low = genv.unwrapped.env
-    low.step(27); low.step(27)         # ESC x2: clear any residual prompt (e.g. post-wish)
-    low.step(22)                       # ^V
-    for ch in str(int(target_depth)):
-        low.step(ord(ch))              # digits
-    low.step(13)                       # enter
-    low.step(13); low.step(13)         # clear any --More--
     import autoascend.agent as _ag
+    # ITERATIVE teleport: a single ^V clamps at the deepest GENERATED level (~DL29
+    # from a fresh game), but stepping to deepest+1 repeatedly FORCE-GENERATES each
+    # next level -- reaching deep Gehennom (DL49, the invocation-level range) with
+    # zero maze navigation. So step down one level at a time toward the target.
+    def _tp(d):
+        low.step(27); low.step(27)     # ESC x2: clear any residual prompt
+        low.step(22)                   # ^V
+        for ch in str(int(d)):
+            low.step(ord(ch))          # digits
+        low.step(13)                   # enter
+        low.step(13); low.step(13)     # clear any --More--
+    try:
+        cur = int(agent.blstats.depth)
+    except Exception:
+        cur = 1
+    if int(target_depth) <= cur + 1:
+        _tp(target_depth)              # shallow / single step
+    else:
+        for d in range(cur + 1, int(target_depth) + 1):
+            _tp(d)                     # step down, force-generating each level
+            try:
+                if int(agent.blstats.depth) >= int(target_depth):
+                    break
+            except Exception:
+                pass
     agent.step(_ag.A.Command.ESC)      # resync agent state with new level
     try:
         agent.levels.clear()           # wipe stale DL1 stair graph (-> PLANE)
