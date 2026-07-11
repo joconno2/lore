@@ -48,7 +48,15 @@ optimum on a rule-determined decision.
   stuck seeds descend (DL1→DL4/DL3/DL8). So "beats AA" is largely "fixed the DL1
   starvation deadlock," a legitimate structural fix but not a novel method beating
   SOTA. After the unstick, the next wall is early-mid **combat** (68% of engine
-  deaths, median XL6/DL5, underleveled diving into the Mines).
+  deaths, median XL6/DL5, underleveled diving into the Mines). That DL5 wall was
+  then probed across every intervention class — all null except the DL1 unstick:
+  macro/strategy (13 variants, n=1660, all median DL5), Elbereth-loop bug-fix
+  (0/0/100 no-op; p=0.39), disengage/survival (p=0.16), dive-pacing (crashes AA),
+  and character role (forced Valkyrie, the best ascension role, still median DL5).
+  So the DL5 median is AA's fundamental mid-game combat-death rate, invariant to
+  strategy/role/survival-tuning; ascension lives only in the rare tail (p90 DL8,
+  p95 DL10). Baseline validated as fair (native `no_progress_timeout`: DL1-stuck
+  45%, same as ours — the stick is real AA behavior, not a harness artifact).
 - **Endgame capability extension** (structural crash-fixes + iterative-teleport +
   genocide survival + fixed invocation ritual): the layer reaches DL49, survives
   1479 turns in Gehennom, and executes the invocation ritual — all milestones AA
