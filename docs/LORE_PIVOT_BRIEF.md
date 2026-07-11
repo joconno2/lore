@@ -41,7 +41,7 @@ hallucination. Not a model-size problem.
   WALLED. Legit play can't pass DL5; the deep-endgame capability is scenario-only
   (wizard teleport), not real ascension progress. No defensible "much closer to
   ascending" claim from legit play. Not recommended without a major new capability
-  build (a real Gehennom nav + early-game survival — the 15K-line problem).
+  build (a real Gehennom nav + early-game survival — the 15K-line problem). That build is now SPECIFIED (implementation-investigated, not guessed): the DL5 wall's root is underleveled diving, and pacing it needs (1) active XP-grind behavior AA lacks entirely, and (2) navigation-level dive-pacing (the milestone layer can't gate the mid-game Mines dive, which is navigation-controlled; the move-level gate crashes via AgentPanic). Both are new capability, not knobs — why all 8 cheap lever classes were null.
 - **(b) A fundamentally different, non-decision LLM role.** In-loop decisions are
   closed. Candidate: LLM as a generator in an outer QD/MAP-Elites loop (propose a
   diverse population, evaluate by rollout, archive) — connects to AALL methods
