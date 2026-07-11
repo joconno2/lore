@@ -5,9 +5,10 @@ if lore:
     lore_patches.apply_crash_recovery(); lore_patches.apply_oracle_veto(mock=True)
 lore_scenario.patch_enhance_noop()
 KIT=["12 blessed potions of gain level","12 blessed potions of gain level",
+     "12 blessed potions of gain level",   # ~36 XL -> big HP to tank Gehennom swarms
      "blessed +3 gray dragon scale mail","blessed +2 long sword",
-     "blessed +3 cloak of protection",     # modest AC boost; survives long enough
-                                           # to exercise descent (tank kit early-exits)
+     "blessed +3 helmet","blessed +3 pair of high boots","blessed +3 pair of leather gloves",
+     "blessed +3 cloak of protection",     # full armor -> AC-15 (survives the swarm)
      "blessed ring of free action","blessed ring of fire resistance",
      "blessed amulet of reflection",
      "4 blessed killer bee corpses","4 blessed kobold corpses",
