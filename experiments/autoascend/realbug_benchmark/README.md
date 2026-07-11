@@ -68,6 +68,16 @@ each retrieved function body to 1200 chars, so the cut-off looks like broken cod
 Truncating code display manufactures false positives; a real fix would feed whole
 functions (bounded by the 4k context, so retrieve fewer + show them fully).
 
+**Truncation-fix re-test forecloses the "your low rate is just truncation" objection
+(`notrunc.py`).** Re-ran the 6 localized cases showing top-3 functions WHOLE. The
+Sokoban `offse` hallucination vanished (artifact confirmed + fixable), and one case
+improved (cyclic panic now gets the infinite-loop + terminate concept, not "message
+formatting"). But 4/6 stay wrong — whole functions lift strict-correct only ~1/6→2/6.
+So the 5-22% is a real capability CEILING, not a display artifact. And a sharper failure
+mode surfaced: on whole code the model invented a DIFFERENT fake syntax error ("missing
+closing paren") on another case — it CONFIDENTLY FABRICATES a plausible bug when it can't
+find the real one. Fabrication-when-stumped is general, not a truncation side-effect.
+
 **Mechanism (two-factor, confirmed in both runs).** Every CORRECT diagnosis was also a
 localization hit (localization is NECESSARY), but localization is NOT sufficient: in v3,
 6 localized but only 1 diagnosed strictly; the localized-but-wrong cases are complex

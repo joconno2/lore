@@ -1,0 +1,32 @@
+[
+ {
+  "sha": "073d770",
+  "symptom": "Fix cyclic panic handling, quit after 5000 score",
+  "diagnosis": "**Function:** `agent.py:main`\n\n**Bug:** The function enters into a cyclic panic state where it repeatedly raises and catches panics without making progress, leading to an infinite loop.\n\n**Fix:** Implement a counter that limits the number of panic occurrences to 5000. If the panic count exceeds this limit, the function should terminate to avoid an infinite loop.\n\nHere's a brief description of the fix:\n\n- Add a panic counter that increments each time a panic occurs.\n- Terminate the function if th"
+ },
+ {
+  "sha": "e328738",
+  "symptom": "Add small fight fix (ranged priority tweak for \"only ranged monsters\"),     untrap template",
+  "diagnosis": "**Function:** `draw_monster_priority_negative`\n\n**Bug:** The code snippet has an incomplete conditional statement at the end of the function. Specifically, the condition `elif mon.mname in ONLY_RANGED_SLOW_MONSTERS:` does not have a corresponding closing parenthesis, leading to a syntax error.\n\n**Fix:** Ensure that the conditional statements are properly closed with parentheses. Here's the corrected part of the code:\n\n```python\nelif mon.mname in ONLY_RANGED_SLOW_MONSTERS:  # and agent.inventory."
+ },
+ {
+  "sha": "bad5143",
+  "symptom": "Fix visualizer step calling order, make wand engraving atom operation",
+  "diagnosis": "**Function and Bug:**\n\n- **Function:** `call_update_functions` in `agent.py`\n- **Bug:** The `disallow_step_calling` context manager is being used incorrectly within the `call_update_functions` method. This leads to issues where step calling order is not properly managed, causing problems like incorrect execution of update functions or unexpected behavior during the execution of strategies.\n\n**Fix:**\n\n- Ensure that the `disallow_step_calling` context manager is correctly utilized to prevent any u"
+ },
+ {
+  "sha": "de0f93a",
+  "symptom": "Improve ranged priority, fix double 'y' in eat",
+  "diagnosis": "**Function:** `draw_monster_priority_negative`\n\n**Bug:** The function does not properly prioritize staying out of melee range when the player's hit points are low and the monster is faster.\n\n**Fix:** Ensure that when the player's hit points are less than or equal to 8 and the monster is faster, the function stays out of melee range by setting the priority around the monster to a negative value.\n\n**Function:** `draw_monster_priority_positive`\n\n**Bug:** The function contains a typo in the word \"ea"
+ },
+ {
+  "sha": "bde22a3",
+  "symptom": "Fix go_to_item bug",
+  "diagnosis": "**Function:** `item.py:go_to_item_to_pickup`\n\n**Bug:** The function `go_to_item_to_pickup` does not correctly handle the scenario where there are no items to pick up or drop, leading to an incorrect decision-making process.\n\n**Fix:** Ensure that the function properly checks and handles cases where there are no items to pick up or drop, preventing unnecessary processing and ensuring the agent behaves logically.\n\nHere's a brief fix:\n\n```python\ndef go_to_item_to_pickup(self):\n    level = self.agent"
+ },
+ {
+  "sha": "0114ad4",
+  "symptom": "Fix sokoban solving strategy",
+  "diagnosis": "**Function:** `global_strategy`\n\n**Bug:** The `solve_sokoban_strategy` is preempted with a condition that checks whether the milestone is not equal to `SOLVE_SOKOBAN`. This means the solve Sokoban strategy will never be executed because the condition always evaluates to `True` or `False` based on the milestone status.\n\n**Fix:** Remove the condition check for `solve_sokoban_strategy` so that it runs unconditionally when the milestone reaches `SOLVE_SOKOBAN`.\n\n```python\ndef global_strategy(self):\n"
+ }
+]
