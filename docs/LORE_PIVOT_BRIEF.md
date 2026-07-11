@@ -39,10 +39,19 @@ hallucination. Not a model-size problem.
   build (a real Gehennom nav + early-game survival — the 15K-line problem).
 - **(b) A fundamentally different, non-decision LLM role.** In-loop decisions are
   closed. Candidate: LLM as a generator in an outer QD/MAP-Elites loop (propose a
-  diverse population of macro-strategies / behavior descriptors, evaluate by
-  rollout, archive) — connects to AALL methods (MAP-Elites, QD-Continual). The LLM
-  proposes, rollouts judge; it never makes an in-game decision, so the rule-parity
-  ceiling doesn't apply. Unprobed. This is the most AALL-leveraged direction.
+  diverse population, evaluate by rollout, archive) — connects to AALL methods
+  (MAP-Elites, QD-Continual). The LLM proposes, rollouts judge; it never makes an
+  in-game decision, so the rule-parity ceiling doesn't apply. This is the most
+  AALL-leveraged direction — BUT with a measured constraint: the generation target
+  can NOT be AA-macro-strategy. That space is already exhausted — 13 macro variants
+  across n=1660 games (prof_mcr, be_engine, mabl/mablf, bo_soko, soko1, abl_*,
+  surv, prof_msf/msp) are ALL median DL5. QD/LLM search over macro-policy inherits
+  the DL5 wall (early-game combat survival, not policy, is the ceiling). Option (b)
+  has legs only if the LLM generates something OUTSIDE the walled spaces — not
+  in-loop decisions (rule-parity), not macro-policy (DL5-walled). What that target
+  is (curriculum for a learned agent? behavior-space exploration where "beat AA"
+  isn't the metric? level/scenario generation?) is the real (b) design question,
+  and it likely means redefining the goal away from "beat AA on ascension."
 - **(c) A different, non-rule-governed domain.** NetHack is the wrong domain for
   the oracle thesis (exact-name, wiki-documented, SOTA-saturated). A domain where
   no precise rule exists is where LLM knowledge could beat the absence of a rule.
