@@ -41,12 +41,19 @@ gate → diagnose. Scorecard (symptoms only, Qwen-14B, `autonomous_debug5.py`):
 | DL8+ diverse combat (fundamental, no bug) | correctly DECLINED ✓ |
 
 **Envelope:** clear/local bugs reliable (4/4 localized), fundamental correctly
-declined (calibration gate), subtle cross-file value-tracing fails (an LLM reasoning
-limit — fails even when both code sites are shown; may be model-size-dependent).
+declined (calibration gate). Diagnosis CEILING is high: a controlled benchmark of 8
+isolated Python bug types scored **8/8** — recall gotchas 3/3 (mutable default,
+late-binding closure, shadowed builtin) AND value-tracing 5/5 (is-vs-==, off-by-one,
+unbound-after-discard, type-key-mismatch, and/or-precedence). It FOUND the int-vs-str
+type-mismatch in isolation — the same pattern it MISSED in the AA container bug — so
+the real failure mode is **implicit/indirect bugs needing cross-path inference in
+larger, noisier context** (the AA container's numeric-vs-string id comes from two
+different code paths with no explicit int()/str()), NOT value-tracing per se.
 Retrieval had to be GROUNDED: LLM-generated search terms (keyword / name-select /
 agentic) all hallucinated non-existent identifiers and failed — the same floor as
 the wish decision. Grounding the search (real symptom-terms) unlocks it. The LLM
-also **co-found 2 novel bugs** this way (prayer, floating-eye), both fixed.
+also **co-found 2 novel bugs** this way (prayer, floating-eye), both fixed. Generic,
+not AA-specific: it diagnosed a real Python bug in the LORE tooling too.
 
 ## Engineering (non-LLM, banked)
 
