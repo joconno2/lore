@@ -92,6 +92,8 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "t_after_wishes":C.get("t_after_wishes"),"t_after_quaff":C.get("t_after_quaff"),
           "t_after_eat":C.get("t_after_eat"),"t_after_equip":C.get("t_after_equip"),
           "vibration_found":C.get("vibration_found"),"vibration_pos":C.get("vibration_pos"),"healing_kept":C.get("healing_kept"),"descent_heals":C.get("descent_heals"),
+          "sick_after_eat":C.get("sick_after_eat"),"setup_prayed_sick":C.get("setup_prayed_sick"),"heal_letter":C.get("heal_letter"),
+          "descent_prays":C.get("descent_prays"),"reflex_fights":C.get("reflex_fights"),
           "af_action":C.get("agentfinished_action"),"af_iter":C.get("agentfinished_iter"),
           "af_tb":C.get("agentfinished_tb"),
           "down_diag":C.get("down_diag"),"level_no_dig":C.get("level_no_dig"),

@@ -82,6 +82,17 @@ def _spawn_monsters(agent, names):
     lore_patches.COUNTERS["spawned"] = spawned
 
 
+def _is_sick(agent):
+    """True if the status line shows a fatal illness (Sick/FoodPois/Ill). Parsed
+    off the bottom tty rows -- robust across NLE blstats layouts."""
+    try:
+        tc = agent.last_observation['tty_chars']
+        bottom = "\n".join(bytes(row).decode('latin1') for row in tc[-3:]).lower()
+        return any(k in bottom for k in ("foodpois", "sick", "ill "))
+    except Exception:
+        return False
+
+
 def _eat_for_intrinsics(agent):
     """Eat wished corpses on the safe start level to gain intrinsic resistances
     (real gameplay prep, not a wizard cheat): killer-bee/kobold corpses confer
@@ -551,37 +562,25 @@ def install_descent(target_depth, wishes=()):
             try:
                 import autoascend.agent as _ag3
                 import nle.nethack as _nh
-                for it in wishes:
+                # Wished items come in UNIDENTIFIED (a "potion of full healing" shows
+                # as e.g. "black potions"), so a name-based 'healing' skip does NOT
+                # work -- the old code drank the healing potions during the level-up
+                # loop, leaving none for Gehennom (heal reflex never fired). FIX:
+                # split the kit. Quaff gain-level potions FIRST (before any healing
+                # potion exists), THEN wish the rest and capture the healing stack's
+                # LETTER (stable per stack) for the reflex to use.
+                gain = [w for w in wishes if 'gain level' in w.lower()]
+                rest = [w for w in wishes if 'gain level' not in w.lower()]
+                for it in gain:
                     _do_wish(agent, it)
-                lore_patches.COUNTERS["wishes"] = len(wishes)
-                try: lore_patches.COUNTERS["t_after_wishes"] = int(agent.blstats.time)
-                except Exception: pass
                 try:
-                    agent.step(_ag3.A.Command.ESC)
-                    agent.inventory.update()
-                except Exception:
-                    pass
-                for _ in range(40):
+                    agent.step(_ag3.A.Command.ESC); agent.inventory.update()
+                except Exception: pass
+                for _ in range(80):        # drain every gain-level potion -> tank XL
                     pot = None
                     for it in _ag3.flatten_items(agent.inventory.items):
-                        if getattr(it, "category", None) != _nh.POTION_CLASS:
-                            continue
-                        # SKIP healing potions -> keep them for the heal reflex.
-                        # Identify via raw inv_strs name (the AA item object's str
-                        # is NOT the name). Default to quaffing if lookup fails.
-                        try:
-                            _lt = agent.inventory.items.get_letter(it)
-                            _nm = ""
-                            for nm, ltr in zip(agent.last_observation['inv_strs'],
-                                               agent.last_observation['inv_letters']):
-                                if int(ltr) != 0 and chr(int(ltr)) == _lt:
-                                    _nm = bytes(nm).decode('latin1').lower(); break
-                            if 'healing' in _nm:
-                                continue
-                        except Exception:
-                            pass
-                        pot = it
-                        break
+                        if getattr(it, "category", None) == _nh.POTION_CLASS:
+                            pot = it; break
                     if pot is None:
                         break
                     try:
@@ -589,17 +588,34 @@ def install_descent(target_depth, wishes=()):
                     except Exception:
                         break
                 lore_patches.COUNTERS["xl_before_tp"] = int(agent.blstats.experience_level)
+                for it in rest:            # now the survival kit incl. healing potions
+                    _do_wish(agent, it)
+                lore_patches.COUNTERS["wishes"] = len(wishes)
+                try: lore_patches.COUNTERS["t_after_wishes"] = int(agent.blstats.time)
+                except Exception: pass
                 try:
-                    _hk = 0
+                    agent.step(_ag3.A.Command.ESC); agent.inventory.update()
+                except Exception:
+                    pass
+                # capture the healing potion (the only potion stack left after the
+                # gain-level quaff) by LETTER + appearance -- names are unidentified.
+                try:
+                    _hk = 0; _hlt = None; _happ = None
                     for nm, oc, ltr in zip(agent.last_observation['inv_strs'],
                                            agent.last_observation['inv_oclasses'],
                                            agent.last_observation['inv_letters']):
-                        if int(oc) == _nh.POTION_CLASS and int(ltr) != 0 and \
-                                'healing' in bytes(nm).decode('latin1').lower():
-                            _hk += 1
+                        if int(oc) == _nh.POTION_CLASS and int(ltr) != 0:
+                            s = bytes(nm).decode('latin1').strip('\x00').strip()
+                            _hlt = chr(int(ltr)); _happ = s.lower()
+                            try: _hk += int(s.split()[0])
+                            except Exception: _hk += 1
+                    agent.__dict__["_lore_heal_lt"] = _hlt
+                    agent.__dict__["_lore_heal_app"] = _happ
                     lore_patches.COUNTERS["healing_kept"] = _hk
-                except Exception:
-                    pass
+                    lore_patches.COUNTERS["heal_letter"] = _hlt
+                    lore_patches.COUNTERS["heal_appearance"] = _happ
+                except Exception as _he:
+                    lore_patches.COUNTERS["heal_capture_err"] = repr(_he)[:60]
                 try: lore_patches.COUNTERS["t_after_quaff"] = int(agent.blstats.time)
                 except Exception: pass
                 import os as _os
@@ -609,6 +625,18 @@ def install_descent(target_depth, wishes=()):
                     _do_genocide(agent, list(_os.environ.get("LORE_GENOCIDE")))
                 if _os.environ.get("LORE_NO_EAT") != "1":
                     _eat_for_intrinsics(agent)  # poison res from wished corpses
+                    # Eating poisonous corpses (killer bee/kobold) while not yet
+                    # poison-resistant self-inflicts FATAL ILLNESS -- the #1 fast
+                    # death in Gehennom (die from illness before combat). Cure it
+                    # NOW with prayer (fresh game, no recent prayer -> reliably safe)
+                    # so the sick timer can't kill mid-descent.
+                    if _is_sick(agent):
+                        try:
+                            agent.pray()
+                            lore_patches.COUNTERS["setup_prayed_sick"] = 1
+                        except Exception as _pe:
+                            lore_patches.COUNTERS["setup_pray_err"] = repr(_pe)[:50]
+                    lore_patches.COUNTERS["sick_after_eat"] = int(_is_sick(agent))
                 try: lore_patches.COUNTERS["t_after_eat"] = int(agent.blstats.time)
                 except Exception: pass
                 if _os.environ.get("LORE_NO_EQUIP") != "1":
@@ -782,9 +810,11 @@ def install_descent(target_depth, wishes=()):
                     return
             except Exception:
                 pass
-            # last resort: search for hidden passages
+            # last resort: search for hidden passages -- ONE turn only, so the loop
+            # returns to the survival reflexes (heal/fight) between searches instead
+            # of taking 10 free hits mid-search (the tank-chip death mode).
             try:
-                agent.search(10)
+                agent.search(1)
             except Exception:
                 pass
 
@@ -858,14 +888,23 @@ def install_descent(target_depth, wishes=()):
             except Exception:
                 return False
             low = agent.env.env.unwrapped.env
+            # healing potions are UNIDENTIFIED ("black potions"), so match by the
+            # LETTER captured at setup (stable per stack), then by stored appearance,
+            # then by an identified 'healing' name (post-first-quaff). Verify the
+            # candidate letter still points to a potion before quaffing.
+            hlt = agent.__dict__.get("_lore_heal_lt")
+            happ = agent.__dict__.get("_lore_heal_app")
             try:
                 lt = None
                 for nm, oc, ltr in zip(agent.last_observation['inv_strs'],
                                        agent.last_observation['inv_oclasses'],
                                        agent.last_observation['inv_letters']):
-                    s = bytes(nm).decode('latin1').lower()
-                    if int(oc) == _nh2.POTION_CLASS and int(ltr) != 0 and 'healing' in s:
-                        lt = chr(int(ltr)); break
+                    if int(oc) != _nh2.POTION_CLASS or int(ltr) == 0:
+                        continue
+                    c = chr(int(ltr))
+                    s = bytes(nm).decode('latin1').strip('\x00').strip().lower()
+                    if c == hlt or 'healing' in s or (happ and s.split(' ', 1)[-1] in happ):
+                        lt = c; break
                 if lt is None:
                     return False
                 low.step(ord('q')); low.step(ord(lt)); low.step(13); low.step(13)
@@ -1085,6 +1124,35 @@ def install_descent(target_depth, wishes=()):
                 try:
                     if _heal_reflex():
                         continue
+                except Exception:
+                    pass
+                # sickness reflex: illness (food-poison/disease) is a top Gehennom
+                # killer that HP potions can't cure -- pray it off (cooldown-guarded
+                # so we don't anger the god by over-praying).
+                try:
+                    if _is_sick(agent):
+                        _lp = agent.__dict__.get("_lore_last_pray", -9999)
+                        if int(agent.blstats.time) - _lp > 1000:
+                            agent.__dict__["_lore_last_pray"] = int(agent.blstats.time)
+                            agent.pray()
+                            lore_patches.COUNTERS["descent_prays"] = \
+                                lore_patches.COUNTERS.get("descent_prays", 0) + 1
+                            continue
+                except AgentFinished:
+                    raise
+                except Exception:
+                    pass
+                # adjacent-threat reflex: FIGHT what's next to us rather than walk or
+                # do a multi-turn search into free hits (the chip-death mode -- a tank
+                # dying to a vampire bat because it searched while getting bitten).
+                try:
+                    if _adjacent_threats():
+                        prim_fight()
+                        lore_patches.COUNTERS["reflex_fights"] = \
+                            lore_patches.COUNTERS.get("reflex_fights", 0) + 1
+                        continue
+                except AgentFinished:
+                    raise
                 except Exception:
                     pass
                 # --- decide the action (policy-dependent), then execute it ---
