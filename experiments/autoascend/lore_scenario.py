@@ -843,38 +843,79 @@ def install_descent(target_depth, wishes=()):
                 # PHASE 1 align to the stair's ROW (dig vertical toward ty, step into
                 # the tunnel); PHASE 2 once on row ty, dig HORIZONTAL toward tx and
                 # walk the tunnel. Re-runs each iteration so it tunnels an L-path.
+                # WALLED: 8-DIR DIG-AWARE Dijkstra to the known downstair. WALKABLE
+                # neighbors (8-dir incl. diagonal -- preserves the DL37 peak) cost 1;
+                # DIGGABLE WALL neighbors (cardinal only -- can't dig diagonally) cost
+                # 6; stone/boundary impassable. Walk open, DIG walls along the route,
+                # ONE move/dig per call. (An earlier cardinal-ONLY version regressed
+                # DL37->DL30; diagonals matter.)
+                import numpy as _npb2
+                import heapq as _hq2
                 ty, tx = min(all_downs, key=lambda p: abs(p[0] - agent.blstats.y) + abs(p[1] - agent.blstats.x))
                 ty, tx = int(ty), int(tx)
-                y, x = int(agent.blstats.y), int(agent.blstats.x)
-                wl = _wand_letter()
-                low = agent.env.env.unwrapped.env
-                if wl is not None:
-                    if y != ty:                        # PHASE 1: align row (vertical)
-                        dchar, dy, dx = ('j', 1, 0) if ty > y else ('k', -1, 0)
-                    else:                              # PHASE 2: dig across to the col
-                        dchar, dy, dx = ('l', 0, 1) if tx > x else ('h', 0, -1)
-                    try:
-                        with agent.atom_operation():
-                            agent.step(_agz.A.Command.ZAP); agent.type_text(wl); agent.type_text(dchar)
-                        lore_patches.COUNTERS["dig_to_stair"] = \
-                            lore_patches.COUNTERS.get("dig_to_stair", 0) + 1
-                    except Exception:
-                        pass
-                    # step into the freshly-dug cell (so we advance the tunnel)
-                    if 'too hard' not in str(agent.message):
-                        ny, nx = y + dy, x + dx
-                        try:
-                            if agent.current_level().walkable[ny, nx]:
-                                agent.move(ny, nx)
-                        except Exception:
-                            pass
-                # if the stair became reachable after digging, walk to it
+                y0w, x0w = int(agent.blstats.y), int(agent.blstats.x)
                 try:
-                    bf2 = agent.bfs()
-                    if bf2[ty, tx] != -1:
-                        agent.go_to(ty, tx)
-                except Exception:
-                    pass
+                    walkw = lvl0.walkable
+                    Hw, Ww = walkw.shape
+                    INF = 1 << 30
+                    cst = _npb2.full((Hw, Ww), INF, dtype=_npb2.int64)
+                    cst[ty, tx] = 0
+                    pqw = [(0, ty, tx)]
+                    DIAG = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
+
+                    def _diggable(yy, xx):
+                        # a wand of digging bores through WALLS and solid ROCK (^F
+                        # doesn't reveal rock, so the barrier is 'unknown'), but NOT
+                        # the level boundary ring (undiggable stone). Cardinal only.
+                        return 1 <= yy < Hw - 1 and 1 <= xx < Ww - 1
+                    while pqw:
+                        c, cy, cx = _hq2.heappop(pqw)
+                        if c > cst[cy, cx]:
+                            continue
+                        for dy, dx in DIAG:
+                            ny, nx = cy + dy, cx + dx
+                            if not (0 <= ny < Hw and 0 <= nx < Ww):
+                                continue
+                            if walkw[ny, nx]:
+                                nc = c + 1
+                            elif (dy == 0 or dx == 0) and _diggable(ny, nx):   # dig cardinal
+                                nc = c + 6
+                            else:
+                                continue
+                            if nc < cst[ny, nx]:
+                                cst[ny, nx] = nc
+                                _hq2.heappush(pqw, (nc, ny, nx))
+                    if cst[y0w, x0w] < INF:
+                        bestw = None
+                        for dy, dx in DIAG:
+                            ny, nx = y0w + dy, x0w + dx
+                            if not (0 <= ny < Hw and 0 <= nx < Ww):
+                                continue
+                            steppable = walkw[ny, nx] or ((dy == 0 or dx == 0) and _diggable(ny, nx))
+                            if steppable and cst[ny, nx] < cst[y0w, x0w]:
+                                if bestw is None or cst[ny, nx] < cst[bestw[0], bestw[1]]:
+                                    bestw = (ny, nx)
+                        if bestw is not None:
+                            by, bx = bestw
+                            if walkw[by, bx]:
+                                agent.move(int(by), int(bx))
+                                lore_patches.COUNTERS["stair_steps"] = \
+                                    lore_patches.COUNTERS.get("stair_steps", 0) + 1
+                            else:
+                                wl = _wand_letter()
+                                if wl:
+                                    dchar = {(1, 0): 'j', (-1, 0): 'k', (0, 1): 'l', (0, -1): 'h'}[(by - y0w, bx - x0w)]
+                                    with agent.atom_operation():
+                                        agent.step(_agz.A.Command.ZAP); agent.type_text(wl); agent.type_text(dchar)
+                                    lore_patches.COUNTERS["walled_digs"] = \
+                                        lore_patches.COUNTERS.get("walled_digs", 0) + 1
+                                    if 'too hard' not in str(agent.message) and \
+                                            agent.current_level().walkable[by, bx]:
+                                        agent.move(int(by), int(bx))
+                except AgentFinished:
+                    raise
+                except Exception as _we:
+                    lore_patches.COUNTERS["walled_err"] = repr(_we)[:60]
                 return False
             before = int(agent.blstats.depth)
             y0, x0 = int(agent.blstats.y), int(agent.blstats.x)
