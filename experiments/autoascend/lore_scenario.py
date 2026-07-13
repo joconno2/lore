@@ -306,6 +306,40 @@ def _do_teleport(agent, target_depth):
         pass
 
 
+def _teleport_to_valley(agent):
+    """Place at the VALLEY OF THE DEAD (Gehennom L1) for a PROPER descent. ^V-by-depth
+    stays in the current branch, and the DoD length varies (25-29), so a FIXED target
+    lands in the main dungeon on most seeds (dnum=0). Descend one level at a time and
+    STOP at the first Gehennom level (dungeon_number==1 == the Valley). Verified:
+    Valley target is 26/28/29 on seeds 45/42/43 -- adaptive, not fixed."""
+    import autoascend.agent as _ag
+    low = agent.env.env.unwrapped.env
+    def _tp(d):
+        low.step(27); low.step(27); low.step(22)
+        for ch in str(int(d)): low.step(ord(ch))
+        low.step(13); low.step(13); low.step(13)
+    last = None
+    for d in range(24, 40):
+        _tp(d)
+        try:
+            agent.step(_ag.A.Command.ESC)
+        except Exception:
+            pass
+        try:
+            dn = int(getattr(agent.blstats, "dungeon_number", 0))
+            last = int(agent.blstats.depth)
+            if dn == 1:                       # first Gehennom level == the Valley
+                try: agent.levels.clear()
+                except Exception: pass
+                lore_patches.COUNTERS["valley_depth"] = last
+                lore_patches.COUNTERS["valley_lnum"] = int(getattr(agent.blstats, "level_number", -1))
+                return last
+        except Exception:
+            pass
+    lore_patches.COUNTERS["valley_fail"] = last
+    return last
+
+
 def install_teleport(target_depth):
     from autoascend import global_logic as _gl
 
@@ -655,7 +689,13 @@ def install_descent(target_depth, wishes=()):
                     lore_patches.COUNTERS["sick_after_eat"] = int(_is_sick(agent))
                 try: lore_patches.COUNTERS["t_after_eat"] = int(agent.blstats.time)
                 except Exception: pass
-                _do_teleport(agent, target_depth)
+                # LORE_VALLEY=1: place at the Valley of the Dead (Gehennom L1) for a
+                # PROPER descent, instead of a fixed ^V depth that lands in the main
+                # dungeon (dnum=0) on most seeds. Adaptive: descend to first dnum=1.
+                if _os.environ.get("LORE_VALLEY") == "1":
+                    _teleport_to_valley(agent)
+                else:
+                    _do_teleport(agent, target_depth)
                 lore_patches._bump("scenario_teleport")
                 lore_patches.COUNTERS["tp_depth"] = int(agent.blstats.depth)
                 lore_patches.COUNTERS["xl_after"] = int(agent.blstats.experience_level)
@@ -853,6 +893,57 @@ def install_descent(target_depth, wishes=()):
                             continue
             except Exception:
                 pass
+            # 2) LLM NAV JUDGMENT (LORE_LLM_NAV): no frontier -> walled into a pocket.
+            # The symbolic dig below picks 'most unseen cells', NOT toward the
+            # downstair, and fails. Hand the LLM the revealed ASCII and dig the
+            # cardinal it points toward the (walled-off) downstair -- the novel LLM
+            # angle: spatial pocket-escape judgment the symbolic explorer can't make.
+            if _os2.environ.get("LORE_LLM_NAV") == "1":
+                try:
+                    lvlA = agent.current_level(); bfA = agent.bfs()
+                    myA = (int(agent.blstats.y), int(agent.blstats.x))
+                    downA = _u.isin(lvlA.objects, G.STAIR_DOWN)
+                    upA = _u.isin(lvlA.objects, G.STAIR_UP)
+                    wallA = _u.isin(lvlA.objects, G.WALL)
+                    rowsA = []
+                    for ry in range(lvlA.objects.shape[0]):
+                        rr = ""
+                        for rx in range(lvlA.objects.shape[1]):
+                            if (ry, rx) == myA: rr += "@"
+                            elif downA[ry, rx]: rr += ">"
+                            elif upA[ry, rx]: rr += "<"
+                            elif wallA[ry, rx]: rr += "|"
+                            elif bfA[ry, rx] != -1: rr += "."
+                            elif lvlA.walkable[ry, rx]: rr += ":"
+                            else: rr += " "
+                        rowsA.append(rr.rstrip())
+                    act = _oracle.query_nav_dig("\n".join(rowsA))
+                    lore_patches.COUNTERS["llm_nav_q"] = lore_patches.COUNTERS.get("llm_nav_q", 0) + 1
+                    lore_patches.COUNTERS["llm_nav_" + str(act)] = \
+                        lore_patches.COUNTERS.get("llm_nav_" + str(act), 0) + 1
+                    dmap = {"DIG_NORTH": ("k", -1, 0), "DIG_SOUTH": ("j", 1, 0),
+                            "DIG_EAST": ("l", 0, 1), "DIG_WEST": ("h", 0, -1)}
+                    wl = _wand_letter()
+                    if act in dmap and wl:
+                        dc, dy, dx = dmap[act]
+                        y0, x0 = int(agent.blstats.y), int(agent.blstats.x)
+                        with agent.atom_operation():
+                            agent.step(_agz.A.Command.ZAP); agent.type_text(wl); agent.type_text(dc)
+                        lore_patches.COUNTERS["llm_digs"] = \
+                            lore_patches.COUNTERS.get("llm_digs", 0) + 1
+                        if 'too hard' not in str(agent.message):
+                            ny, nx = y0 + dy, x0 + dx
+                            try:
+                                if lvlA.objects.shape[0] > ny >= 0 <= nx < lvlA.objects.shape[1] \
+                                        and agent.current_level().walkable[ny, nx]:
+                                    agent.move(ny, nx)
+                            except Exception:
+                                pass
+                        return
+                except AgentFinished:
+                    raise
+                except Exception as _le:
+                    lore_patches.COUNTERS["llm_nav_err"] = repr(_le)[:60]
             # 3) plateau -> DIG horizontally toward the unexplored half to expand
             # past the walled-off reachable pocket (the core Gehennom-reach blocker).
             # Pick the cardinal with the most never-seen cells; rotate on 'too hard'.

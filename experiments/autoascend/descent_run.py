@@ -117,6 +117,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "first_reach":{int(k.split("_")[-1]):C[k] for k in C if k.startswith("firstreach_")},
           "survived_depth":{K:(max([int(k.split("_")[-1]) for k in C if k.startswith("firstreach_") and (int(s.get("turns") or 0)-C[k])>=K], default=0)) for K in (20,50,100)},
           "peak_xl":C.get("peak_xl"),"cur_xl":C.get("cur_xl"),"xl_drained":C.get("xl_drained"),"min_hp_frac":C.get("min_hp_frac"),"cur_ac":C.get("cur_ac"),"stair_descents":C.get("stair_descents"),
+          "valley_depth":C.get("valley_depth"),"valley_lnum":C.get("valley_lnum"),"valley_fail":C.get("valley_fail"),
           "death":death,"end_reason":str(getattr(w,"end_reason",""))[:120],
           "t_after_wishes":C.get("t_after_wishes"),"t_after_quaff":C.get("t_after_quaff"),
           "t_after_eat":C.get("t_after_eat"),"t_after_equip":C.get("t_after_equip"),
