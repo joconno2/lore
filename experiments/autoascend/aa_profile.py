@@ -50,6 +50,17 @@ if os.environ.get("LORE_CRVETO") in ("1", "mock", "llm"):
     import lore_patches
     lore_patches.apply_crash_recovery()
     lore_patches.apply_oracle_veto(mock=os.environ.get("LORE_CRVETO") != "llm")
+if os.environ.get("LORE_FOOD") in ("1", "mock", "llm"):
+    # opportunistic food economy -- cut the ~27% starvation deaths (proper-descent
+    # metric = depth, not score, so a score-costing food fix is fine if it survives).
+    import lore_patches
+    lore_patches.apply_food_oracle(mock=os.environ.get("LORE_FOOD") != "llm")
+if os.environ.get("LORE_ANTISTARV") == "1":
+    # emergency at WEAK (before FAINTING): quaff fruit juice / pray-for-food when
+    # safe-to-pray -> refills nutrition. Targets the ~25-30% starvation deaths that
+    # persist across roles (a food-SUPPLY problem, per FIRST_ASCENSION_PLAYBOOK).
+    import lore_patches
+    lore_patches.apply_anti_starvation()
 if os.environ.get("LORE_FULL") == "1":
     # full stack, perfect-knowledge where applicable: structural robustness +
     # food-aware unstick + pro-survival disengage. The combined ceiling test.
