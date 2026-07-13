@@ -601,6 +601,10 @@ def _score_kit(agent):
         lore_patches.COUNTERS['kit_score'] = score
         lore_patches.COUNTERS['kit_max'] = len(gates)
         lore_patches.COUNTERS['kit_gates'] = {k: bool(v) for k, v in gates.items()}
+        try:
+            _cn = agent.character.role
+            lore_patches.COUNTERS['kit_role'] = str(_cn)
+        except Exception: pass
         lore_patches.COUNTERS['kit_ac'] = ac
         lore_patches.COUNTERS['kit_str'] = strv
         lore_patches.COUNTERS['kit_wielded'] = wielded[:40]
