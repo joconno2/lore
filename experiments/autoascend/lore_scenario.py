@@ -633,13 +633,19 @@ def install_descent(target_depth, wishes=()):
                 # effect) so the deep levels are survivable for the endgame demo.
                 if _os.environ.get("LORE_GENOCIDE"):
                     _do_genocide(agent, list(_os.environ.get("LORE_GENOCIDE")))
+                # EQUIP FIRST (armor + jewelry + weapon), THEN eat. Eating a
+                # poisonous corpse can choke/hurt the char and abort setup on some
+                # seeds -> equip skipped -> lands at AC ~3 and dies fast (2-3/8 seeds).
+                # Equipping first guarantees the char always lands fully armored
+                # (AC-20+); poison-res eating is a bonus that can't cost the armor.
+                if _os.environ.get("LORE_NO_EQUIP") != "1":
+                    _equip_endgame(agent)       # wear armor + put on amulet/rings
+                try: lore_patches.COUNTERS["t_after_equip"] = int(agent.blstats.time)
+                except Exception: pass
                 if _os.environ.get("LORE_NO_EAT") != "1":
                     _eat_for_intrinsics(agent)  # poison res from wished corpses
-                    # Eating poisonous corpses (killer bee/kobold) while not yet
-                    # poison-resistant self-inflicts FATAL ILLNESS -- the #1 fast
-                    # death in Gehennom (die from illness before combat). Cure it
-                    # NOW with prayer (fresh game, no recent prayer -> reliably safe)
-                    # so the sick timer can't kill mid-descent.
+                    # Eating a poisonous corpse while not yet poison-resistant can
+                    # self-inflict illness; cure it NOW with prayer (fresh game, safe).
                     if _is_sick(agent):
                         try:
                             agent.pray()
@@ -648,10 +654,6 @@ def install_descent(target_depth, wishes=()):
                             lore_patches.COUNTERS["setup_pray_err"] = repr(_pe)[:50]
                     lore_patches.COUNTERS["sick_after_eat"] = int(_is_sick(agent))
                 try: lore_patches.COUNTERS["t_after_eat"] = int(agent.blstats.time)
-                except Exception: pass
-                if _os.environ.get("LORE_NO_EQUIP") != "1":
-                    _equip_endgame(agent)       # wear armor + put on amulet/rings
-                try: lore_patches.COUNTERS["t_after_equip"] = int(agent.blstats.time)
                 except Exception: pass
                 _do_teleport(agent, target_depth)
                 lore_patches._bump("scenario_teleport")
@@ -1184,6 +1186,22 @@ def install_descent(target_depth, wishes=()):
                 d = int(agent.blstats.depth)
                 if d > lore_patches.COUNTERS.get("max_depth", 0):
                     lore_patches.COUNTERS["max_depth"] = d
+                # STRENGTH-RETENTION metric (Jim, Jul 13): a STRONG surviving char is
+                # the goal, not raw depth. Track peak vs current XL (drain = getting
+                # weaker: vampires/mind-flayers/wraiths drain levels) and min HP frac.
+                # xl_drained = peak_xl - current_xl (0 = stayed strong).
+                try:
+                    _xl = int(agent.blstats.experience_level)
+                    _pk = max(lore_patches.COUNTERS.get("peak_xl", 0), _xl)
+                    lore_patches.COUNTERS["peak_xl"] = _pk
+                    lore_patches.COUNTERS["cur_xl"] = _xl
+                    lore_patches.COUNTERS["xl_drained"] = _pk - _xl
+                    _hpf = agent.blstats.hitpoints / max(1, agent.blstats.max_hitpoints)
+                    lore_patches.COUNTERS["min_hp_frac"] = round(
+                        min(lore_patches.COUNTERS.get("min_hp_frac", 1.0), _hpf), 2)
+                    lore_patches.COUNTERS["cur_ac"] = int(agent.blstats.armor_class)
+                except Exception:
+                    pass
                 # SURVIVAL-WEIGHTED metric: record the game-turn when each depth is
                 # FIRST reached. Downstream scalar = deepest depth still alive >=K
                 # turns later (final_turns - first_reach[d] >= K). Suicide-digging
