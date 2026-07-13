@@ -104,6 +104,41 @@ def _post(url, payload, timeout=60):
         return json.loads(r.read().decode())
 
 
+NAV_DIG_ACTIONS = {"DIG_NORTH", "DIG_SOUTH", "DIG_EAST", "DIG_WEST", "SEARCH"}
+
+
+def query_nav_dig(ascii_map, base_url=None, model=None):
+    """The NOVEL LLM angle: spatial pocket-escape judgment the symbolic explorer
+    fails. The agent is walled into a sub-region of a revealed maze; hand the LLM
+    the ASCII map and ask which cardinal to dig toward the (possibly unreachable)
+    downstair. Validated: correct dig-direction on real walled-pocket maps where
+    the symbolic explorer digs toward 'most unexplored', not the actual stair.
+    Returns one of NAV_DIG_ACTIONS or None (fall back to symbolic search)."""
+    base_url = base_url or os.environ.get("LORE_ORACLE_URL", "http://localhost:8000/v1")
+    model = model or os.environ.get("LORE_ORACLE_MODEL", "Qwen/Qwen2.5-14B-Instruct-AWQ")
+    prompt = (
+        "You navigate a NetHack maze level. Revealed map:\n\n" + ascii_map +
+        "\n\nLegend: @=you, >=downstairs (GOAL), <=upstairs, |=wall, .=floor you CAN "
+        "reach now, :=floor you CANNOT reach (walled off), space=unknown rock.\n"
+        "You have a wand of digging (digs one cardinal direction per zap). You are "
+        "STUCK: you cannot currently reach the downstairs. If a > is shown, dig the "
+        "cardinal that heads toward it through the walls. If no > is shown, dig "
+        "toward the largest walled-off/unknown area likely to contain the stairs. "
+        "Reply with ONLY one token: DIG_NORTH, DIG_SOUTH, DIG_EAST, DIG_WEST, or SEARCH.")
+    try:
+        resp = _post(base_url.rstrip("/") + "/chat/completions", {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0, "max_tokens": 30})
+        t = resp["choices"][0]["message"]["content"].strip().upper()
+        for a in ("DIG_NORTH", "DIG_SOUTH", "DIG_EAST", "DIG_WEST", "SEARCH"):
+            if a in t:
+                return a
+    except Exception:
+        pass
+    return None
+
+
 def query_threat(state, base_url=None, model=None, mock=False):
     if mock:
         return _mock(state)
