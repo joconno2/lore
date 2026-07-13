@@ -343,6 +343,47 @@ def _equip_endgame(agent):
         agent.inventory.update()
     except Exception:
         pass
+    # 1a2) FORCE-WEAR the ambiguous wished armor that wear_best_stuff SKIPS. AA's
+    #      get_best_armorset ignores items where is_unambiguous() is False -- and
+    #      cloak of protection / gauntlets of power / speed boots / helm of telepathy
+    #      all have RANDOM appearances (ambiguous), so they never get worn (AC-6).
+    #      Wear the best blessed piece per empty slot directly (bypasses that gate).
+    try:
+        from autoascend.item.item import Item as _It
+        from autoascend import objects as _O
+        from autoascend.agent import flatten_items as _flat
+        slot_attr = {_O.ARM_SHIELD: 'off_hand', _O.ARM_HELM: 'helm',
+                     _O.ARM_GLOVES: 'gloves', _O.ARM_BOOTS: 'boots', _O.ARM_CLOAK: 'cloak'}
+        forced = 0
+        for _slot, _attr in slot_attr.items():
+            agent.inventory.update()
+            if getattr(agent.inventory.items, _attr, None) is not None:
+                continue                              # slot already filled
+            cand = []
+            for it in _flat(agent.inventory.items):
+                try:
+                    if not it.is_armor() or it.equipped:
+                        continue
+                    if it.objs[0].sub != _slot:
+                        continue
+                    if it.status == _It.CURSED:
+                        continue
+                    cand.append(it)
+                except Exception:
+                    continue
+            if not cand:
+                continue
+            # prefer blessed, then highest enchantment
+            cand.sort(key=lambda it: (it.status == _It.BLESSED, it.modifier or 0), reverse=True)
+            try:
+                agent.inventory.wear(cand[0])
+                agent.step(_A.A.Command.ESC); agent.inventory.update()
+                forced += 1
+            except Exception as _fe:
+                lore_patches.COUNTERS["forcewear_err"] = repr(_fe)[:50]
+        lore_patches.COUNTERS["forced_wears"] = forced
+    except Exception as _e:
+        lore_patches.COUNTERS["forcewear_err2"] = repr(_e)[:60]
     # 1b) WIELD the silver saber (wear_best_stuff is armor only; AA won't auto-wield
     #     the wished silver weapon that demons/vampires/undead are vulnerable to).
     try:
@@ -352,6 +393,24 @@ def _equip_endgame(agent):
         lore_patches.COUNTERS["wielded"] = 1
     except Exception as _we:
         lore_patches.COUNTERS["wield_err"] = repr(_we)[:60]
+    # 1c) now that a ONE-HANDED weapon (Grayswandir) is wielded, force-wear the SHIELD
+    #     of reflection (it failed in 1a2 because a starting two-handed weapon blocked it)
+    try:
+        from autoascend.item.item import Item as _It2
+        from autoascend import objects as _O2
+        from autoascend.agent import flatten_items as _flat2
+        agent.inventory.update()
+        if getattr(agent.inventory.items, 'off_hand', None) is None:
+            sh = [it for it in _flat2(agent.inventory.items)
+                  if it.is_armor() and not it.equipped and it.objs[0].sub == _O2.ARM_SHIELD
+                  and it.status != _It2.CURSED]
+            if sh:
+                sh.sort(key=lambda it: (it.status == _It2.BLESSED, it.modifier or 0), reverse=True)
+                agent.inventory.wear(sh[0])
+                agent.step(_A.A.Command.ESC); agent.inventory.update()
+                lore_patches.COUNTERS["shield_worn"] = 1
+    except Exception as _se:
+        lore_patches.COUNTERS["shield_err"] = repr(_se)[:50]
     # 2) amulet + rings via the TRACKED interface (atom_operation + type_text),
     #    modelled on AutoAscend's own wear(). The old raw low.step('P')+letter
     #    sequence desynced and CORRUPTED inventory (destroyed wished wands). Read
@@ -416,6 +475,69 @@ def _equip_endgame(agent):
         lore_patches.COUNTERS["ac_after_equip"] = int(agent.blstats.armor_class)
     except Exception:
         pass
+
+
+def _score_kit(agent):
+    """Score kit quality against the KB ascension gates (playbook s1). Records AC, STR
+    (25 => gauntlets of power worn), the wielded weapon, acquired intrinsics, and a
+    gate checklist. Kit quality (not depth) is the current metric (Jim, Jul 13)."""
+    import nle.nethack as _nh
+    try:
+        names = []
+        worn = []
+        wielded = ""
+        for nm, oc, ltr in zip(agent.last_observation['inv_strs'],
+                               agent.last_observation['inv_oclasses'],
+                               agent.last_observation['inv_letters']):
+            if int(ltr) == 0:
+                continue
+            s = bytes(nm).decode('latin1').split(chr(0))[0].lower()
+            names.append(s)
+            if 'being worn' in s or 'on right hand' in s or 'on left hand' in s \
+                    or 'weapon in hand' in s or 'wielded' in s:
+                worn.append(s)
+            if 'weapon in hand' in s or 'wielded' in s:
+                wielded = s
+        alln = ' | '.join(names)
+        lore_patches.COUNTERS['kit_worn'] = worn
+        lore_patches.COUNTERS['kit_inv'] = names[:40]
+        have = set(lore_patches.COUNTERS.get('intr_have', []))
+        ac = int(agent.blstats.armor_class)
+        strv = 0
+        for attr in ('strength', 'str', 'strength_percentage'):
+            try:
+                strv = int(getattr(agent.blstats, attr)); break
+            except Exception:
+                continue
+        gates = {
+            'magic_resistance': ('gray dragon scale' in alln),
+            'reflection': ('shield of reflection' in alln),
+            'free_action': ('free action' in alln),
+            'MC3_cloak': ('opera cloak' in alln or 'cloak of protection' in alln),
+            'poison_res': ('poison' in have),
+            'unicorn_horn': ('unicorn horn' in alln),
+            'bag_of_holding': ('bag of holding' in alln or 'bag' in alln),
+            'silver_artifact_weapon': ('grayswandir' in alln),
+            'speed_boots': ('speed boots' in alln or 'jumping boots' in alln),
+            'life_saving': ('life saving' in alln),
+            'luckstone': ('luckstone' in alln or 'gray stone' in alln),
+            'escape_scrolls': ('scare monster' in alln or 'teleport' in alln or 'labeled' in alln),
+            'escape_wands': ('teleportation' in alln or 'wand' in alln),
+            'holy_water': ('holy water' in alln or 'clear potion' in alln),
+            'gauntlets_of_power_STR': (strv >= 25 or strv in (118, 125) or 'gauntlets' in alln or 'old gloves' in alln),
+            'AC_le_-20': (ac <= -20),
+            'fire_res': ('fire' in have or 'fire resistance' in alln),
+            'cold_res': ('cold' in have),
+        }
+        score = sum(1 for v in gates.values() if v)
+        lore_patches.COUNTERS['kit_score'] = score
+        lore_patches.COUNTERS['kit_max'] = len(gates)
+        lore_patches.COUNTERS['kit_gates'] = {k: bool(v) for k, v in gates.items()}
+        lore_patches.COUNTERS['kit_ac'] = ac
+        lore_patches.COUNTERS['kit_str'] = strv
+        lore_patches.COUNTERS['kit_wielded'] = wielded[:40]
+    except Exception as _e:
+        lore_patches.COUNTERS['kit_score_err'] = repr(_e)[:60]
 
 
 def _put_on_blindfold(agent):
@@ -1005,6 +1127,8 @@ def install_descent(target_depth, wishes=()):
                     lore_patches.COUNTERS["sick_after_eat"] = int(_is_sick(agent))
                 try: lore_patches.COUNTERS["t_after_eat"] = int(agent.blstats.time)
                 except Exception: pass
+                # score the assembled kit (Jim's current metric: kit quality, not depth)
+                _score_kit(agent)
                 # LORE_VALLEY=1: place at the Valley of the Dead (Gehennom L1) for a
                 # PROPER descent, instead of a fixed ^V depth that lands in the main
                 # dungeon (dnum=0) on most seeds. Adaptive: descend to first dnum=1.

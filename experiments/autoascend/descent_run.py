@@ -15,15 +15,22 @@ KIT=[
     # RESISTANCES + protection (worn): the hard gates
     "blessed +7 gray dragon scale mail",   # MAGIC RESISTANCE (blocks finger of death etc.)
     "blessed +7 shield of reflection",     # REFLECTION (bounces death rays from Orcus/demons)
-    "blessed +5 oilskin cloak",            # blocks eel GRAB -> no drowning (3/13 deaths); + AC
+    "blessed greased +7 cloak of protection",  # MC3 (special attacks 100%->~2%) + big AC; greased = no eel GRAB
     "blessed +7 helm of telepathy",        # see monsters through walls -> avoid ambush instadeaths
     "blessed +7 pair of speed boots",      # speed -> outrun demons
-    "blessed +7 pair of leather gloves",   # AC + wield cockatrice safely
+    "blessed +7 gauntlets of power",       # STR 25: +damage, +carry (heavy items no longer drop), wield cockatrice
     "blessed amulet of life saving",       # last-resort revive
-    "blessed ring of free action",         # anti paralysis/sleep lock
-    "blessed ring of sustain ability",     # anti mind-flayer INT drain + stat drain
-    # weapons: silver vs demons/vampires/undead; cold vs fire-resistant demons
-    "blessed +7 silver saber","blessed +7 frost brand",
+    "blessed ring of free action",         # anti paralysis/sleep lock (WORN)
+    "blessed ring of sustain ability",     # anti mind-flayer INT drain + stat drain (WORN)
+    "blessed ring of conflict",            # carried: scatter demon hordes (KB escape)
+    "blessed ring of fire resistance",     # carried: swap in for Gehennom fire zones
+    # (no T-shirt: the shirt slot forces AA to strip body+cloak to layer it, which
+    #  aborted wearing the shield/cloak/helm/boots/gloves -> AC-6. +1 AC not worth it.)
+    "blessed luckstone",                   # LUCK: feeds every to-hit / damage / instadeath roll (carried in BoH)
+    "blessed wand of cancellation (0:8)",  # nullify casters / special attacks
+    # weapon: THE best melee artifact -- silver (demons/vampires/undead), DOUBLE damage,
+    # HALVES physical damage taken, cures blindness, always hits. One artifact wish only.
+    "the blessed +7 Grayswandir",
     # blindfold: blind + worn helm of telepathy = ESP (sense mind flayers/eels
     # through walls). Used by the LORE_BLINDFOLD blindfold-navigation mode.
     "blessed towel",
@@ -45,6 +52,9 @@ KIT=[
     "blessed scroll of magic mapping","blessed scroll of magic mapping","blessed scroll of magic mapping",
     # healing (bagged; tracked by letter for the heal reflex)
     "8 blessed potions of full healing",
+    # uncurse/bless (NO prayer in Gehennom) + grease armor/bag (no eel grab, fire-proof bag)
+    "4 blessed potions of holy water",
+    "blessed can of grease (0:15)",
     # food: non-rotting
     "blessed lizard corpse","blessed lizard corpse","blessed lizard corpse","blessed lizard corpse",
     "5 blessed food rations","5 blessed food rations",
@@ -141,7 +151,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "intr_have":C.get("intr_have"),"intr_eats":C.get("intr_eats"),"intr_eats_carried":C.get("intr_eats_carried"),"corpses_eaten":C.get("corpses_eaten"),
           "esp_scans":C.get("esp_scans"),"esp_mons_total":C.get("esp_mons_total"),"esp_sighted_total":C.get("esp_sighted_total"),"esp_threats_total":C.get("esp_threats_total"),"esp_threat_names":C.get("esp_threat_names"),"esp_err":C.get("esp_err"),
           "reflex_calls":C.get("reflex_calls"),"reflex_missing_n":C.get("reflex_missing_n"),"setup_eat_msgs":C.get("setup_eat_msgs"),"setup_eat_dbg":C.get("setup_eat_dbg"),"setup_corpse_inv":C.get("setup_corpse_inv"),
-          "blindfolded":C.get("blindfolded"),"blindfold_err":C.get("blindfold_err"),
+          "kit_score":C.get("kit_score"),"forced_wears":C.get("forced_wears"),"shield_worn":C.get("shield_worn"),"shield_err":C.get("shield_err"),"forcewear_err":C.get("forcewear_err"),"forcewear_err2":C.get("forcewear_err2"),"kit_worn":C.get("kit_worn"),"kit_inv":C.get("kit_inv"),"kit_max":C.get("kit_max"),"kit_gates":C.get("kit_gates"),"kit_ac":C.get("kit_ac"),"kit_str":C.get("kit_str"),"kit_wielded":C.get("kit_wielded"),"kit_score_err":C.get("kit_score_err"),"blindfolded":C.get("blindfolded"),"blindfold_err":C.get("blindfold_err"),
           "panic_reads":C.get("panic_reads"),"scroll_types":C.get("scroll_types"),"reflex_flees":C.get("reflex_flees"),"reflex_fights":C.get("reflex_fights"),"perstep_panics":C.get("perstep_panics"),"inline_reads":C.get("inline_reads"),"inline_heals":C.get("inline_heals"),"inline_err":C.get("inline_err"),
           "oracle_actions":{k:C[k] for k in C if k.startswith("oracle_") and k!="oracle_err"},
           "first_reach":{int(k.split("_")[-1]):C[k] for k in C if k.startswith("firstreach_")},
