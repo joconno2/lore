@@ -1599,6 +1599,56 @@ def install_descent(target_depth, wishes=()):
                 pass
             prim_explore()
 
+        def _panic_escape():
+            """KB Gehennom panic button (playbook s4 escape priority): when swarmed or
+            low HP, READ an escape scroll -- scroll of scare monster freezes the swarm,
+            scroll of teleportation whisks the char away. Scrolls are unidentified, so
+            prefer one already LEARNED to be scare/teleport; else read an unknown one
+            and learn its type from the effect (8/14 kit scrolls are escapes). Returns
+            True if a scroll was read (a game turn passed)."""
+            low = agent.env.env.unwrapped.env
+            learned = agent.__dict__.setdefault("_lore_scroll_type", {})
+            scrolls = []
+            try:
+                for oc, ltr in zip(agent.last_observation['inv_oclasses'],
+                                   agent.last_observation['inv_letters']):
+                    if int(oc) == _nh2.SCROLL_CLASS and int(ltr) != 0:
+                        scrolls.append(chr(int(ltr)))
+            except Exception:
+                return False
+            if not scrolls:
+                return False
+            # priority: known escape > unknown (learn it) > known magic-map (last resort)
+            pref = ([c for c in scrolls if learned.get(c) in ('scare', 'teleport')]
+                    + [c for c in scrolls if c not in learned]
+                    + [c for c in scrolls if learned.get(c) == 'magicmap'])
+            lt = pref[0] if pref else scrolls[0]
+            try:
+                t0 = int(agent.blstats.time)
+                py, px = int(agent.blstats.y), int(agent.blstats.x)
+                msgs = []
+                low.step(ord('r'))
+                msgs.append(_raw_msg(low.step(ord(lt))))
+                for _ in range(3):
+                    msgs.append(_raw_msg(low.step(13)))
+                agent.step(_agz.A.Command.ESC); agent.inventory.update()
+                full = ' '.join(msgs)
+                # classify to learn the letter's type for next time
+                if 'coalesces' in full or 'map of' in full:
+                    learned[lt] = 'magicmap'
+                elif 'scare' in full or 'flee' in full or 'maniacal' in full \
+                        or 'sense of loss' in full:
+                    learned[lt] = 'scare'
+                elif 'teleport' in full or 'disorient' in full \
+                        or (int(agent.blstats.y), int(agent.blstats.x)) != (py, px):
+                    learned[lt] = 'teleport'
+                lore_patches.COUNTERS["panic_reads"] = \
+                    lore_patches.COUNTERS.get("panic_reads", 0) + 1
+                lore_patches.COUNTERS["scroll_types"] = dict(learned)
+                return int(agent.blstats.time) > t0
+            except Exception:
+                return False
+
         def prim_pray():
             try:
                 agent.pray()
@@ -2004,7 +2054,12 @@ def install_descent(target_depth, wishes=()):
                         except Exception:
                             hpf = 1.0
                         if near >= 3 or (hpf < 0.5 and near >= 1):
-                            prim_flee()
+                            # KB panic button FIRST: read scare-monster/teleport to
+                            # break the swarm (prim_flee just walks -- the swarm
+                            # follows and chips the tank to death, the DL27-30 ~200-turn
+                            # death mode). Fall back to flee only if no scroll fired.
+                            if not _panic_escape():
+                                prim_flee()
                             lore_patches.COUNTERS["reflex_flees"] = \
                                 lore_patches.COUNTERS.get("reflex_flees", 0) + 1
                         else:

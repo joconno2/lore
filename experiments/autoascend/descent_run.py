@@ -139,6 +139,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "esp_scans":C.get("esp_scans"),"esp_mons_total":C.get("esp_mons_total"),"esp_sighted_total":C.get("esp_sighted_total"),"esp_threats_total":C.get("esp_threats_total"),"esp_threat_names":C.get("esp_threat_names"),"esp_err":C.get("esp_err"),
           "reflex_calls":C.get("reflex_calls"),"reflex_missing_n":C.get("reflex_missing_n"),"setup_eat_msgs":C.get("setup_eat_msgs"),"setup_eat_dbg":C.get("setup_eat_dbg"),"setup_corpse_inv":C.get("setup_corpse_inv"),
           "blindfolded":C.get("blindfolded"),"blindfold_err":C.get("blindfold_err"),
+          "panic_reads":C.get("panic_reads"),"scroll_types":C.get("scroll_types"),"reflex_flees":C.get("reflex_flees"),"reflex_fights":C.get("reflex_fights"),
           "oracle_actions":{k:C[k] for k in C if k.startswith("oracle_") and k!="oracle_err"},
           "first_reach":{int(k.split("_")[-1]):C[k] for k in C if k.startswith("firstreach_")},
           "survived_depth":{K:(max([int(k.split("_")[-1]) for k in C if k.startswith("firstreach_") and (int(s.get("turns") or 0)-C[k])>=K], default=0)) for K in (20,50,100)},
