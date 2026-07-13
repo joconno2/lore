@@ -136,6 +136,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "digs":C.get("digs"),"dig_fail":C.get("dig_fail"),"dig_panic":C.get("dig_panic"),"wands_seen":C.get("wands_seen"),
           "zap_msg":C.get("zap_msg"),"oracle_err":C.get("oracle_err"),"policy":C.get("policy"),
           "intr_have":C.get("intr_have"),"intr_eats":C.get("intr_eats"),"intr_eats_carried":C.get("intr_eats_carried"),"corpses_eaten":C.get("corpses_eaten"),
+          "esp_scans":C.get("esp_scans"),"esp_mons_total":C.get("esp_mons_total"),"esp_sighted_total":C.get("esp_sighted_total"),"esp_threats_total":C.get("esp_threats_total"),"esp_threat_names":C.get("esp_threat_names"),"esp_err":C.get("esp_err"),
           "reflex_calls":C.get("reflex_calls"),"reflex_missing_n":C.get("reflex_missing_n"),"setup_eat_msgs":C.get("setup_eat_msgs"),"setup_eat_dbg":C.get("setup_eat_dbg"),"setup_corpse_inv":C.get("setup_corpse_inv"),
           "blindfolded":C.get("blindfolded"),"blindfold_err":C.get("blindfold_err"),
           "oracle_actions":{k:C[k] for k in C if k.startswith("oracle_") and k!="oracle_err"},

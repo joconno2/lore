@@ -1431,6 +1431,75 @@ def install_descent(target_depth, wishes=()):
                 pass
             return False
 
+        _INSTADEATH_ESP = ('mind flayer', 'giant eel', 'kraken', 'lich', 'nalfeshnee',
+                           'marilith', 'pit fiend', 'orcus', 'demogorgon', 'nalfeshnee',
+                           'vampire lord', 'vlad', 'wizard of yendor', 'green slime')
+
+        def _telepathy_scan():
+            """LORE_BLINDFOLD blindfold-navigation: put on the towel (blind) so the
+            worn helm of telepathy gives ESP -- sensing EVERY minded monster on the
+            level (through walls), which line-of-sight misses. List them via the game's
+            own monster list, record instadeath threats (mind flayers / eels / covetous
+            liches), then take the towel OFF so vision + scroll-reading work again.
+            Runs once per level. Legit: real telepathy, real gameplay, no wizard peek."""
+            try:
+                lvl = agent.current_level()
+                lvl_id = (int(lvl.dungeon_number), int(lvl.level_number))
+            except Exception:
+                return False
+            seen = agent.__dict__.setdefault("_lore_esp_levels", set())
+            if lvl_id in seen:
+                return False
+            towel = None
+            try:
+                for nm, oc, ltr in zip(agent.last_observation['inv_strs'],
+                                       agent.last_observation['inv_oclasses'],
+                                       agent.last_observation['inv_letters']):
+                    if int(ltr) == 0:
+                        continue
+                    if 'towel' in bytes(nm).decode('latin1').lower():
+                        towel = chr(int(ltr)); break
+            except Exception:
+                return False
+            if towel is None:
+                return False
+            seen.add(lvl_id)
+            low = agent.env.env.unwrapped.env
+            try:
+                # baseline: monsters visible by SIGHT before blinding (for the A/B)
+                try:
+                    _sighted = len(agent.monster_tracker.take_all_monsters())
+                except Exception:
+                    _sighted = -1
+                low.step(ord('P')); low.step(ord(towel)); low.step(13)     # put on -> blind + ESP
+                agent.step(_agz.A.Command.ESC); agent.inventory.update()
+                mons = agent.monster_tracker.take_all_monsters()           # {(y,x): name}, ESP-wide
+                lore_patches.COUNTERS["esp_sighted_total"] = \
+                    lore_patches.COUNTERS.get("esp_sighted_total", 0) + max(0, _sighted)
+                threats = [(int(y), int(x), name.lower()) for (y, x), name in mons.items()
+                           if any(t in name.lower() for t in _INSTADEATH_ESP)]
+                agent.__dict__["_lore_esp_threats"] = threats
+                lore_patches.COUNTERS["esp_scans"] = lore_patches.COUNTERS.get("esp_scans", 0) + 1
+                lore_patches.COUNTERS["esp_mons_total"] = \
+                    lore_patches.COUNTERS.get("esp_mons_total", 0) + len(mons)
+                lore_patches.COUNTERS["esp_threats_total"] = \
+                    lore_patches.COUNTERS.get("esp_threats_total", 0) + len(threats)
+                _tn = lore_patches.COUNTERS.setdefault("esp_threat_names", [])
+                for _, _, n in threats:
+                    if n not in _tn and len(_tn) < 20:
+                        _tn.append(n)
+            except AgentFinished:
+                raise
+            except Exception as _e:
+                lore_patches.COUNTERS["esp_err"] = repr(_e)[:80]
+            finally:
+                try:
+                    low.step(ord('R')); low.step(ord(towel)); low.step(13)  # take off -> unblind
+                    agent.step(_agz.A.Command.ESC); agent.inventory.update()
+                except Exception:
+                    pass
+            return False
+
         def _heal_reflex():
             """Quaff a potion of healing when HP is low, to sustain the long
             Gehennom traversal (prayer alone can't -- ~1000-turn cooldown). Returns
@@ -1853,6 +1922,16 @@ def install_descent(target_depth, wishes=()):
                             "ascii": "\n".join(_rows)}
                     except Exception as _de:
                         lore_patches.COUNTERS["down_diag"] = "err %r" % _de
+                # LORE_BLINDFOLD: blindfold-navigation ESP scan (once per level) --
+                # sense mind flayers / eels / covetous liches through walls before
+                # walking into them. Self-limits per level; returns False (passive).
+                if _os2.environ.get("LORE_BLINDFOLD") == "1":
+                    try:
+                        _telepathy_scan()
+                    except AgentFinished:
+                        raise
+                    except Exception:
+                        pass
                 # survival reflex: heal when hurt (TURN-GUARDED so it can't spin --
                 # only continues if a real game step happened).
                 try:
