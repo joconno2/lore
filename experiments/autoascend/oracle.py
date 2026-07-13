@@ -116,24 +116,38 @@ def query_nav_dig(ascii_map, base_url=None, model=None):
     Returns one of NAV_DIG_ACTIONS or None (fall back to symbolic search)."""
     base_url = base_url or os.environ.get("LORE_ORACLE_URL", "http://localhost:8000/v1")
     model = model or os.environ.get("LORE_ORACLE_MODEL", "Qwen/Qwen2.5-14B-Instruct-AWQ")
+    # COORDINATE SYSTEM must be explicit: row 0 = TOP = NORTH; higher row = SOUTH;
+    # left col = WEST; right col = EAST. Ambiguity caused a systematic N/S flip
+    # (LLM said SOUTH 36/36 when the stair was north). Chain-of-thought ("state @
+    # and > positions first") fixes it -- with it the model reasons correctly.
     prompt = (
-        "You navigate a NetHack maze level. Revealed map:\n\n" + ascii_map +
-        "\n\nLegend: @=you, >=downstairs (GOAL), <=upstairs, |=wall, .=floor you CAN "
-        "reach now, :=floor you CANNOT reach (walled off), space=unknown rock.\n"
-        "You have a wand of digging (digs one cardinal direction per zap). You are "
-        "STUCK: you cannot currently reach the downstairs. If a > is shown, dig the "
-        "cardinal that heads toward it through the walls. If no > is shown, dig "
-        "toward the largest walled-off/unknown area likely to contain the stairs. "
-        "Reply with ONLY one token: DIG_NORTH, DIG_SOUTH, DIG_EAST, DIG_WEST, or SEARCH.")
+        "NetHack maze map. Coordinates: row 0 is the TOP. NORTH = toward row 0 (up), "
+        "SOUTH = toward the last row (down), WEST = toward column 0 (left), EAST = "
+        "toward the last column (right).\n\n" + ascii_map +
+        "\n\nLegend: @=you, >=downstairs (your GOAL), <=upstairs, |=wall, .=floor you "
+        "CAN reach, :=floor you CANNOT reach (walled off), space=unknown.\n"
+        "You have a wand of digging (digs one cardinal per zap). You are STUCK: the > "
+        "is walled off. First state the (row,col) of @ and of >. Then decide which "
+        "single cardinal dig best reduces the distance to > (pick the axis with the "
+        "bigger gap). End with exactly: 'DIRECTION: DIG_NORTH' (or DIG_SOUTH/DIG_EAST/"
+        "DIG_WEST). If no > is shown, dig toward the largest unknown area: 'DIRECTION: DIG_X'.")
     try:
         resp = _post(base_url.rstrip("/") + "/chat/completions", {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0, "max_tokens": 30})
+            "temperature": 0.0, "max_tokens": 220})
         t = resp["choices"][0]["message"]["content"].strip().upper()
+        # parse the FINAL direction (after 'DIRECTION:'), else the last DIG_x token
+        seg = t.split("DIRECTION:")[-1]
         for a in ("DIG_NORTH", "DIG_SOUTH", "DIG_EAST", "DIG_WEST", "SEARCH"):
-            if a in t:
+            if a in seg:
                 return a
+        last = None
+        for a in ("DIG_NORTH", "DIG_SOUTH", "DIG_EAST", "DIG_WEST"):
+            i = t.rfind(a)
+            if i != -1 and (last is None or i > last[1]):
+                last = (a, i)
+        return last[0] if last else None
     except Exception:
         pass
     return None
