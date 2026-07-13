@@ -1109,8 +1109,25 @@ def install_descent(target_depth, wishes=()):
 
         def _decide_action():
             if POLICY == "hardcoded":
-                # fixed priority, no LLM. returns the action label; dispatch runs it.
+                # fixed priority, no LLM. PROPER-DESCENT ORDER (LORE_STAIRS_FIRST):
+                # take the STAIRS when a downstair is known -- stairs arrive on the
+                # next level's UPSTAIR, which NetHack guarantees is connected to that
+                # level's downstair, so no walled pockets. Dig-down (falling to a
+                # random cell) can drop you into a sealed pocket -- use it only as a
+                # fallback when no downstair is known. With LORE_REVEAL the ^F map
+                # makes the downstair known immediately on each level.
+                # DEFAULT = dig-down-fast (median DL34, max 42): plummeting reaches
+                # deeper than careful stair-taking (median DL29), which dies shallow
+                # one level at a time. Pockets from dig-drops are a minority failure,
+                # not the median. LORE_STAIRS_FIRST=1 opts into stair-descent (safer
+                # per-level, connected upstairs, but shallower overall).
                 st = _build_state()
+                if _os2.environ.get("LORE_STAIRS_FIRST", "0") == "1":
+                    if st["have_downstair"]:
+                        return "DESCEND_STAIRS"
+                    if st["has_dig_wand"] and not st["level_no_dig"]:
+                        return "DIG_DOWN"
+                    return "EXPLORE"
                 if st["has_dig_wand"] and not st["level_no_dig"]:
                     return "DIG_DOWN"
                 if st["have_downstair"]:
