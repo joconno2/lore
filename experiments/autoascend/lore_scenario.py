@@ -15,7 +15,17 @@ def _do_wish(agent, item):
     low.step(23)                       # ^W = wizard wish (NOT #wish, which is unknown)
     for ch in item:                    # -> "For what do you wish?" getlin
         low.step(ord(ch))
-    low.step(13)                       # submit wish
+    r = low.step(13)                   # submit wish -> "X - a <item>." (letter X assigned)
+    # capture the assigned inventory LETTER so equip can wear the exact wished piece
+    # by letter (deterministic -- unidentified wished armor can't be told from the
+    # char's random STARTING gear by name/AC otherwise -> wrong/partial loadout).
+    try:
+        import re as _re
+        m = _re.match(r'\s*([a-zA-Z]) - ', _raw_msg(r))
+        if m:
+            agent.__dict__.setdefault('_lore_wish_lt', {})[item] = m.group(1)
+    except Exception:
+        pass
     low.step(13); low.step(13)         # clear --More--
 
 
@@ -329,54 +339,76 @@ def _equip_endgame(agent):
     keypresses. Without this the char lands in Gehennom at ~AC10, unprotected."""
     import nle.nethack as _nh
     import autoascend.agent as _A
-    # 1) armor (gray DSM, shield of reflection, cloak, helm, boots, gloves) via
-    #    AutoAscend's own routine
-    try:
-        agent.inventory.update()
-        s = agent.inventory.wear_best_stuff()
-        if s.check_condition():
-            s.run()
-    except Exception:
-        pass
-    try:
-        agent.step(_A.A.Command.ESC)
-        agent.inventory.update()
-    except Exception:
-        pass
-    # 1a2) FORCE-WEAR the ambiguous wished armor that wear_best_stuff SKIPS. AA's
-    #      get_best_armorset ignores items where is_unambiguous() is False -- and
-    #      cloak of protection / gauntlets of power / speed boots / helm of telepathy
-    #      all have RANDOM appearances (ambiguous), so they never get worn (AC-6).
-    #      Wear the best blessed piece per empty slot directly (bypasses that gate).
+    # 1) ROBUST equip: STRIP all worn armor first, then wear the WISHED blessed pieces
+    #    in layer order. AA's wear_best_stuff wears the char's random STARTING armor
+    #    (leather gloves / robe / plain helm -- all unambiguous) into the slots, which
+    #    then BLOCKS the ambiguous wished pieces (cloak of protection / gauntlets of
+    #    power / helm of telepathy have random appearances -> get_best_armorset skips
+    #    them). Result was a robe-over-DSM, AC-21 mess. Full manual control instead.
     try:
         from autoascend.item.item import Item as _It
         from autoascend import objects as _O
         from autoascend.agent import flatten_items as _flat
-        slot_attr = {_O.ARM_SHIELD: 'off_hand', _O.ARM_HELM: 'helm',
-                     _O.ARM_GLOVES: 'gloves', _O.ARM_BOOTS: 'boots', _O.ARM_CLOAK: 'cloak'}
-        forced = 0
-        for _slot, _attr in slot_attr.items():
-            agent.inventory.update()
-            if getattr(agent.inventory.items, _attr, None) is not None:
-                continue                              # slot already filled
-            cand = []
+
+        # DETERMINISTIC: wear the EXACT wished piece by the letter captured at wish time.
+        # Name/AC/BUC can't distinguish an unidentified wished +7 gauntlets-of-power from
+        # the char's random starting +2 leather gloves; the letter can.
+        _wl = agent.__dict__.get('_lore_wish_lt', {})
+
+        def _wish_lt(key):
+            for k, v in _wl.items():
+                if key in k:
+                    return v
+            return None
+
+        def _item_by_letter(lt):
+            if lt is None:
+                return None
             for it in _flat(agent.inventory.items):
                 try:
-                    if not it.is_armor() or it.equipped:
-                        continue
-                    if it.objs[0].sub != _slot:
-                        continue
-                    if it.status == _It.CURSED:
-                        continue
-                    cand.append(it)
+                    if agent.inventory.items.get_letter(it) == lt:
+                        return it
                 except Exception:
                     continue
-            if not cand:
-                continue
-            # prefer blessed, then highest enchantment
-            cand.sort(key=lambda it: (it.status == _It.BLESSED, it.modifier or 0), reverse=True)
+            return None
+
+        _SLOT_KEY = {_O.ARM_SUIT: 'gray dragon scale mail', _O.ARM_CLOAK: 'cloak of protection',
+                     _O.ARM_HELM: 'helm of telepathy', _O.ARM_GLOVES: 'gauntlets of power',
+                     _O.ARM_BOOTS: 'speed boots', _O.ARM_SHIELD: 'shield of reflection'}
+
+        def _wished_for(slot):
+            it = _item_by_letter(_wish_lt(_SLOT_KEY.get(slot)))
+            if it is not None and it.status != _It.CURSED:
+                return it
+            # fallback: best blessed piece of that slot (letter capture missed)
+            c = [it for it in _flat(agent.inventory.items)
+                 if it.is_armor() and it.objs[0].sub == slot and it.status != _It.CURSED]
+            c.sort(key=lambda it: (it.status == _It.BLESSED, it.modifier or 0), reverse=True)
+            return c[0] if c else None
+
+        # strip every worn (non-cursed) armor piece
+        for _ in range(10):
+            wi = None
+            for it in _flat(agent.inventory.items):
+                if it.is_armor() and it.equipped and it.status != _It.CURSED:
+                    wi = it; break
+            if wi is None:
+                break
             try:
-                agent.inventory.wear(cand[0])
+                agent.inventory.takeoff(wi)
+                agent.step(_A.A.Command.ESC); agent.inventory.update()
+            except Exception:
+                break
+        # wear the wished pieces in layer order (suit -> cloak innermost-first; shield
+        # is worn later in 1c, after Grayswandir frees the off-hand)
+        forced = 0
+        for _slot in (_O.ARM_SUIT, _O.ARM_CLOAK, _O.ARM_HELM, _O.ARM_GLOVES, _O.ARM_BOOTS):
+            agent.inventory.update()
+            it = _wished_for(_slot)
+            if it is None or it.equipped:
+                continue
+            try:
+                agent.inventory.wear(it)
                 agent.step(_A.A.Command.ESC); agent.inventory.update()
                 forced += 1
             except Exception as _fe:
@@ -399,14 +431,37 @@ def _equip_endgame(agent):
         from autoascend.item.item import Item as _It2
         from autoascend import objects as _O2
         from autoascend.agent import flatten_items as _flat2
+        _wl2 = agent.__dict__.get('_lore_wish_lt', {})
+        _shlt = None
+        for k, v in _wl2.items():
+            if 'shield of reflection' in k:
+                _shlt = v; break
         agent.inventory.update()
+        # strip any starting shield in the off-hand first
+        cur = getattr(agent.inventory.items, 'off_hand', None)
+        if cur is not None:
+            try:
+                if agent.inventory.items.get_letter(cur) != _shlt:
+                    agent.inventory.takeoff(cur)
+                    agent.step(_A.A.Command.ESC); agent.inventory.update()
+            except Exception:
+                pass
         if getattr(agent.inventory.items, 'off_hand', None) is None:
-            sh = [it for it in _flat2(agent.inventory.items)
-                  if it.is_armor() and not it.equipped and it.objs[0].sub == _O2.ARM_SHIELD
-                  and it.status != _It2.CURSED]
-            if sh:
-                sh.sort(key=lambda it: (it.status == _It2.BLESSED, it.modifier or 0), reverse=True)
-                agent.inventory.wear(sh[0])
+            sh = None
+            for it in _flat2(agent.inventory.items):
+                try:
+                    if _shlt is not None and agent.inventory.items.get_letter(it) == _shlt:
+                        sh = it; break
+                except Exception:
+                    continue
+            if sh is None:                       # fallback: any blessed shield
+                cc = [it for it in _flat2(agent.inventory.items)
+                      if it.is_armor() and not it.equipped and it.objs[0].sub == _O2.ARM_SHIELD
+                      and it.status != _It2.CURSED]
+                cc.sort(key=lambda it: (it.status == _It2.BLESSED, it.modifier or 0), reverse=True)
+                sh = cc[0] if cc else None
+            if sh is not None:
+                agent.inventory.wear(sh)
                 agent.step(_A.A.Command.ESC); agent.inventory.update()
                 lore_patches.COUNTERS["shield_worn"] = 1
     except Exception as _se:
@@ -451,7 +506,20 @@ def _equip_endgame(agent):
     # inventory parser, but rings aren't needed to reach the vibrating square.)
     import os as _osr
     low = agent.env.env.unwrapped.env
-    for l, finger in zip([] if _osr.environ.get("LORE_NO_RINGS") == "1" else rings[:2], ['r', 'l']):
+    # wear the TWO gate rings (free action + sustain ability) by their wished letters,
+    # NOT rings[:2] -- with conflict + fire-resistance rings also in the kit, the first
+    # two could be the wrong pair. Free action + sustain are the ones to keep WORN.
+    _wlr = agent.__dict__.get('_lore_wish_lt', {})
+    def _rlt(key):
+        for k, v in _wlr.items():
+            if key in k:
+                return v
+        return None
+    _worn_rings = [_rlt('ring of free action'), _rlt('ring of sustain ability')]
+    _worn_rings = [x for x in _worn_rings if x] or rings[:2]   # fallback to first two
+    if _osr.environ.get("LORE_NO_RINGS") == "1":
+        _worn_rings = []
+    for l, finger in zip(_worn_rings, ['r', 'l']):
         try:
             low.step(ord('P'))             # PUTON
             low.step(ord(l))               # ring letter
