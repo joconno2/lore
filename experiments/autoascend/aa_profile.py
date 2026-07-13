@@ -98,6 +98,11 @@ if os.environ.get("LORE_ROLE"):
 
 _MSGS, _TRAJ = [], []
 _max_depth = [1]
+# TURN CAP: anti-starvation etc. make the char survive very long -> games exceed
+# the wall-clock docker timeout and write NO json (lost data). Cap turns so every
+# game ENDS and records; a capped game = "survived to the cap at DL X" (a GOOD
+# outcome, not a death). Off (0) = uncapped.
+_CAP = int(os.environ.get("LORE_MAXTURN", "0") or 0)
 _orig = env.step
 def _hook(a):
     r = _orig(a)
@@ -110,6 +115,8 @@ def _hook(a):
         bl = o["blstats"]
         t, dep, hp, mhp, xl, hung = int(bl[20]), int(bl[12]), int(bl[10]), int(bl[11]), int(bl[18]), int(bl[21])
         if dep > _max_depth[0]: _max_depth[0] = dep
+        if _CAP and t > _CAP:
+            raise KeyboardInterrupt("turn_cap")
         if not _TRAJ or t - _TRAJ[-1][0] >= 250:
             _TRAJ.append((t, dep, xl, round(hp / max(1, mhp), 2), hung))
     except Exception: pass
@@ -131,6 +138,7 @@ if "killed by" in low:
     killer = end[low.find("killed by") + 10:].split(",")[0].split(".")[0].strip()
 def cat():
     e = low + " " + " ".join(_MSGS[-6:]).lower()
+    if "turn_cap" in low or "keyboardinterrupt" in low: return "survived_cap"
     if "lack of food" in e or "starv" in e or ("faint" in e and "food" in e): return "starvation"
     if "turn to stone" in e or "petrif" in e: return "petrification"
     if "frozen" in e or "paralys" in e: return "paralysis"
