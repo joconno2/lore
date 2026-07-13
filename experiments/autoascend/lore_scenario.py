@@ -1291,6 +1291,23 @@ def install_descent(target_depth, wishes=()):
                 d = int(agent.blstats.depth)
                 if d > lore_patches.COUNTERS.get("max_depth", 0):
                     lore_patches.COUNTERS["max_depth"] = d
+                # WATER-AWARE nav: the char wears water-walking boots, so moats/pools
+                # are crossable -- but AA has NO water glyph set and excludes water
+                # from `walkable`, so a downstair across a moat is unreachable and the
+                # char is stranded (the real 'pocket'). Detect water from the RAW
+                # glyphs (S_pool/S_water cmap) and mark it walkable so bfs/go_to path
+                # across the moat to the downstair. (Water-walking makes this safe;
+                # lava excluded.) This is the ascension-focused deterministic fix.
+                try:
+                    import nle.nethack as _nhw
+                    _g = agent.glyphs
+                    _water = (_g == _nhw.GLYPH_CMAP_OFF + 32) | (_g == _nhw.GLYPH_CMAP_OFF + 41)
+                    if bool(_water.any()):
+                        agent.current_level().walkable[_water] = True
+                        lore_patches.COUNTERS["water_marked"] = \
+                            max(lore_patches.COUNTERS.get("water_marked", 0), int(_water.sum()))
+                except Exception:
+                    pass
                 # LOOP-LEVEL LLM NAV (LORE_LLM_NAV): if DEPTH stalls for many iters we
                 # are walled into a pocket. Fires regardless of which primitive the
                 # policy picks (stairs-first routes walled-downstair to prim_descend_

@@ -116,7 +116,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "oracle_actions":{k:C[k] for k in C if k.startswith("oracle_") and k!="oracle_err"},
           "first_reach":{int(k.split("_")[-1]):C[k] for k in C if k.startswith("firstreach_")},
           "survived_depth":{K:(max([int(k.split("_")[-1]) for k in C if k.startswith("firstreach_") and (int(s.get("turns") or 0)-C[k])>=K], default=0)) for K in (20,50,100)},
-          "peak_xl":C.get("peak_xl"),"cur_xl":C.get("cur_xl"),"xl_drained":C.get("xl_drained"),"min_hp_frac":C.get("min_hp_frac"),"cur_ac":C.get("cur_ac"),"stair_descents":C.get("stair_descents"),
+          "peak_xl":C.get("peak_xl"),"cur_xl":C.get("cur_xl"),"xl_drained":C.get("xl_drained"),"min_hp_frac":C.get("min_hp_frac"),"cur_ac":C.get("cur_ac"),"stair_descents":C.get("stair_descents"),"water_marked":C.get("water_marked"),
           "valley_depth":C.get("valley_depth"),"valley_lnum":C.get("valley_lnum"),"valley_fail":C.get("valley_fail"),
           "death":death,"end_reason":str(getattr(w,"end_reason",""))[:120],
           "t_after_wishes":C.get("t_after_wishes"),"t_after_quaff":C.get("t_after_quaff"),
@@ -132,7 +132,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "af_action":C.get("agentfinished_action"),"af_iter":C.get("agentfinished_iter"),
           "af_tb":C.get("agentfinished_tb"),
           "down_diag":C.get("down_diag"),"level_no_dig":C.get("level_no_dig"),
-          "stair_descents":C.get("stair_descents"),
+          "stair_descents":C.get("stair_descents"),"water_marked":C.get("water_marked"),
           "t":round(time.time()-t0),"xl_after":C.get("xl_after"),"wishes":C.get("wishes")},
           open(OUT,"w"), default=str)
 print("DONE", flush=True)
