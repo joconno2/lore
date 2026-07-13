@@ -37,6 +37,17 @@ def probe(self):
         if s.check_condition(): s.run()
         agent.step(_A.A.Command.ESC); agent.inventory.update()
     except Exception as e: R["setup_err"]=repr(e)[:50]
+    # ARRIVAL-SAFETY for the deep scan (capability demo): genocide the deadly
+    # Gehennom classes so the vibrating-square search isn't killed on arrival /
+    # by instadeath bursts. Wish the scrolls, then genocide a broad deadly set.
+    import os as _os
+    if _os.environ.get("INV_GENOCIDE","1")=="1":
+        try:
+            for _ in range(14): lore_scenario._do_wish(agent,"blessed scroll of genocide")
+            agent.step(_A.A.Command.ESC); agent.inventory.update()
+            lore_scenario._do_genocide(agent, list("&;hVLXDe@nou;L"))
+            R["genocided"]=1
+        except Exception as e: R["geno_err"]=repr(e)[:50]
     # search each candidate level, reached by DOWN teleport (43->..->target)
     for lvl in range(max(target-6, 28), target+1):
         try: lore_scenario._do_teleport(agent, lvl)
@@ -45,18 +56,36 @@ def probe(self):
         except Exception: cur=lvl
         if "vibrat" in _msg(agent):
             R["found"]={"level":cur,"pos":[int(agent.blstats.y),int(agent.blstats.x)],"how":"on-arrival"}; break
+        # reveal the level (wiz_map) so the whole reachable area is known, then
+        # WALK every reachable cell (robust single-step frontier) watching for the
+        # 'strange vibration'. explore1 no-ops on the empty post-teleport level
+        # (visited=0 bug), so drive coverage directly off the glyph grid.
         found=False; visited=0
         try:
-            for _ in range(150):
+            low=agent.env.env.unwrapped.env
+            low.step(27); low.step(6); low.step(27)
+            agent.step(_A.A.Command.ESC); agent.inventory.update()
+        except Exception as _re: R.setdefault("reveal_err", repr(_re)[:40])
+        try:
+            from autoascend import utils as _u2
+            for _ in range(400):
                 if "vibrat" in _msg(agent):
                     found=True; R["found"]={"level":cur,"pos":[int(agent.blstats.y),int(agent.blstats.x)],"how":"walked","visited":visited}; break
-                # AA's explore1 populates + covers the level model (raw go_to fails
-                # on the empty post-teleport level). Stop when fully explored.
-                e=agent.exploration.explore1(0)
-                if e.check_condition():
-                    e.run(); visited+=1
-                else:
-                    break
+                lvlo=agent.current_level(); bf=agent.bfs()
+                mask=(bf!=-1)&lvlo.walkable&(~lvlo.was_on)
+                cand=list(zip(*mask.nonzero()))
+                if not cand: break
+                cand.sort(key=lambda p: bf[p[0],p[1]])
+                ty,tx=int(cand[0][0]),int(cand[0][1])
+                y0,x0=int(agent.blstats.y),int(agent.blstats.x)
+                try:
+                    path=agent.path(y0,x0,ty,tx)
+                    if path and len(path)>1 and lvlo.walkable[path[1][0],path[1][1]]:
+                        agent.move(int(path[1][0]),int(path[1][1])); visited+=1
+                    else: break
+                except Exception:
+                    try: agent.go_to(ty,tx,max_steps=1); visited+=1
+                    except Exception: break
         except AgentFinished:
             R["levels"].append([cur,"died",visited]); raise
         except Exception as _we:
