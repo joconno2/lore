@@ -819,6 +819,16 @@ def install_descent(target_depth, wishes=()):
                 agent.inventory.update()
                 lore_patches.COUNTERS["reveals"] = \
                     lore_patches.COUNTERS.get("reveals", 0) + 1
+                # capture the revealed downstair(s) NOW (lvl.objects has them right
+                # after ^F) into a persistent per-depth set. AA's later update_level
+                # drops revealed-but-unseen stairs -> have_downstair goes False and the
+                # policy never routes to the stair-nav (the walled-pocket blocker).
+                try:
+                    _rd = list(zip(*_u.isin(agent.current_level().objects, G.STAIR_DOWN).nonzero()))
+                    if _rd:
+                        agent.__dict__["_lore_downs_%d" % d] = [(int(yy), int(xx)) for yy, xx in _rd]
+                except Exception:
+                    pass
             except Exception as _re:
                 lore_patches.COUNTERS["reveal_err"] = repr(_re)[:60]
 
@@ -834,6 +844,10 @@ def install_descent(target_depth, wishes=()):
                 all_downs = list(zip(*_u.isin(lvl0.objects, G.STAIR_DOWN).nonzero()))
             except Exception:
                 return False
+            if not all_downs:
+                # FALLBACK: AA dropped the ^F-revealed stair -> use the persistent
+                # per-depth capture from _reveal_level so the walled-pocket nav runs.
+                all_downs = agent.__dict__.get("_lore_downs_%d" % int(agent.blstats.depth), [])
             if not all_downs:
                 return False
             reach = [(y, x) for y, x in all_downs if bf[y, x] != -1]
@@ -1289,7 +1303,8 @@ def install_descent(target_depth, wishes=()):
                 "hunger": int(agent.blstats.hunger_state),
                 "has_dig_wand": _wand_letter() is not None,
                 "on_stair": bool(on_stair),
-                "have_downstair": int(_u.isin(lvl.objects, G.STAIR_DOWN).sum()) > 0,
+                "have_downstair": (int(_u.isin(lvl.objects, G.STAIR_DOWN).sum()) > 0
+                                   or bool(agent.__dict__.get("_lore_downs_%d" % int(agent.blstats.depth)))),
                 "downstair_reachable": bool((_u.isin(lvl.objects, G.STAIR_DOWN) & (agent.bfs() != -1)).any()),
                 "level_no_dig": lore_patches.COUNTERS.get("level_no_dig") == int(agent.blstats.depth),
                 "adjacent_threats": _adjacent_threats(),
