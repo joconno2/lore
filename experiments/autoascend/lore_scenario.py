@@ -836,19 +836,52 @@ def install_descent(target_depth, wishes=()):
                 return False
             if not all_downs:
                 return False
-            # UNIFIED DIG-AWARE PATH to the nearest known downstair. Dijkstra over the
-            # grid: walkable=1, diggable wall=6, stone/boundary=impassable. Walk open
-            # routes; DIG through walls along the route. ONE agent.move (or dig+move)
-            # per call, re-run each iter -> traverses the whole route step by step.
-            # NEVER uses AA's go_to/path (which crash on revealed maze terrain -- the
-            # #1 descent blocker). Handles reachable, walled, AND moat (water-patched
-            # walkable) downstairs uniformly.
-            low = agent.env.env.unwrapped.env
+            reach = [(y, x) for y, x in all_downs if bf[y, x] != -1]
+            if not reach and _os2.environ.get("LORE_REVEAL") == "1":
+                # WALLED (wall-pocket, non-moat): L-DIG to the known downstair.
+                # Single-axis digging at an offset stair never connects. Instead:
+                # PHASE 1 align to the stair's ROW (dig vertical toward ty, step into
+                # the tunnel); PHASE 2 once on row ty, dig HORIZONTAL toward tx and
+                # walk the tunnel. Re-runs each iteration so it tunnels an L-path.
+                ty, tx = min(all_downs, key=lambda p: abs(p[0] - agent.blstats.y) + abs(p[1] - agent.blstats.x))
+                ty, tx = int(ty), int(tx)
+                y, x = int(agent.blstats.y), int(agent.blstats.x)
+                wl = _wand_letter()
+                low = agent.env.env.unwrapped.env
+                if wl is not None:
+                    if y != ty:                        # PHASE 1: align row (vertical)
+                        dchar, dy, dx = ('j', 1, 0) if ty > y else ('k', -1, 0)
+                    else:                              # PHASE 2: dig across to the col
+                        dchar, dy, dx = ('l', 0, 1) if tx > x else ('h', 0, -1)
+                    try:
+                        with agent.atom_operation():
+                            agent.step(_agz.A.Command.ZAP); agent.type_text(wl); agent.type_text(dchar)
+                        lore_patches.COUNTERS["dig_to_stair"] = \
+                            lore_patches.COUNTERS.get("dig_to_stair", 0) + 1
+                    except Exception:
+                        pass
+                    # step into the freshly-dug cell (so we advance the tunnel)
+                    if 'too hard' not in str(agent.message):
+                        ny, nx = y + dy, x + dx
+                        try:
+                            if agent.current_level().walkable[ny, nx]:
+                                agent.move(ny, nx)
+                        except Exception:
+                            pass
+                # if the stair became reachable after digging, walk to it
+                try:
+                    bf2 = agent.bfs()
+                    if bf2[ty, tx] != -1:
+                        agent.go_to(ty, tx)
+                except Exception:
+                    pass
+                return False
+            before = int(agent.blstats.depth)
             y0, x0 = int(agent.blstats.y), int(agent.blstats.x)
-            ty, tx = min(all_downs, key=lambda p: abs(p[0] - y0) + abs(p[1] - x0))
-            ty, tx = int(ty), int(tx)
-            if (y0, x0) == (ty, tx):                       # ON the stair -> take it
-                before = int(agent.blstats.depth)
+            ty, tx = int(reach[0][0]), int(reach[0][1])
+            if (y0, x0) == (ty, tx):
+                # ON the stair -> take it
+                low = agent.env.env.unwrapped.env
                 try:
                     low.step(ord('>')); low.step(13); low.step(13)
                     agent.step(_agz.A.Command.ESC); agent.inventory.update()
@@ -863,70 +896,47 @@ def install_descent(target_depth, wishes=()):
                         pass
                     return True
                 return False
+            # ONE robust step toward the stair. AA's go_to(full path) throws on
+            # revealed-but-unvisited terrain (ValueError "'in' is not in list",
+            # AgentPanic 'position do not match') and CRASHES the game -- the true
+            # stair-take blocker (seed 47 descended fine, 44/45/48 crashed here).
+            # Compute the path myself and move ONE cell, tolerating errors; the
+            # descend loop re-runs survival reflexes between steps.
+            # PURE-NUMPY BFS to the stair + single agent.move step. AA's path()/
+            # go_to() throw on revealed maze terrain (the #1 recurring descent
+            # blocker); this computes the route myself over lvl.walkable (incl. the
+            # water patch) and takes ONE adjacent step, never touching AA's crashing
+            # pathfinder. Re-runs each iter -> walks the whole route one step at a time.
             try:
                 import numpy as _npb
-                import heapq as _hq
-                walk = lvl0.walkable
-                wallm = _u.isin(lvl0.objects, G.WALL)
+                from collections import deque as _deque
+                walk = agent.current_level().walkable
                 H, W = walk.shape
-                INF = 1 << 30
-                cost = _npb.full((H, W), INF, dtype=_npb.int64)
-                cost[ty, tx] = 0
-                pq = [(0, ty, tx)]
-                _card = ((1, 0), (-1, 0), (0, 1), (0, -1))
-                while pq:
-                    c, cy, cx = _hq.heappop(pq)
-                    if c > cost[cy, cx]:
-                        continue
-                    for dy, dx in _card:
+                dist = _npb.full((H, W), -1, dtype=_npb.int32)
+                dq = _deque([(ty, tx)]); dist[ty, tx] = 0
+                _nb = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
+                while dq:
+                    cy, cx = dq.popleft()
+                    for dy, dx in _nb:
                         ny, nx = cy + dy, cx + dx
-                        if not (0 <= ny < H and 0 <= nx < W):
-                            continue
-                        if walk[ny, nx]:
-                            step = 1
-                        elif wallm[ny, nx]:
-                            step = 6                       # dig cost
-                        else:
-                            continue                       # stone/boundary: impassable
-                        nc = c + step
-                        if nc < cost[ny, nx]:
-                            cost[ny, nx] = nc
-                            _hq.heappush(pq, (nc, ny, nx))
-                if cost[y0, x0] >= INF:
-                    lore_patches.COUNTERS["digpath_unreach"] = \
-                        lore_patches.COUNTERS.get("digpath_unreach", 0) + 1
-                    return False
-                best = None
-                for dy, dx in _card:
-                    ny, nx = y0 + dy, x0 + dx
-                    if 0 <= ny < H and 0 <= nx < W and cost[ny, nx] < cost[y0, x0]:
-                        if best is None or cost[ny, nx] < cost[best[0], best[1]]:
-                            best = (ny, nx)
-                if best is None:
-                    return False
-                by, bx = best
-                if walk[by, bx]:
-                    agent.move(int(by), int(bx))
-                    lore_patches.COUNTERS["stair_steps"] = \
-                        lore_patches.COUNTERS.get("stair_steps", 0) + 1
-                else:                                       # dig through the wall, step in
-                    wl = _wand_letter()
-                    if wl:
-                        dchar = {(1, 0): 'j', (-1, 0): 'k', (0, 1): 'l', (0, -1): 'h'}[(by - y0, bx - x0)]
-                        with agent.atom_operation():
-                            agent.step(_agz.A.Command.ZAP); agent.type_text(wl); agent.type_text(dchar)
-                        lore_patches.COUNTERS["digpath_digs"] = \
-                            lore_patches.COUNTERS.get("digpath_digs", 0) + 1
-                        if 'too hard' not in str(agent.message):
-                            try:
-                                if agent.current_level().walkable[by, bx]:
-                                    agent.move(int(by), int(bx))
-                            except Exception:
-                                pass
+                        if 0 <= ny < H and 0 <= nx < W and dist[ny, nx] == -1 \
+                                and (walk[ny, nx] or (ny, nx) == (y0, x0)):
+                            dist[ny, nx] = dist[cy, cx] + 1; dq.append((ny, nx))
+                if dist[y0, x0] != -1:
+                    best = None
+                    for dy, dx in _nb:
+                        ny, nx = y0 + dy, x0 + dx
+                        if 0 <= ny < H and 0 <= nx < W and walk[ny, nx] and dist[ny, nx] != -1:
+                            if best is None or dist[ny, nx] < dist[best[0], best[1]]:
+                                best = (ny, nx)
+                    if best is not None:
+                        agent.move(int(best[0]), int(best[1]))
+                        lore_patches.COUNTERS["stair_steps"] = \
+                            lore_patches.COUNTERS.get("stair_steps", 0) + 1
             except AgentFinished:
                 raise
             except Exception as _pe:
-                lore_patches.COUNTERS["digpath_err"] = repr(_pe)[:60]
+                lore_patches.COUNTERS["stairnav_err"] = repr(_pe)[:60]
             return False
 
         def prim_explore():
