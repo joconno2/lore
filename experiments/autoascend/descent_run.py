@@ -10,12 +10,12 @@ KIT=[
     # XP/HP tank -- quaffed first in setup (before healing exists), then rest wished
     "12 blessed potions of gain level","12 blessed potions of gain level","12 blessed potions of gain level",
     # RESISTANCES + protection (worn): the hard gates
-    "blessed +5 gray dragon scale mail",   # MAGIC RESISTANCE (blocks finger of death etc.)
-    "blessed +5 shield of reflection",     # REFLECTION (bounces death rays from Orcus/demons)
-    "blessed +5 cloak of protection",      # MC3 + AC
-    "blessed +5 helm of telepathy",        # see monsters through walls -> avoid ambush instadeaths
-    "blessed +5 pair of speed boots",      # speed -> outrun demons
-    "blessed +5 pair of leather gloves",   # AC + wield cockatrice safely
+    "blessed +7 gray dragon scale mail",   # MAGIC RESISTANCE (blocks finger of death etc.)
+    "blessed +7 shield of reflection",     # REFLECTION (bounces death rays from Orcus/demons)
+    "blessed +5 oilskin cloak",            # blocks eel GRAB -> no drowning (3/13 deaths); + AC
+    "blessed +7 helm of telepathy",        # see monsters through walls -> avoid ambush instadeaths
+    "blessed +7 pair of speed boots",      # speed -> outrun demons
+    "blessed +7 pair of leather gloves",   # AC + wield cockatrice safely
     "blessed amulet of life saving",       # last-resort revive
     "blessed ring of free action",         # anti paralysis/sleep lock
     "blessed ring of sustain ability",     # anti mind-flayer INT drain + stat drain
@@ -121,7 +121,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "t_after_eat":C.get("t_after_eat"),"t_after_equip":C.get("t_after_equip"),
           "vibration_found":C.get("vibration_found"),"vibration_pos":C.get("vibration_pos"),"healing_kept":C.get("healing_kept"),"descent_heals":C.get("descent_heals"),
           "sick_after_eat":C.get("sick_after_eat"),"setup_prayed_sick":C.get("setup_prayed_sick"),"heal_letter":C.get("heal_letter"),
-          "descent_prays":C.get("descent_prays"),"reflex_fights":C.get("reflex_fights"),
+          "descent_prays":C.get("descent_prays"),"reflex_fights":C.get("reflex_fights"),"reflex_flees":C.get("reflex_flees"),
           "reveals":C.get("reveals"),"reveal_err":C.get("reveal_err"),"dig_to_stair":C.get("dig_to_stair"),
           "hit_iter_cap":C.get("hit_iter_cap"),"last_action":C.get("last_action"),"act_exc":C.get("act_exc"),
           "mons_seen":C.get("mons_seen"),"nearest_mon_min":C.get("nearest_mon_min"),"min_hp_frac":C.get("min_hp_frac"),"stair_steps":C.get("stair_steps"),

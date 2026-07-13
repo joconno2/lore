@@ -1116,13 +1116,16 @@ def install_descent(target_depth, wishes=()):
                 # random cell) can drop you into a sealed pocket -- use it only as a
                 # fallback when no downstair is known. With LORE_REVEAL the ^F map
                 # makes the downstair known immediately on each level.
-                # DEFAULT = dig-down-fast (median DL34, max 42): plummeting reaches
-                # deeper than careful stair-taking (median DL29), which dies shallow
-                # one level at a time. Pockets from dig-drops are a minority failure,
-                # not the median. LORE_STAIRS_FIRST=1 opts into stair-descent (safer
-                # per-level, connected upstairs, but shallower overall).
+                # DEFAULT = STAIRS-FIRST (proper descent). The goal is ASCENSION, not
+                # max depth. Dig-down-fast reaches deeper per-run only because it
+                # recklessly plummets into danger and dies -- a local minimum, the
+                # OPPOSITE of "strong and prepared". Taking stairs arrives on the next
+                # level's UPSTAIR (guaranteed connected to its downstair -> no pockets,
+                # no random drops into a swarm); the char stays intact and can survive
+                # the whole way. Depth-per-run is a red herring. LORE_STAIRS_FIRST=0
+                # opts back into dig-plummet for comparison only.
                 st = _build_state()
-                if _os2.environ.get("LORE_STAIRS_FIRST", "0") == "1":
+                if _os2.environ.get("LORE_STAIRS_FIRST", "1") == "1":
                     if st["have_downstair"]:
                         return "DESCEND_STAIRS"
                     if st["has_dig_wand"] and not st["level_no_dig"]:
@@ -1290,9 +1293,25 @@ def install_descent(target_depth, wishes=()):
                     except Exception:
                         pass
                     if mons and mons[0][0] <= 6:
-                        prim_fight()
-                        lore_patches.COUNTERS["reflex_fights"] = \
-                            lore_patches.COUNTERS.get("reflex_fights", 0) + 1
+                        # PLAYBOOK: flee by default, fight only when cornered. A
+                        # strong char that stands and fights Gehennom SWARMS still
+                        # dies (dragons/nagas gang up). Count near threats; if
+                        # OVERWHELMED (>=3 within 4) or hurt with threats near,
+                        # FLEE + heal instead of trading blows to death. Fight only
+                        # 1-2 threats (clear the path).
+                        near = sum(1 for m in mons if int(m[0]) <= 4)
+                        try:
+                            hpf = agent.blstats.hitpoints / max(1, agent.blstats.max_hitpoints)
+                        except Exception:
+                            hpf = 1.0
+                        if near >= 3 or (hpf < 0.5 and near >= 1):
+                            prim_flee()
+                            lore_patches.COUNTERS["reflex_flees"] = \
+                                lore_patches.COUNTERS.get("reflex_flees", 0) + 1
+                        else:
+                            prim_fight()
+                            lore_patches.COUNTERS["reflex_fights"] = \
+                                lore_patches.COUNTERS.get("reflex_fights", 0) + 1
                         continue
                 except AgentFinished:
                     raise
