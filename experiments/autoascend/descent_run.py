@@ -124,7 +124,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "vibration_found":C.get("vibration_found"),"vibration_pos":C.get("vibration_pos"),"healing_kept":C.get("healing_kept"),"descent_heals":C.get("descent_heals"),
           "sick_after_eat":C.get("sick_after_eat"),"setup_prayed_sick":C.get("setup_prayed_sick"),"heal_letter":C.get("heal_letter"),
           "descent_prays":C.get("descent_prays"),"reflex_fights":C.get("reflex_fights"),"reflex_flees":C.get("reflex_flees"),
-          "reveals":C.get("reveals"),"reveal_err":C.get("reveal_err"),"dig_to_stair":C.get("dig_to_stair"),
+          "reveals":C.get("reveals"),"reveal_err":C.get("reveal_err"),"cap_obj_downs":C.get("cap_obj_downs"),"cap_gly_downs":C.get("cap_gly_downs"),"dig_to_stair":C.get("dig_to_stair"),
           "hit_iter_cap":C.get("hit_iter_cap"),"last_action":C.get("last_action"),"act_exc":C.get("act_exc"),
           "llm_nav_q":C.get("llm_nav_q"),"llm_digs":C.get("llm_digs"),"llm_nav_err":C.get("llm_nav_err"),"llm_nav_correct":C.get("llm_nav_correct"),"llm_nav_wrong":C.get("llm_nav_wrong"),
           "llm_nav_acts":{k:C[k] for k in C if k.startswith("llm_nav_DIG") or k.startswith("llm_nav_S") or k.startswith("llm_nav_None")},

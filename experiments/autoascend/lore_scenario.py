@@ -824,7 +824,15 @@ def install_descent(target_depth, wishes=()):
                 # drops revealed-but-unseen stairs -> have_downstair goes False and the
                 # policy never routes to the stair-nav (the walled-pocket blocker).
                 try:
-                    _rd = list(zip(*_u.isin(agent.current_level().objects, G.STAIR_DOWN).nonzero()))
+                    _obj_d = list(zip(*_u.isin(agent.current_level().objects, G.STAIR_DOWN).nonzero()))
+                    _gly_d = list(zip(*_u.isin(agent.glyphs, G.STAIR_DOWN).nonzero()))
+                    lore_patches.COUNTERS["cap_obj_downs"] = \
+                        max(lore_patches.COUNTERS.get("cap_obj_downs", 0), len(_obj_d))
+                    lore_patches.COUNTERS["cap_gly_downs"] = \
+                        max(lore_patches.COUNTERS.get("cap_gly_downs", 0), len(_gly_d))
+                    # prefer objects (parsed), fall back to RAW GLYPHS (the ^F stair
+                    # may be in the display glyphs even when AA's objects lacks it).
+                    _rd = _obj_d or _gly_d
                     if _rd:
                         agent.__dict__["_lore_downs_%d" % d] = [(int(yy), int(xx)) for yy, xx in _rd]
                 except Exception:
