@@ -544,7 +544,11 @@ def apply_descent_gate(mock=True, base_url=None, model=None, max_holds_per_level
 # fleeing actually works. fight_heur imports the draw_* names directly, so we
 # patch fight_heur's bound references, not the movement_priority module.
 
-_PETRIFIERS_AV = ("cockatrice", "chickatrice")
+# MELEE-INSTADEATH monsters: never melee these (heatmap repulsion + ranged).
+# cockatrice/chickatrice -> petrify; floating eye -> passive paralysis up to 127
+# turns then nibbled to death (the fair-play paralysis deaths); gas spore ->
+# explodes on death when adjacent. Per FIRST_ASCENSION_PLAYBOOK s4.
+_PETRIFIERS_AV = ("cockatrice", "chickatrice", "floating eye", "gas spore")
 
 
 def apply_petrifier_avoidance():

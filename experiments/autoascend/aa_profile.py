@@ -61,6 +61,13 @@ if os.environ.get("LORE_ANTISTARV") == "1":
     # persist across roles (a food-SUPPLY problem, per FIRST_ASCENSION_PLAYBOOK).
     import lore_patches
     lore_patches.apply_anti_starvation()
+if os.environ.get("LORE_NOMELEE") == "1":
+    # instadeath-avoidance (playbook s4): heatmap-repel never-melee monsters
+    # (floating eye -> paralysis, cockatrice -> petrify, gas spore -> explode).
+    # Targets the floating-eye paralysis deaths that appear once the char survives
+    # long enough to reach them.
+    import lore_patches
+    lore_patches.apply_petrifier_avoidance()
 if os.environ.get("LORE_FULL") == "1":
     # full stack, perfect-knowledge where applicable: structural robustness +
     # food-aware unstick + pro-survival disengage. The combined ceiling test.
