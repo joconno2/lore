@@ -262,6 +262,36 @@ def _equip_endgame(agent):
         pass
 
 
+def patch_water_walkable():
+    """AA's update_level (agent.py:596) has NO water glyph set and excludes water
+    from `walkable`, so a downstair across a MOAT is unreachable and the char is
+    stranded (the real descent 'pocket'). With water-walking boots the char crosses
+    moats safely -> monkeypatch update_level to ALSO mark S_pool/S_water cells
+    walkable after AA's own update. Persistent (AA re-runs update_level every step,
+    so a transient per-iteration marking gets overwritten -- this doesn't). Lava is
+    NOT marked (needs fire res + levitation). AA stays frozen; this is a scenario
+    patch enabling the wished water-walking kit to actually be used by the pathing."""
+    from autoascend.agent import Agent
+    import nle.nethack as _nh
+    if getattr(Agent, "_lore_water_patched", False):
+        return
+    POOL = _nh.GLYPH_CMAP_OFF + 32
+    WATER = _nh.GLYPH_CMAP_OFF + 41
+    _orig = Agent.update_level
+
+    def _patched(self):
+        _orig(self)
+        try:
+            wm = (self.glyphs == POOL) | (self.glyphs == WATER)
+            if wm.any():
+                self.current_level().walkable[wm] = True
+        except Exception:
+            pass
+    Agent.update_level = _patched
+    Agent._lore_water_patched = True
+    return ["water_walkable"]
+
+
 def _do_teleport(agent, target_depth):
     # ^V isn't in AutoAscend's action space, so issue the wizard level-teleport
     # at the LOW-LEVEL nethack (raw keypresses), then resync the agent with one
@@ -598,6 +628,7 @@ def install_descent(target_depth, wishes=()):
     import nle.nethack as _nh2
     import oracle as _oracle
     patch_ring_parse()   # let AA tolerate worn rings/amulet without crashing
+    patch_water_walkable()  # cross moats (water-walking boots) -> reach walled-off downstairs
 
     def descent_global(self):
         agent = self.agent
