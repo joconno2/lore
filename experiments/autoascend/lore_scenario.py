@@ -93,6 +93,94 @@ def _is_sick(agent):
         return False
 
 
+# --- intrinsic (resistance) tracking + eating: the legit ascension-prep mechanic ---
+# Eat corpses on the way DOWN to gain the resistances a real ascension char needs.
+# NLE exposes each monster's conveyed resistances (permonst.mconveys) and level live,
+# so the reflex reads exactly what a corpse grants and how reliably (grant odds scale
+# with monster level -- eat.c givit()). No wizard grants: the char eats what it kills.
+_MR_INTR = {0x01: 'fire', 0x02: 'cold', 0x04: 'sleep',
+            0x08: 'disint', 0x10: 'shock', 0x20: 'poison'}
+_ALL_INTR = set(_MR_INTR.values())
+# givit() success messages (src/eat.c) -> the intrinsic just gained. Parsed off the
+# message line to KNOW what we already have (so we stop eating for it).
+_INTR_MSG = (
+    ('momentary chill', 'fire'), ("be chillin'", 'fire'),
+    ('full of hot air', 'cold'),
+    ('wide awake', 'sleep'),
+    ('very firm', 'disint'), ('totally together', 'disint'),
+    ('feels amplified', 'shock'), ('grounded in reality', 'shock'),
+    ('feel healthy', 'poison'), ('especially healthy', 'poison'),
+)
+
+
+def _raw_msg(o):
+    """Message string from a low-level Nethack.step return, which is
+    (obs_tuple, done) -- obs is a TUPLE of arrays, message is the (256,) one.
+    Best-effort: never raises (a capture error must not abort a keypress seq)."""
+    try:
+        for a in o[0]:
+            if getattr(a, 'shape', None) == (256,):
+                return bytes(a).decode('latin1').lower()
+    except Exception:
+        pass
+    return ''
+
+
+def _intr_mark(intr):
+    lst = lore_patches.COUNTERS.setdefault('intr_have', [])
+    if intr not in lst:
+        lst.append(intr)
+
+
+def _intr_scan_msg(agent):
+    """Record any intrinsic the char just gained (parses givit's grant message)."""
+    try:
+        m = bytes(agent.last_observation['message']).decode('latin1').lower()
+    except Exception:
+        return
+    for phrase, intr in _INTR_MSG:
+        if phrase in m:
+            _intr_mark(intr)
+
+
+def _intr_have():
+    return set(lore_patches.COUNTERS.get('intr_have', []))
+
+
+def _corpse_conveys_missing(nh, MON, glyph, missing):
+    """(want_set, mlevel) for a BODY glyph whose monster conveys a still-missing
+    resistance, else None. Read live from permonst -- no hardcoded table."""
+    try:
+        if not nh.glyph_is_body(int(glyph)):
+            return None
+        pm = MON.permonst(int(glyph))
+        mc = int(getattr(pm, 'mconveys', 0))
+        want = {nm for bit, nm in _MR_INTR.items() if mc & bit} & missing
+        return (want, int(getattr(pm, 'mlevel', 0))) if want else None
+    except Exception:
+        return None
+
+
+def _name_conveys_missing(nh, MON, name, missing):
+    """Same, for a CARRIED corpse identified by its item-name string."""
+    s = name.lower()
+    if 'corpse' not in s:
+        return None
+    s = s.split('corpse')[0]
+    for w in ('blessed', 'uncursed', 'cursed', 'partly eaten', 'rotted', 'tainted',
+              'very old', 'old', 'slimy'):
+        s = s.replace(w, ' ')
+    mon = ' '.join(s.split()).strip()
+    try:
+        mid = MON.id_from_name(mon)
+        pm = nh.permonst(mid)
+        mc = int(getattr(pm, 'mconveys', 0))
+        want = {nm for bit, nm in _MR_INTR.items() if mc & bit} & missing
+        return (want, int(getattr(pm, 'mlevel', 0))) if want else None
+    except Exception:
+        return None
+
+
 def _eat_for_intrinsics(agent):
     """Eat wished corpses on the safe start level to gain intrinsic resistances
     (real gameplay prep, not a wizard cheat): killer-bee/kobold corpses confer
@@ -107,30 +195,98 @@ def _eat_for_intrinsics(agent):
         agent.inventory.update()
     except Exception:
         pass
-    eaten = 0
-    for _ in range(20):
-        corpse = None
+    def _conv_missing(it):
+        """want-set for a corpse item conveying a still-missing resistance, + mlevel."""
+        try:
+            if not it.is_corpse():
+                return None
+            pm = _nh.permonst(int(it.monster_id))
+            mc = int(getattr(pm, 'mconveys', 0))
+            want = {nm for bit, nm in _MR_INTR.items() if mc & bit} - _intr_have()
+            return (want, int(getattr(pm, 'mlevel', 0))) if want else None
+        except Exception:
+            return None
+
+    # one-time inventory dump: what corpses exist and where (below-me vs carried)
+    try:
+        _inv = lore_patches.COUNTERS.setdefault("setup_corpse_inv", {})
+        _bm = []
+        for it in list(agent.inventory.items_below_me):
+            if getattr(it, 'is_corpse', lambda: False)():
+                _bm.append("%s(mid=%s)" % (str(getattr(it, 'text', '?'))[:24],
+                                           getattr(it, 'monster_id', '?')))
+        _cr = []
         for it in flatten_items(agent.inventory.items):
-            if getattr(it, "category", None) == _nh.FOOD_CLASS and getattr(it, "is_corpse", lambda: False)():
-                corpse = it
+            if getattr(it, 'is_corpse', lambda: False)():
+                _cr.append("%s(mid=%s)" % (str(getattr(it, 'text', '?'))[:24],
+                                           getattr(it, 'monster_id', '?')))
+        _inv["below_me"] = _bm[:30]
+        _inv["carried"] = _cr[:30]
+    except Exception as _ie:
+        lore_patches.COUNTERS["setup_corpse_inv"] = "err %r" % _ie
+
+    # CHOKE-SAFE loop: eat wished resistance corpses (below-me pile from the wish, then
+    # carried) via AA's own eat -- which FINISHES the corpse so cpostfx grants the
+    # intrinsic and routes through the hooked env.step so the grant is captured. Stop
+    # at Satiated (eating then chokes to death); the descent reflex eats the rest from
+    # fresh kills on the way down.
+    eaten = 0
+    for _ in range(30):
+        try:
+            if int(agent.blstats.hunger_state) == 0:      # Satiated -> choke, stop
                 break
-        if corpse is None:
-            break
-        try:
-            letter = agent.inventory.items.get_letter(corpse)
         except Exception:
-            break
-        low.step(ord('e'))                 # eat
-        # if it asks about floor food first ('y'/'n'), decline then pick inventory
-        low.step(ord(letter))              # choose the corpse
-        low.step(ord('y'))                 # "eat anyway?" / confirm
-        low.step(13); low.step(13)         # clear --More--
-        eaten += 1
+            pass
+        target = None
         try:
-            agent.step(__import__("autoascend.agent", fromlist=["A"]).A.Command.ESC)
+            for it in list(agent.inventory.items_below_me):
+                if _conv_missing(it) is not None:
+                    target = it
+                    break
+        except Exception:
+            pass
+        if target is None:                                 # else a carried corpse, highest level
+            try:
+                best = None
+                for it in flatten_items(agent.inventory.items):
+                    r = _conv_missing(it)
+                    if r is None:
+                        continue
+                    if best is None or r[1] > best[1]:
+                        best = (it, r[1])
+                if best is not None:
+                    target = best[0]
+            except Exception:
+                pass
+        if target is None:
+            break
+        t0 = int(agent.blstats.time)
+        _dbg = lore_patches.COUNTERS.setdefault("setup_eat_dbg", [])
+        try:
+            _tnm = str(getattr(target, 'text', '?'))[:30]
+            _tmid = int(getattr(target, 'monster_id', -1))
+            _th0 = int(agent.blstats.hunger_state)
+        except Exception:
+            _tnm, _tmid, _th0 = '?', -1, -1
+        try:
+            agent.inventory.eat(target)
             agent.inventory.update()
-        except Exception:
+        except Exception as _ee:
+            if len(_dbg) < 20:
+                _dbg.append("EATERR %s: %r" % (_tnm, _ee))
             break
+        _intr_scan_msg(agent)
+        try:
+            _pm = bytes(agent.last_observation['message']).decode('latin1').strip()[:40]
+            _ph1 = int(agent.blstats.hunger_state)
+            if len(_dbg) < 20:
+                _dbg.append("ate %s mid=%d dt=%d hun%d->%d msg=%s"
+                            % (_tnm, _tmid, int(agent.blstats.time) - t0, _th0, _ph1, _pm))
+        except Exception:
+            pass
+        if int(agent.blstats.time) <= t0:                  # nothing consumed -> avoid spin
+            break
+        eaten += 1
     lore_patches.COUNTERS["corpses_eaten"] = eaten
     # Then eat FOOD RATIONS for nutrition, but ONLY while genuinely hungry --
     # eating when already Satiated makes the char CHOKE TO DEATH (killed the whole
@@ -1160,6 +1316,90 @@ def install_descent(target_depth, wishes=()):
             except Exception:
                 return False
 
+        def _item_conveys_missing(it, missing):
+            """(want_set, mlevel) if corpse item's monster conveys a missing intrinsic.
+            monster_id IS the mnum -> read conveys/level live from permonst."""
+            try:
+                if not it.is_corpse():
+                    return None
+                pm = _nh2.permonst(int(it.monster_id))
+                mc = int(getattr(pm, 'mconveys', 0))
+                want = {nm for bit, nm in _MR_INTR.items() if mc & bit} & missing
+                return (want, int(getattr(pm, 'mlevel', 0))) if want else None
+            except Exception:
+                return None
+
+        def _do_eat(it):
+            """Eat a corpse via AA's own eat (handles floor/inventory prompts + the
+            multi-turn occupation, so the corpse FINISHES and cpostfx grants the
+            intrinsic). Returns True if a game turn passed."""
+            t0 = int(agent.blstats.time)
+            try:
+                agent.inventory.eat(it)
+            except AgentFinished:
+                raise
+            except Exception:
+                pass
+            try:
+                agent.inventory.update()
+            except Exception:
+                pass
+            _intr_scan_msg(agent)
+            return int(agent.blstats.time) > t0
+
+        def _eat_intrinsic_reflex():
+            """Eat a fresh kill (corpse below me) or a carried resistance corpse for a
+            resistance the char still LACKS -- the legit 'eat intrinsics on the way
+            down' mechanic (no wizard grants). Uses AA's eat so the corpse finishes."""
+            lore_patches.COUNTERS["reflex_calls"] = \
+                lore_patches.COUNTERS.get("reflex_calls", 0) + 1
+            _intr_scan_msg(agent)
+            missing = _ALL_INTR - _intr_have()
+            lore_patches.COUNTERS["reflex_missing_n"] = len(missing)
+            if not missing:
+                return False
+            try:
+                if int(agent.blstats.hunger_state) == 0:   # Satiated -> choke risk
+                    return False
+            except Exception:
+                pass
+            if _adjacent_threats():                        # don't eat under attack
+                return False
+            # 1) a corpse UNDER me (fresh kill or wished-onto-floor) that grants a
+            #    missing resistance -> eat it now.
+            try:
+                for it in list(agent.inventory.items_below_me):
+                    if _item_conveys_missing(it, missing) is not None:
+                        if _do_eat(it):
+                            lore_patches.COUNTERS["intr_eats"] = \
+                                lore_patches.COUNTERS.get("intr_eats", 0) + 1
+                            return True
+            except AgentFinished:
+                raise
+            except Exception:
+                pass
+            # 2) backstop: when hungry, eat the CARRIED resistance corpse (wished
+            #    dragons) with the highest monster level (most reliable grant).
+            try:
+                if int(agent.blstats.hunger_state) >= 2:
+                    from autoascend.agent import flatten_items
+                    best = None
+                    for it in flatten_items(agent.inventory.items):
+                        r = _item_conveys_missing(it, missing)
+                        if r is None:
+                            continue
+                        if best is None or r[1] > best[1][1]:
+                            best = (it, r)
+                    if best is not None and _do_eat(best[0]):
+                        lore_patches.COUNTERS["intr_eats_carried"] = \
+                            lore_patches.COUNTERS.get("intr_eats_carried", 0) + 1
+                        return True
+            except AgentFinished:
+                raise
+            except Exception:
+                pass
+            return False
+
         def _heal_reflex():
             """Quaff a potion of healing when HP is low, to sustain the long
             Gehennom traversal (prayer alone can't -- ~1000-turn cooldown). Returns
@@ -1595,6 +1835,18 @@ def install_descent(target_depth, wishes=()):
                 # Apply the blessed horn to cure sick/blind/confuse/stun/stat-drain.
                 try:
                     if _is_sick(agent) and _apply_unicorn_horn():
+                        continue
+                except AgentFinished:
+                    raise
+                except Exception:
+                    pass
+                # intrinsic reflex: eat fresh kills / carried corpses on the way down
+                # to gain the resistances the char still LACKS (fire/cold/shock/
+                # poison/sleep/disint). The legit ascension-prep mechanic -- no wizard
+                # grants. Runs before the hunger reflex so a useful corpse is eaten for
+                # its resistance rather than a nutrition-only lizard.
+                try:
+                    if _eat_intrinsic_reflex():
                         continue
                 except AgentFinished:
                     raise

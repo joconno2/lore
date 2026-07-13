@@ -42,7 +42,15 @@ KIT=[
     # food: non-rotting
     "blessed lizard corpse","blessed lizard corpse","blessed lizard corpse","blessed lizard corpse",
     "5 blessed food rations","5 blessed food rations",
-    # poison-resistance source (eaten fresh at full HP in setup)
+    # POISON RES in setup via killer bee corpses: LIGHT (stay in inventory, unlike
+    # heavy dragon corpses which drop to the floor on wish), cheap nutrition (won't
+    # choke), ~30% per bee -> 8 gives ~94%. Poison res is the Valley-of-the-Dead gate
+    # (vampire POISONED bites). The ELEMENTAL resistances (fire/cold/shock/sleep/
+    # disint) are eaten on the way DOWN from fresh Gehennom kills by the descent reflex
+    # (hell hounds=fire, liches=cold, lemures=sleep, storm giants=shock) -- no wished
+    # dragon corpses (they drop, are heavy, and are poisonous to eat un-resistant).
+    "blessed killer bee corpse","blessed killer bee corpse","blessed killer bee corpse",
+    "blessed killer bee corpse","blessed killer bee corpse","blessed killer bee corpse",
     "blessed killer bee corpse","blessed killer bee corpse",
 ]
 if lore:
@@ -70,6 +78,17 @@ def _hook_step(a):
             if "vibrat" in m and lore_patches.COUNTERS.get("vibration_found") is None:
                 lore_patches.COUNTERS["vibration_found"]=1
                 lore_patches.COUNTERS["vibration_msg"]=m.strip()[:60]
+            # capture intrinsic-grant messages (givit, src/eat.c) per-frame -- the
+            # reliable point (sees the transient grant before it's overwritten). The
+            # eat routes through this hooked env.step, so grants land here.
+            for _ph,_in in (("momentary chill","fire"),("be chillin'","fire"),
+                            ("full of hot air","cold"),("wide awake","sleep"),
+                            ("very firm","disint"),("totally together","disint"),
+                            ("feels amplified","shock"),("grounded in reality","shock"),
+                            ("feel healthy","poison"),("especially healthy","poison")):
+                if _ph in m:
+                    _ih=lore_patches.COUNTERS.setdefault("intr_have",[])
+                    if _in not in _ih: _ih.append(_in)
         except Exception: pass
         tc=obs["tty_chars"] if isinstance(obs,dict) else obs[0]
         import numpy as _np
@@ -113,6 +132,8 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "downstair_glyphs":C.get("downstair_glyphs"),"explored_cells":C.get("explored_cells"),"dungeon_num":C.get("dungeon_num"),
           "digs":C.get("digs"),"dig_fail":C.get("dig_fail"),"dig_panic":C.get("dig_panic"),"wands_seen":C.get("wands_seen"),
           "zap_msg":C.get("zap_msg"),"oracle_err":C.get("oracle_err"),"policy":C.get("policy"),
+          "intr_have":C.get("intr_have"),"intr_eats":C.get("intr_eats"),"intr_eats_carried":C.get("intr_eats_carried"),"corpses_eaten":C.get("corpses_eaten"),
+          "reflex_calls":C.get("reflex_calls"),"reflex_missing_n":C.get("reflex_missing_n"),"setup_eat_msgs":C.get("setup_eat_msgs"),"setup_eat_dbg":C.get("setup_eat_dbg"),"setup_corpse_inv":C.get("setup_corpse_inv"),
           "oracle_actions":{k:C[k] for k in C if k.startswith("oracle_") and k!="oracle_err"},
           "first_reach":{int(k.split("_")[-1]):C[k] for k in C if k.startswith("firstreach_")},
           "survived_depth":{K:(max([int(k.split("_")[-1]) for k in C if k.startswith("firstreach_") and (int(s.get("turns") or 0)-C[k])>=K], default=0)) for K in (20,50,100)},
@@ -124,7 +145,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "vibration_found":C.get("vibration_found"),"vibration_pos":C.get("vibration_pos"),"healing_kept":C.get("healing_kept"),"descent_heals":C.get("descent_heals"),
           "sick_after_eat":C.get("sick_after_eat"),"setup_prayed_sick":C.get("setup_prayed_sick"),"heal_letter":C.get("heal_letter"),
           "descent_prays":C.get("descent_prays"),"reflex_fights":C.get("reflex_fights"),"reflex_flees":C.get("reflex_flees"),
-          "reveals":C.get("reveals"),"reveal_err":C.get("reveal_err"),"cap_obj_downs":C.get("cap_obj_downs"),"cap_gly_downs":C.get("cap_gly_downs"),"hd_check":C.get("hd_check"),"dig_to_stair":C.get("dig_to_stair"),
+          "reveals":C.get("reveals"),"reveal_err":C.get("reveal_err"),"cap_obj_downs":C.get("cap_obj_downs"),"cap_gly_downs":C.get("cap_gly_downs"),"hd_check":C.get("hd_check"),"dg_hd":C.get("dg_hd"),"dg_reach":C.get("dg_reach"),"dg_onstair":C.get("dg_onstair"),"dg_pos":C.get("dg_pos"),"dg_stairs":C.get("dg_stairs"),"dig_to_stair":C.get("dig_to_stair"),
           "hit_iter_cap":C.get("hit_iter_cap"),"last_action":C.get("last_action"),"act_exc":C.get("act_exc"),
           "llm_nav_q":C.get("llm_nav_q"),"llm_digs":C.get("llm_digs"),"llm_nav_err":C.get("llm_nav_err"),"llm_nav_correct":C.get("llm_nav_correct"),"llm_nav_wrong":C.get("llm_nav_wrong"),
           "llm_nav_acts":{k:C[k] for k in C if k.startswith("llm_nav_DIG") or k.startswith("llm_nav_S") or k.startswith("llm_nav_None")},
