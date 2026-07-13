@@ -778,27 +778,44 @@ def install_descent(target_depth, wishes=()):
                     pass
                 return False
             before = int(agent.blstats.depth)
-            y, x = reach[0]
-            try:
-                if (int(agent.blstats.y), int(agent.blstats.x)) != (int(y), int(x)):
-                    agent.go_to(int(y), int(x))
-            except Exception:
-                return False
-            low = agent.env.env.unwrapped.env
-            try:
-                low.step(ord('>')); low.step(13); low.step(13)
-                agent.step(_agz.A.Command.ESC)
-                agent.inventory.update()
-            except Exception:
-                pass
-            if int(agent.blstats.depth) > before:
-                lore_patches.COUNTERS["stair_descents"] = \
-                    lore_patches.COUNTERS.get("stair_descents", 0) + 1
+            y0, x0 = int(agent.blstats.y), int(agent.blstats.x)
+            ty, tx = int(reach[0][0]), int(reach[0][1])
+            if (y0, x0) == (ty, tx):
+                # ON the stair -> take it
+                low = agent.env.env.unwrapped.env
                 try:
-                    agent.levels.clear()
+                    low.step(ord('>')); low.step(13); low.step(13)
+                    agent.step(_agz.A.Command.ESC); agent.inventory.update()
+                except Exception:
+                    return False
+                if int(agent.blstats.depth) > before:
+                    lore_patches.COUNTERS["stair_descents"] = \
+                        lore_patches.COUNTERS.get("stair_descents", 0) + 1
+                    try:
+                        agent.levels.clear()
+                    except Exception:
+                        pass
+                    return True
+                return False
+            # ONE robust step toward the stair. AA's go_to(full path) throws on
+            # revealed-but-unvisited terrain (ValueError "'in' is not in list",
+            # AgentPanic 'position do not match') and CRASHES the game -- the true
+            # stair-take blocker (seed 47 descended fine, 44/45/48 crashed here).
+            # Compute the path myself and move ONE cell, tolerating errors; the
+            # descend loop re-runs survival reflexes between steps.
+            try:
+                path = agent.path(y0, x0, ty, tx)
+                if path and len(path) > 1:
+                    ny, nx = int(path[1][0]), int(path[1][1])
+                    if agent.current_level().walkable[ny, nx]:
+                        agent.move(ny, nx)
+                    lore_patches.COUNTERS["stair_steps"] = \
+                        lore_patches.COUNTERS.get("stair_steps", 0) + 1
+            except Exception:
+                try:
+                    agent.go_to(ty, tx, max_steps=1)   # fallback: AA single step
                 except Exception:
                     pass
-                return True
             return False
 
         def prim_explore():
@@ -1202,6 +1219,18 @@ def install_descent(target_depth, wishes=()):
                 # ~5x longer than the EXPLORE-locked ones.
                 try:
                     mons = agent.get_visible_monsters()
+                    if mons:
+                        lore_patches.COUNTERS["mons_seen"] = \
+                            lore_patches.COUNTERS.get("mons_seen", 0) + 1
+                        lore_patches.COUNTERS["nearest_mon_min"] = min(
+                            lore_patches.COUNTERS.get("nearest_mon_min", 999), int(mons[0][0]))
+                    # HP-trajectory: record min HP fraction seen (chip vs burst death)
+                    try:
+                        _hpf = agent.blstats.hitpoints / max(1, agent.blstats.max_hitpoints)
+                        lore_patches.COUNTERS["min_hp_frac"] = round(min(
+                            lore_patches.COUNTERS.get("min_hp_frac", 1.0), _hpf), 2)
+                    except Exception:
+                        pass
                     if mons and mons[0][0] <= 6:
                         prim_fight()
                         lore_patches.COUNTERS["reflex_fights"] = \

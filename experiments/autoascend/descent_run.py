@@ -96,6 +96,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "descent_prays":C.get("descent_prays"),"reflex_fights":C.get("reflex_fights"),
           "reveals":C.get("reveals"),"reveal_err":C.get("reveal_err"),"dig_to_stair":C.get("dig_to_stair"),
           "hit_iter_cap":C.get("hit_iter_cap"),"last_action":C.get("last_action"),"act_exc":C.get("act_exc"),
+          "mons_seen":C.get("mons_seen"),"nearest_mon_min":C.get("nearest_mon_min"),"min_hp_frac":C.get("min_hp_frac"),"stair_steps":C.get("stair_steps"),
           "af_action":C.get("agentfinished_action"),"af_iter":C.get("agentfinished_iter"),
           "af_tb":C.get("agentfinished_tb"),
           "down_diag":C.get("down_diag"),"level_no_dig":C.get("level_no_dig"),
