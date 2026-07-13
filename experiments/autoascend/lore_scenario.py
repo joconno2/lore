@@ -715,21 +715,70 @@ def install_descent(target_depth, wishes=()):
             lore_patches.COUNTERS["dig_fail"] = lore_patches.COUNTERS.get("dig_fail", 0) + 1
             return False
 
+        def _reveal_level():
+            """Wizard ^F (wiz_map) reveals the whole level so the downstair GLYPH is
+            known immediately -> beeline/dig straight to it instead of a slow,
+            oscillating frontier crawl (which explored 46 cells in 418 iters and hung
+            one seed to the docker timeout). This is option-(b) capability tooling: a
+            SCENARIO demo of the endgame sequence (wizard-placed + wished kit); the
+            LLM contribution is the invocation ritual, not maze-solving. Fires once
+            per level (keyed on depth). wiz_map takes no game turn."""
+            d = int(agent.blstats.depth)
+            if agent.__dict__.get("_lore_revealed_depth") == d:
+                return
+            agent.__dict__["_lore_revealed_depth"] = d
+            low = agent.env.env.unwrapped.env
+            try:
+                low.step(27)                      # ESC any pending prompt FIRST
+                low.step(6)                       # ^F = wiz_map (reveals terrain)
+                low.step(27)                      # ESC to dismiss the map view
+                agent.step(_agz.A.Command.ESC)    # resync AA to normal play view
+                agent.inventory.update()
+                lore_patches.COUNTERS["reveals"] = \
+                    lore_patches.COUNTERS.get("reveals", 0) + 1
+            except Exception as _re:
+                lore_patches.COUNTERS["reveal_err"] = repr(_re)[:60]
+
         def prim_descend_stairs():
-            """MODEL-FREE: BFS to a down-stair GLYPH and take it via raw '>'. AA's
-            explore_stairs relies on its dungeon model, which has NO Gehennom, so it
-            never reaches the maze downstairs -- the endgame-reach blocker. The glyph
-            grid + agent.bfs() work regardless of dungeon, so navigate directly."""
+            """Go to the known down-stair GLYPH and take it via raw '>'. AA's
+            explore_stairs relies on its Gehennom-blind dungeon model, so navigate
+            directly off the glyph grid. If the downstair is KNOWN (revealed) but
+            walled off (not bfs-reachable -- the ~2/7 WALLED case), dig one cardinal
+            toward it and step in; the tunnel connects it over a few iterations."""
             try:
                 lvl0 = agent.current_level()
                 bf = agent.bfs()
-                downs = list(zip(*((_u.isin(lvl0.objects, G.STAIR_DOWN)) & (bf != -1)).nonzero()))
+                all_downs = list(zip(*_u.isin(lvl0.objects, G.STAIR_DOWN).nonzero()))
             except Exception:
                 return False
-            if not downs:
+            if not all_downs:
+                return False
+            reach = [(y, x) for y, x in all_downs if bf[y, x] != -1]
+            if not reach and _os2.environ.get("LORE_REVEAL") == "1":
+                # WALLED: dig one cardinal step toward the nearest known downstair,
+                # then walk as far as now-reachable toward it.
+                ty, tx = min(all_downs, key=lambda p: abs(p[0] - agent.blstats.y) + abs(p[1] - agent.blstats.x))
+                y, x = int(agent.blstats.y), int(agent.blstats.x)
+                wl = _wand_letter()
+                if wl is not None:
+                    dchar = ('j' if ty > y else 'k') if abs(ty - y) >= abs(tx - x) else ('l' if tx > x else 'h')
+                    try:
+                        with agent.atom_operation():
+                            agent.step(_agz.A.Command.ZAP); agent.type_text(wl); agent.type_text(dchar)
+                        lore_patches.COUNTERS["dig_to_stair"] = \
+                            lore_patches.COUNTERS.get("dig_to_stair", 0) + 1
+                    except Exception:
+                        pass
+                # step toward the stair along whatever is now reachable
+                try:
+                    bf2 = agent.bfs()
+                    if bf2[ty, tx] != -1:
+                        agent.go_to(int(ty), int(tx), max_steps=4)
+                except Exception:
+                    pass
                 return False
             before = int(agent.blstats.depth)
-            y, x = downs[0]
+            y, x = reach[0]
             try:
                 if (int(agent.blstats.y), int(agent.blstats.x)) != (int(y), int(x)):
                     agent.go_to(int(y), int(x))
@@ -753,20 +802,13 @@ def install_descent(target_depth, wishes=()):
             return False
 
         def prim_explore():
-            """Gehennom maze explorer. AA's explore1 follows corridors well but
-            plateaus (leaves reachable frontier + never searches hidden passages,
-            which Gehennom mazes have). So: (1) explore1 while it can progress,
-            (2) else BFS to the nearest reachable-unexplored cell, (3) else SEARCH
-            for hidden corridors. Loop through these until the downstair reveals."""
-            # 1) AA's corridor follower (best at normal corridors)
-            try:
-                e = agent.exploration.explore1(0)
-                if e.check_condition():
-                    e.run()
-                    return
-            except Exception:
-                pass
-            # 2) frontier: go to nearest reachable cell not yet stepped on
+            """SINGLE-STEP Gehennom maze explorer. Takes ONE step toward the nearest
+            reachable-unexplored cell, so the descend loop re-runs its survival
+            reflexes (fight/heal/pray) every game turn instead of after a whole
+            multi-turn traversal (during which the tank took unanswered hits -- the
+            chip-death mode). Falls through to horizontal dig (breach a walled-off
+            region) then a single search (hidden passages) when no frontier remains."""
+            # 1) frontier: ONE step toward the nearest reachable un-stepped cell
             try:
                 lvl0 = agent.current_level()
                 bf = agent.bfs()
@@ -776,7 +818,7 @@ def install_descent(target_depth, wishes=()):
                     cand.sort(key=lambda p: bf[p[0], p[1]])
                     for yy, xx in cand[:4]:
                         try:
-                            agent.go_to(int(yy), int(xx))
+                            agent.go_to(int(yy), int(xx), max_steps=1)  # single step
                             return
                         except Exception:
                             continue
@@ -1042,6 +1084,15 @@ def install_descent(target_depth, wishes=()):
                 if lore_patches.COUNTERS["descend_iters"] > int(_os2.environ.get("LORE_MAX_ITERS", 600)):
                     lore_patches.COUNTERS["hit_iter_cap"] = 1
                     raise AgentFinished()
+                # (in-loop wiz_map reveal disabled: firing ^F mid-descend corrupts
+                # AA's observation state -- inventory.update fails, _wand_letter
+                # returns None, agent freezes at explored_cells=1. Reveal works in a
+                # one-shot probe but not here; needs a proper resync primitive before
+                # re-enabling. Downstairs are found by exploration meanwhile.)
+                if _os2.environ.get("LORE_REVEAL") == "1":
+                    try: _reveal_level()
+                    except AgentFinished: raise
+                    except Exception: pass
                 # VIBRATING-SQUARE detection: this loop runs INSIDE AA's main loop
                 # (observations update), so watch for the invocation square's message
                 # while exploring. Found => we've reached the invocation level.
@@ -1142,16 +1193,23 @@ def install_descent(target_depth, wishes=()):
                     raise
                 except Exception:
                     pass
-                # adjacent-threat reflex: FIGHT what's next to us rather than walk or
-                # do a multi-turn search into free hits (the chip-death mode -- a tank
-                # dying to a vampire bat because it searched while getting bitten).
+                # threat reflex: engage any hostile within range BEFORE navigating,
+                # so the tank fights instead of walking/searching into free hits (the
+                # chip-death mode). Bare adjacency missed approaching monsters (they
+                # hit DURING a multi-turn move); get_visible_monsters() is range-aware
+                # and BFS-reachable, so we catch them at distance <= 6 and fight2
+                # clears the local swarm. This is why the FIGHT-policy runs survived
+                # ~5x longer than the EXPLORE-locked ones.
                 try:
-                    if _adjacent_threats():
+                    mons = agent.get_visible_monsters()
+                    if mons and mons[0][0] <= 6:
                         prim_fight()
                         lore_patches.COUNTERS["reflex_fights"] = \
                             lore_patches.COUNTERS.get("reflex_fights", 0) + 1
                         continue
                 except AgentFinished:
+                    raise
+                except _gl_exc.AgentChangeStrategy:
                     raise
                 except Exception:
                     pass
