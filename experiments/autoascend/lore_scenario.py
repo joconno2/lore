@@ -444,6 +444,53 @@ def _put_on_blindfold(agent):
         lore_patches.COUNTERS['blindfold_err'] = repr(_e)[:50]
 
 
+def patch_perstep_survival():
+    """PER-STEP survival interrupt (the architectural fix the ladder doc flagged).
+    AA's multi-turn primitives (explore1/go_to/fight2) call Agent.step per game-turn;
+    the descend loop only re-checks survival BETWEEN primitives, so a swarm that chips
+    the tank down DURING a primitive kills it before any reflex fires (Gehennom ~200-
+    turn deaths, panic_reads=0). Wrap Agent.step to RAISE AgentPanic the moment HP goes
+    critical or a swarm forms -> unwinds the primitive back to the descend loop, whose
+    next iteration fires heal/panic-escape. Active only after setup teleport (gated on
+    agent._lore_descent_active) so setup/equip/eat aren't interrupted."""
+    from autoascend.agent import Agent
+    from autoascend.exceptions import AgentPanic
+    if getattr(Agent, "_lore_perstep_patched", False):
+        return
+    _orig = Agent.step
+
+    def _step(self, action, additional_action_iterator=None):
+        _orig(self, action, additional_action_iterator)
+        if not getattr(self, "_lore_descent_active", False):
+            return
+        # debounce: don't re-panic every single step (the escape/heal reflex needs a
+        # few steps to resolve). Interrupt at most once per 3 steps.
+        last = getattr(self, "_lore_last_panic", -99)
+        if self.step_count - last < 3:
+            return
+        try:
+            hp = int(self.blstats.hitpoints)
+            mhp = max(1, int(self.blstats.max_hitpoints))
+        except Exception:
+            return
+        crit = hp < 0.45 * mhp
+        swarm = False
+        if not crit:
+            try:
+                mons = self.get_visible_monsters()
+                swarm = sum(1 for m in mons if int(m[0]) <= 3) >= 3
+            except Exception:
+                swarm = False
+        if crit or swarm:
+            self._lore_last_panic = self.step_count
+            lore_patches.COUNTERS["perstep_panics"] = \
+                lore_patches.COUNTERS.get("perstep_panics", 0) + 1
+            raise AgentPanic("lore-survival: hp=%d/%d swarm=%s" % (hp, mhp, swarm))
+
+    Agent.step = _step
+    Agent._lore_perstep_patched = True
+
+
 def patch_water_walkable():
     """AA's update_level (agent.py:596) has NO water glyph set and excludes water
     from `walkable`, so a downstair across a MOAT is unreachable and the char is
@@ -915,6 +962,8 @@ def install_descent(target_depth, wishes=()):
                 else:
                     _do_teleport(agent, target_depth)
                 lore_patches._bump("scenario_teleport")
+                # per-step survival interrupt is now safe to arm (setup done)
+                agent.__dict__["_lore_descent_active"] = True
                 lore_patches.COUNTERS["tp_depth"] = int(agent.blstats.depth)
                 lore_patches.COUNTERS["xl_after"] = int(agent.blstats.experience_level)
                 lore_patches.COUNTERS["max_depth"] = int(agent.blstats.depth)
@@ -2041,6 +2090,33 @@ def install_descent(target_depth, wishes=()):
                             lore_patches.COUNTERS.get("min_hp_frac", 1.0), _hpf), 2)
                     except Exception:
                         pass
+                    # LORE_AVOIDDRAIN: NEVER melee level-drainers / bursters. The
+                    # DL26-30 deaths are XP drain (vampires/wraiths gut XL30->3 -> max
+                    # HP collapses) and xorn bursts (phase through walls). Our kit has
+                    # NO drain resistance (artifact-only, unwishable for a Valkyrie), so
+                    # the fix is behavioral: flee/panic-escape them, don't trade blows.
+                    if _os2.environ.get("LORE_AVOIDDRAIN") == "1" and mons and mons[0][0] <= 6:
+                        _DRAINERS = ('vampire', 'wraith', 'xorn', 'lich', 'mind flayer',
+                                     'energy vortex', 'shade', 'ghost', 'wight')
+                        _dn = None
+                        try:
+                            for _m in mons:
+                                if int(_m[0]) > 6:
+                                    continue
+                                _mn = getattr(_m[3], 'mname', '').lower()
+                                if any(t in _mn for t in _DRAINERS):
+                                    _dn = _mn; break
+                        except Exception:
+                            _dn = None
+                        if _dn is not None:
+                            if not _panic_escape():
+                                prim_flee()
+                            lore_patches.COUNTERS["drain_flees"] = \
+                                lore_patches.COUNTERS.get("drain_flees", 0) + 1
+                            _dtn = lore_patches.COUNTERS.setdefault("drain_threat_names", [])
+                            if _dn not in _dtn and len(_dtn) < 15:
+                                _dtn.append(_dn)
+                            continue
                     if mons and mons[0][0] <= 6:
                         # PLAYBOOK: flee by default, fight only when cornered. A
                         # strong char that stands and fights Gehennom SWARMS still
