@@ -577,25 +577,30 @@ def _score_kit(agent):
                 strv = int(getattr(agent.blstats, attr)); break
             except Exception:
                 continue
+        # armor gates from WORN SLOTS (reliable -- each slot holds exactly the kit's
+        # one wished piece; name-matching fails because worn helm/rings stay unidentified)
+        inv = agent.inventory.items
+        wornstr = ' | '.join(worn)
+        n_rings = wornstr.count('right hand') + wornstr.count('left hand')
         gates = {
-            'magic_resistance': ('gray dragon scale' in alln),
-            'reflection': ('shield of reflection' in alln),
-            'free_action': ('free action' in alln),
-            'MC3_cloak': ('opera cloak' in alln or 'cloak of protection' in alln),
+            'magic_resistance(DSM)': (getattr(inv, 'suit', None) is not None),
+            'reflection(shield)': (getattr(inv, 'off_hand', None) is not None),
+            'MC3(cloak_protection)': (getattr(inv, 'cloak', None) is not None),
+            'helm(telepathy)': (getattr(inv, 'helm', None) is not None),
+            'speed(boots)': (getattr(inv, 'boots', None) is not None),
+            'STR25(gauntlets)': (getattr(inv, 'gloves', None) is not None and strv >= 118),
+            'silver_artifact(Grayswandir)': ('grayswandir' in wielded or 'grayswandir' in wornstr),
+            'two_gate_rings(freeact+sustain)': (n_rings >= 2),
+            'life_saving_amulet': ('amulet' in wornstr),
+            'AC_le_-25': (ac <= -25),
             'poison_res': ('poison' in have),
             'unicorn_horn': ('unicorn horn' in alln),
-            'bag_of_holding': ('bag of holding' in alln or 'bag' in alln),
-            'silver_artifact_weapon': ('grayswandir' in alln),
-            'speed_boots': ('speed boots' in alln or 'jumping boots' in alln),
-            'life_saving': ('life saving' in alln),
+            'bag_of_holding': ('bag' in alln),
             'luckstone': ('luckstone' in alln or 'gray stone' in alln),
-            'escape_scrolls': ('scare monster' in alln or 'teleport' in alln or 'labeled' in alln),
-            'escape_wands': ('teleportation' in alln or 'wand' in alln),
             'holy_water': ('holy water' in alln or 'clear potion' in alln),
-            'gauntlets_of_power_STR': (strv >= 25 or strv in (118, 125) or 'gauntlets' in alln or 'old gloves' in alln),
-            'AC_le_-20': (ac <= -20),
-            'fire_res': ('fire' in have or 'fire resistance' in alln),
-            'cold_res': ('cold' in have),
+            'escape_scrolls(scare/tele)': ('labeled' in alln or 'scare' in alln or 'teleport' in alln),
+            'escape_wands(tele/dig/death)': ('wand' in alln),
+            'cancellation_wand': (alln.count('wand') >= 6),
         }
         score = sum(1 for v in gates.values() if v)
         lore_patches.COUNTERS['kit_score'] = score

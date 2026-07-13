@@ -68,6 +68,9 @@ KIT=[
     "blessed killer bee corpse","blessed killer bee corpse","blessed killer bee corpse",
     "blessed killer bee corpse","blessed killer bee corpse","blessed killer bee corpse",
     "blessed killer bee corpse","blessed killer bee corpse",
+    # NOTE: poison res lands ~8/11 seeds. On the misses the char eats all bees with no
+    # grant (impossible by RNG) -> a capture/rot bug in the eat, NOT a count issue (16
+    # bees didn't help). Poison res is intrinsic-only (no gear source); fix is the eat.
 ]
 if lore:
     lore_scenario.install_descent(target, wishes=KIT)
