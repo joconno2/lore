@@ -473,12 +473,14 @@ def patch_perstep_survival():
             mhp = max(1, int(self.blstats.max_hitpoints))
         except Exception:
             return
-        crit = hp < 0.45 * mhp
+        # true emergencies only: aborting AA's primitive is costly, so interrupt only
+        # when death is imminent (HP<30%) or a real swarm (>=4 within 3), not routine.
+        crit = hp < 0.30 * mhp
         swarm = False
         if not crit:
             try:
                 mons = self.get_visible_monsters()
-                swarm = sum(1 for m in mons if int(m[0]) <= 3) >= 3
+                swarm = sum(1 for m in mons if int(m[0]) <= 3) >= 4
             except Exception:
                 swarm = False
         if crit or swarm:
@@ -2031,6 +2033,18 @@ def install_descent(target_depth, wishes=()):
                         raise
                     except Exception:
                         pass
+                # PANIC FIRST (before heal): if swarmed, the KB says break the swarm
+                # (scare/teleport) rather than heal in place -- healing while 4 monsters
+                # keep hitting just trades potions for a death. Escape, THEN heal.
+                try:
+                    _pm = agent.get_visible_monsters()
+                    if _pm and sum(1 for m in _pm if int(m[0]) <= 3) >= 3:
+                        if _panic_escape():
+                            continue
+                except AgentFinished:
+                    raise
+                except Exception:
+                    pass
                 # survival reflex: heal when hurt (TURN-GUARDED so it can't spin --
                 # only continues if a real game step happened).
                 try:
