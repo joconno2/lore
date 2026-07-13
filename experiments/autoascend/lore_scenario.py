@@ -444,6 +444,54 @@ def _put_on_blindfold(agent):
         lore_patches.COUNTERS['blindfold_err'] = repr(_e)[:50]
 
 
+def _inline_survival(agent):
+    """Run a survival action INLINE from the per-step hook. AA absorbs AgentPanic (it
+    retries the primitive), so we cannot unwind to the descend loop -- act here via raw
+    low.step: read an escape scroll when swarmed, else quaff healing when HP-critical,
+    then resync AA's observation. Recursion-guarded (the resync step re-enters step)."""
+    if getattr(agent, "_lore_in_escape", False):
+        return
+    agent.__dict__["_lore_in_escape"] = True
+    try:
+        import nle.nethack as _nh
+        import autoascend.agent as _A
+        low = agent.env.env.unwrapped.env
+        hp = int(agent.blstats.hitpoints); mhp = max(1, int(agent.blstats.max_hitpoints))
+        try:
+            mons = agent.get_visible_monsters()
+            swarm = sum(1 for m in mons if int(m[0]) <= 3) >= 3
+        except Exception:
+            swarm = False
+        did = False
+        if swarm:                              # break the swarm: read an escape scroll
+            for oc, ltr in zip(agent.last_observation['inv_oclasses'],
+                               agent.last_observation['inv_letters']):
+                if int(oc) == _nh.SCROLL_CLASS and int(ltr) != 0:
+                    low.step(ord('r')); low.step(int(ltr)); low.step(13); low.step(13)
+                    lore_patches.COUNTERS["inline_reads"] = \
+                        lore_patches.COUNTERS.get("inline_reads", 0) + 1
+                    did = True
+                    break
+        if not did and hp < 0.35 * mhp:        # else heal
+            hlt = agent.__dict__.get("_lore_heal_lt")
+            for oc, ltr in zip(agent.last_observation['inv_oclasses'],
+                               agent.last_observation['inv_letters']):
+                if int(oc) == _nh.POTION_CLASS and int(ltr) != 0 \
+                        and (hlt is None or chr(int(ltr)) == hlt):
+                    low.step(ord('q')); low.step(int(ltr)); low.step(13); low.step(13)
+                    lore_patches.COUNTERS["inline_heals"] = \
+                        lore_patches.COUNTERS.get("inline_heals", 0) + 1
+                    break
+        try:
+            agent.step(_A.A.Command.ESC)       # resync AA's observation after raw steps
+        except Exception:
+            pass
+    except Exception as _e:
+        lore_patches.COUNTERS["inline_err"] = repr(_e)[:50]
+    finally:
+        agent.__dict__["_lore_in_escape"] = False
+
+
 def patch_perstep_survival():
     """PER-STEP survival interrupt (the architectural fix the ladder doc flagged).
     AA's multi-turn primitives (explore1/go_to/fight2) call Agent.step per game-turn;
@@ -487,7 +535,8 @@ def patch_perstep_survival():
             self._lore_last_panic = self.step_count
             lore_patches.COUNTERS["perstep_panics"] = \
                 lore_patches.COUNTERS.get("perstep_panics", 0) + 1
-            raise AgentPanic("lore-survival: hp=%d/%d swarm=%s" % (hp, mhp, swarm))
+            # act INLINE (AA absorbs AgentPanic, so unwinding to the loop fails)
+            _inline_survival(self)
 
     Agent.step = _step
     Agent._lore_perstep_patched = True
