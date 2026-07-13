@@ -173,7 +173,8 @@ def _equip_endgame(agent):
     keypresses. Without this the char lands in Gehennom at ~AC10, unprotected."""
     import nle.nethack as _nh
     import autoascend.agent as _A
-    # 1) armor (gray dragon scale mail etc.) via AutoAscend's own routine
+    # 1) armor (gray DSM, shield of reflection, cloak, helm, boots, gloves) via
+    #    AutoAscend's own routine
     try:
         agent.inventory.update()
         s = agent.inventory.wear_best_stuff()
@@ -186,6 +187,15 @@ def _equip_endgame(agent):
         agent.inventory.update()
     except Exception:
         pass
+    # 1b) WIELD the silver saber (wear_best_stuff is armor only; AA won't auto-wield
+    #     the wished silver weapon that demons/vampires/undead are vulnerable to).
+    try:
+        agent.wield_best_melee_weapon()
+        agent.step(_A.A.Command.ESC)
+        agent.inventory.update()
+        lore_patches.COUNTERS["wielded"] = 1
+    except Exception as _we:
+        lore_patches.COUNTERS["wield_err"] = repr(_we)[:60]
     # 2) amulet + rings via the TRACKED interface (atom_operation + type_text),
     #    modelled on AutoAscend's own wear(). The old raw low.step('P')+letter
     #    sequence desynced and CORRUPTED inventory (destroyed wished wands). Read
@@ -979,6 +989,34 @@ def install_descent(target_depth, wishes=()):
                 pass
             return False
 
+        def _apply_unicorn_horn():
+            """Apply the blessed unicorn horn to cure sickness/blind/confuse/stun/
+            stat-drain -- the Gehennom substitute for prayer (which goes to Moloch).
+            Find the horn by name (wished -> identified as 'unicorn horn'). Raw 'a'
+            apply keypresses; TURN-GUARDED so a no-op can't spin the loop."""
+            try:
+                t0 = int(agent.blstats.time)
+                lt = None
+                for nm, oc, ltr in zip(agent.last_observation['inv_strs'],
+                                       agent.last_observation['inv_oclasses'],
+                                       agent.last_observation['inv_letters']):
+                    if int(ltr) == 0 or int(oc) != _nh2.TOOL_CLASS:
+                        continue
+                    if 'unicorn horn' in bytes(nm).decode('latin1').lower():
+                        lt = chr(int(ltr)); break
+                if lt is None:
+                    return False
+                low = agent.env.env.unwrapped.env
+                low.step(ord('a')); low.step(ord(lt)); low.step(13); low.step(13)
+                agent.step(_agz.A.Command.ESC); agent.inventory.update()
+                if int(agent.blstats.time) > t0:
+                    lore_patches.COUNTERS["horn_applies"] = \
+                        lore_patches.COUNTERS.get("horn_applies", 0) + 1
+                    return True
+            except Exception:
+                pass
+            return False
+
         def prim_fight():
             f = agent.fight2()
             if f.check_condition():
@@ -1194,20 +1232,23 @@ def install_descent(target_depth, wishes=()):
                         continue
                 except Exception:
                     pass
-                # sickness reflex: illness (food-poison/disease) is a top Gehennom
-                # killer that HP potions can't cure -- pray it off (cooldown-guarded
-                # so we don't anger the god by over-praying).
+                # sickness reflex: illness (food-poison) is a top Gehennom killer
+                # that HP potions can't cure. PRAYER IS DEAD in Gehennom (goes to
+                # Moloch) -- the correct cure is the UNICORN HORN (playbook s4).
+                # Apply the blessed horn to cure sick/blind/confuse/stun/stat-drain.
                 try:
-                    if _is_sick(agent):
-                        _lp = agent.__dict__.get("_lore_last_pray", -9999)
-                        if int(agent.blstats.time) - _lp > 1000:
-                            agent.__dict__["_lore_last_pray"] = int(agent.blstats.time)
-                            agent.pray()
-                            lore_patches.COUNTERS["descent_prays"] = \
-                                lore_patches.COUNTERS.get("descent_prays", 0) + 1
-                            continue
+                    if _is_sick(agent) and _apply_unicorn_horn():
+                        continue
                 except AgentFinished:
                     raise
+                except Exception:
+                    pass
+                # hunger reflex: eat CARRIED safe food (lizard corpse / ration) when
+                # hungry -- replaces the removed ground-corpse eating (no tainted
+                # corpses, no prayer-for-food in Gehennom).
+                try:
+                    if _eat_if_hungry():
+                        continue
                 except Exception:
                     pass
                 # threat reflex: engage any hostile within range BEFORE navigating,
@@ -1295,8 +1336,9 @@ def install_descent(target_depth, wishes=()):
         return (
             descend(self)
             .preempt(agent, [_count(agent.inventory.wear_best_stuff(), "wear")])
-            .preempt(agent, [_count(agent.eat_corpses_from_ground(only_below_me=True)
-                             .condition(lambda: agent.blstats.hunger_state >= Hunger.NOT_HUNGRY), "eat")])
+            # NO ground-corpse eating in Gehennom: tainted/poisonous corpses cause
+            # fatal illness and there is no prayer to cure it. The char eats its
+            # carried SAFE food (lizard corpses / rations) via the hunger reflex.
             .preempt(agent, [_count(agent.fight2(), "fight2")])
             .preempt(agent, [_count(agent.engulfed_fight(), "engulf")])
             .preempt(agent, [_count(agent.emergency_strategy(), "emergency")])

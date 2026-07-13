@@ -4,19 +4,47 @@ lore_patches.apply()
 if lore:
     lore_patches.apply_crash_recovery(); lore_patches.apply_oracle_veto(mock=True)
 lore_scenario.patch_enhance_noop()
-KIT=["12 blessed potions of gain level","12 blessed potions of gain level",
-     "12 blessed potions of gain level",   # ~36 XL -> big HP to tank Gehennom swarms
-     "blessed +3 gray dragon scale mail","blessed +2 long sword",
-     "blessed +3 helmet","blessed +3 pair of high boots","blessed +3 pair of leather gloves",
-     "blessed +3 cloak of protection",     # full armor -> AC-15 (survives the swarm)
-     "8 blessed potions of full healing",  # kept for the in-descent heal reflex
-     "blessed ring of free action","blessed ring of fire resistance",
-     "blessed amulet of reflection",
-     "4 blessed killer bee corpses","4 blessed kobold corpses",
-     "5 blessed food rations","5 blessed food rations",  # extra: descent eats too
-     "blessed wand of digging (0:8)","blessed wand of digging (0:8)",
-     "blessed wand of digging (0:8)","blessed wand of digging (0:8)"] + \
-    ["blessed scroll of genocide" for _ in range(22)]   # for LORE_GENOCIDE demo
+# PROPER ASCENSION KIT (per docs/GEHENNOM_DESCENT_PLAYBOOK.md). Prayer AND Elbereth
+# are dead in Gehennom, so survival is entirely gear + tactics. No genocide shortcut.
+KIT=[
+    # XP/HP tank -- quaffed first in setup (before healing exists), then rest wished
+    "12 blessed potions of gain level","12 blessed potions of gain level","12 blessed potions of gain level",
+    # RESISTANCES + protection (worn): the hard gates
+    "blessed +5 gray dragon scale mail",   # MAGIC RESISTANCE (blocks finger of death etc.)
+    "blessed +5 shield of reflection",     # REFLECTION (bounces death rays from Orcus/demons)
+    "blessed +5 cloak of protection",      # MC3 + AC
+    "blessed +5 helm of telepathy",        # see monsters through walls -> avoid ambush instadeaths
+    "blessed +5 pair of speed boots",      # speed -> outrun demons
+    "blessed +5 pair of leather gloves",   # AC + wield cockatrice safely
+    "blessed amulet of life saving",       # last-resort revive
+    "blessed ring of free action",         # anti paralysis/sleep lock
+    "blessed ring of sustain ability",     # anti mind-flayer INT drain + stat drain
+    # weapons: silver vs demons/vampires/undead; cold vs fire-resistant demons
+    "blessed +7 silver saber","blessed +7 frost brand",
+    # prayer/Elbereth substitutes
+    "blessed unicorn horn",                # cure blind/confuse/stun/sick/stat-drain
+    "blessed scroll of scare monster","blessed scroll of scare monster","blessed scroll of scare monster",
+    "blessed scroll of scare monster","blessed scroll of scare monster",  # the Gehennom panic button
+    # escape stack
+    "blessed bag of holding",
+    "blessed wand of teleportation (0:7)", # escape (works on no-teleport levels)
+    "blessed wand of digging (0:8)","blessed wand of digging (0:8)","blessed wand of digging (0:8)",
+    "blessed wand of death (0:8)","blessed wand of death (0:8)",  # instakill demons (reflection-safe)
+    "blessed wand of fire (0:8)",          # green-slime cure (no prayer here)
+    "blessed wand of cold (0:8)",          # strand giant eels
+    "blessed scroll of teleportation","blessed scroll of teleportation","blessed scroll of teleportation",
+    "cursed potion of gain level","cursed potion of gain level",  # instant escape UP a level
+    # navigation: magic-map each maze level
+    "blessed scroll of magic mapping","blessed scroll of magic mapping","blessed scroll of magic mapping",
+    "blessed scroll of magic mapping","blessed scroll of magic mapping","blessed scroll of magic mapping",
+    # healing (bagged; tracked by letter for the heal reflex)
+    "8 blessed potions of full healing",
+    # food: non-rotting
+    "blessed lizard corpse","blessed lizard corpse","blessed lizard corpse","blessed lizard corpse",
+    "5 blessed food rations","5 blessed food rations",
+    # poison-resistance source (eaten fresh at full HP in setup)
+    "blessed killer bee corpse","blessed killer bee corpse",
+]
 if lore:
     lore_scenario.install_descent(target, wishes=KIT)
 else:
