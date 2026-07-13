@@ -824,15 +824,7 @@ def install_descent(target_depth, wishes=()):
                 # drops revealed-but-unseen stairs -> have_downstair goes False and the
                 # policy never routes to the stair-nav (the walled-pocket blocker).
                 try:
-                    _obj_d = list(zip(*_u.isin(agent.current_level().objects, G.STAIR_DOWN).nonzero()))
-                    _gly_d = list(zip(*_u.isin(agent.glyphs, G.STAIR_DOWN).nonzero()))
-                    lore_patches.COUNTERS["cap_obj_downs"] = \
-                        max(lore_patches.COUNTERS.get("cap_obj_downs", 0), len(_obj_d))
-                    lore_patches.COUNTERS["cap_gly_downs"] = \
-                        max(lore_patches.COUNTERS.get("cap_gly_downs", 0), len(_gly_d))
-                    # prefer objects (parsed), fall back to RAW GLYPHS (the ^F stair
-                    # may be in the display glyphs even when AA's objects lacks it).
-                    _rd = _obj_d or _gly_d
+                    _rd = list(zip(*_u.isin(agent.current_level().objects, G.STAIR_DOWN).nonzero()))
                     if _rd:
                         agent.__dict__["_lore_downs_%d" % d] = [(int(yy), int(xx)) for yy, xx in _rd]
                 except Exception:
@@ -1301,14 +1293,6 @@ def install_descent(target_depth, wishes=()):
                            or lvl.objects[agent.blstats.y, agent.blstats.x] in G.STAIR_UP
             except Exception:
                 on_stair = False
-            try:
-                lore_patches.COUNTERS["hd_check"] = [
-                    int(_u.isin(lvl.objects, G.STAIR_DOWN).sum()),
-                    bool(agent.__dict__.get("_lore_downs_%d" % int(agent.blstats.depth))),
-                    int(agent.blstats.depth),
-                    sorted([k for k in agent.__dict__ if k.startswith("_lore_downs_")])[:5]]
-            except Exception:
-                pass
             return {
                 "depth": int(agent.blstats.depth),
                 "dungeon": int(lvl.dungeon_number),
@@ -1368,14 +1352,14 @@ def install_descent(target_depth, wishes=()):
                     # next level. In a real descent (arrive on the connected upstair)
                     # the stair is reachable, so this fallback only fixes the placement
                     # artifact -- not reckless plummeting.
-                    # Route to the stair-nav whenever the downstair is KNOWN (^F),
-                    # reachable OR walled: prim_descend_stairs walks it via numpy BFS
-                    # when reachable and DIGS to it (dig-aware Dijkstra) when walled.
-                    # (Was `downstair_reachable` -> walled pockets fell to EXPLORE and
-                    # the walled dig-nav NEVER ran, capping descent. The dig-aware
-                    # Dijkstra makes progress, so no infinite loop.)
-                    if st["have_downstair"]:
+                    if st["downstair_reachable"]:
                         return "DESCEND_STAIRS"
+                    # downstair KNOWN (via ^F reveal) but UNREACHABLE: ^F reveals the
+                    # glyph but AA's walkable/bfs doesn't traverse revealed-unwalked
+                    # corridors, so the stair only becomes reachable once we EXPLORE
+                    # (walk) the connecting corridors of the (real, connected) level.
+                    # Retrying the stair or digging (no-dig Valley) loops forever ->
+                    # EXPLORE to actually connect the path to the downstair.
                     if st["has_dig_wand"] and not st["level_no_dig"]:
                         return "DIG_DOWN"
                     return "EXPLORE"
