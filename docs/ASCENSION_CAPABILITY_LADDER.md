@@ -51,6 +51,30 @@ across), 1 no-downstair anomaly. The downstair EXISTS and is reachable on the
 majority — the earlier "degenerate ~54-cell sealed pocket" reading was an artifact of
 never covering the level. So rung 4 is **survival + coverage**, not a dead level.
 
+**Root cause of the DL27-30 descent cap (Jul 13, measured n=8 Valley batches).**
+Placed at the Valley (Gehennom L1) with the full ascension kit, the char makes
+**descents=0** on ~8/8 seeds — it survives (per-step survival keeps it alive 632/1654
+turns) but never descends. Two hard mechanics stack:
+1. **Dig-down is dead in Gehennom.** Every dnum=1 seed zapping a wand of digging
+   downward gets *"The floor here is too hard to dig in."* Dig-down works ONLY in the
+   main dungeon (dnum=0: the one seed that fell back there dug 5× to DL30). Gehennom is
+   stair-to-stair by design; the dig-fast dive does not apply below the Valley.
+2. **AA can't path to a revealed-but-unwalked downstair.** `^F`/magic-map reveal the
+   downstair GLYPH, but AA's `walkable`/`bfs` refuse to traverse revealed cells the
+   char has not physically stepped on, so `downstair_reachable` stays false until the
+   char EXPLORES the connecting corridors — which on walled/absent-downstair levels
+   never connects. The policy then loops EXPLORE to the 2500-iter cap.
+So rung 4 is gated by **Gehennom stair-REACHING**, and the reach fork is now precise:
+(a) monkeypatch AA to mark revealed CONNECTED terrain walkable so bfs paths to a
+    connected-but-unwalked downstair (fair-play; unlocks the ~4/7 reachable levels;
+    same pattern as `patch_water_walkable`; NOT walled-pocket digging);
+(b) dig-ACROSS to a walled downstair (the ~2/7 walled levels; the hard nav);
+(c) scenario-isolate rungs 4-7 (place at each rung, skip Gehennom nav) — path (b) below.
+The char is otherwise STRONG+PREPARED: kit gates (MC3, luckstone, reflection, MR, free
+action, Grayswandir, STR-25) + intrinsic resistances eaten on the way down (poison
+6-8/8 from setup killer bees; elemental from fresh Gehennom kills) + blindfold-telepathy
+ESP scan. Survival and strength are solved; stair-reaching is the sole remaining gate.
+
 **Survival is the wall, and it has concrete root causes:**
 - **Heal reflex never fired (FIXED Jul 12).** Wished potions come in UNIDENTIFIED —
   "8 potions of full healing" display as "8 black potions". The old setup skipped
