@@ -21,6 +21,9 @@ KIT=[
     "blessed ring of sustain ability",     # anti mind-flayer INT drain + stat drain
     # weapons: silver vs demons/vampires/undead; cold vs fire-resistant demons
     "blessed +7 silver saber","blessed +7 frost brand",
+    # blindfold: blind + worn helm of telepathy = ESP (sense mind flayers/eels
+    # through walls). Used by the LORE_BLINDFOLD blindfold-navigation mode.
+    "blessed towel",
     # prayer/Elbereth substitutes
     "blessed unicorn horn",                # cure blind/confuse/stun/sick/stat-drain
     "blessed scroll of scare monster","blessed scroll of scare monster","blessed scroll of scare monster",
@@ -134,6 +137,7 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "zap_msg":C.get("zap_msg"),"oracle_err":C.get("oracle_err"),"policy":C.get("policy"),
           "intr_have":C.get("intr_have"),"intr_eats":C.get("intr_eats"),"intr_eats_carried":C.get("intr_eats_carried"),"corpses_eaten":C.get("corpses_eaten"),
           "reflex_calls":C.get("reflex_calls"),"reflex_missing_n":C.get("reflex_missing_n"),"setup_eat_msgs":C.get("setup_eat_msgs"),"setup_eat_dbg":C.get("setup_eat_dbg"),"setup_corpse_inv":C.get("setup_corpse_inv"),
+          "blindfolded":C.get("blindfolded"),"blindfold_err":C.get("blindfold_err"),
           "oracle_actions":{k:C[k] for k in C if k.startswith("oracle_") and k!="oracle_err"},
           "first_reach":{int(k.split("_")[-1]):C[k] for k in C if k.startswith("firstreach_")},
           "survived_depth":{K:(max([int(k.split("_")[-1]) for k in C if k.startswith("firstreach_") and (int(s.get("turns") or 0)-C[k])>=K], default=0)) for K in (20,50,100)},

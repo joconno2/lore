@@ -418,6 +418,32 @@ def _equip_endgame(agent):
         pass
 
 
+def _put_on_blindfold(agent):
+    """Put on the towel so the char is Blind -> the worn helm of telepathy then senses
+    ALL minded monsters through walls (ESP). The skilled-player way to detect mind
+    flayers / giant eels before contact. Navigation must then run on mapped/remembered
+    terrain (blind can't see NEW terrain), so pair with magic mapping / prior reveal."""
+    import autoascend.agent as _A
+    low = agent.env.env.unwrapped.env
+    try:
+        lt = None
+        for nm, ltr in zip(agent.last_observation['inv_strs'],
+                           agent.last_observation['inv_letters']):
+            if int(ltr) == 0:
+                continue
+            s = bytes(nm).decode('latin1').lower()
+            if 'towel' in s or 'blindfold' in s:
+                lt = chr(int(ltr)); break
+        if lt is None:
+            lore_patches.COUNTERS['blindfold_err'] = 'no towel in inv'
+            return
+        low.step(ord('P')); low.step(ord(lt)); low.step(13); low.step(13)
+        agent.step(_A.A.Command.ESC); agent.inventory.update()
+        lore_patches.COUNTERS['blindfolded'] = 1
+    except Exception as _e:
+        lore_patches.COUNTERS['blindfold_err'] = repr(_e)[:50]
+
+
 def patch_water_walkable():
     """AA's update_level (agent.py:596) has NO water glyph set and excludes water
     from `walkable`, so a downstair across a MOAT is unreachable and the char is
@@ -863,6 +889,11 @@ def install_descent(target_depth, wishes=()):
                     _equip_endgame(agent)       # wear armor + put on amulet/rings
                 try: lore_patches.COUNTERS["t_after_equip"] = int(agent.blstats.time)
                 except Exception: pass
+                # BLINDFOLD NAV (LORE_BLINDFOLD=1): blind the char so the worn helm of
+                # telepathy senses monsters through walls (mind flayers / eels). Tests
+                # whether blind navigation on revealed terrain still works.
+                if _os.environ.get("LORE_BLINDFOLD") == "1":
+                    _put_on_blindfold(agent)
                 if _os.environ.get("LORE_NO_EAT") != "1":
                     _eat_for_intrinsics(agent)  # poison res from wished corpses
                     # Eating a poisonous corpse while not yet poison-resistant can
