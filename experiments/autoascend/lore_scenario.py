@@ -1229,10 +1229,14 @@ def install_descent(target_depth, wishes=()):
                     # artifact -- not reckless plummeting.
                     if st["downstair_reachable"]:
                         return "DESCEND_STAIRS"
+                    # downstair KNOWN (via ^F reveal) but UNREACHABLE: ^F reveals the
+                    # glyph but AA's walkable/bfs doesn't traverse revealed-unwalked
+                    # corridors, so the stair only becomes reachable once we EXPLORE
+                    # (walk) the connecting corridors of the (real, connected) level.
+                    # Retrying the stair or digging (no-dig Valley) loops forever ->
+                    # EXPLORE to actually connect the path to the downstair.
                     if st["has_dig_wand"] and not st["level_no_dig"]:
                         return "DIG_DOWN"
-                    if st["have_downstair"]:
-                        return "DESCEND_STAIRS"    # walled + no-dig -> dig toward it
                     return "EXPLORE"
                 if st["has_dig_wand"] and not st["level_no_dig"]:
                     return "DIG_DOWN"
