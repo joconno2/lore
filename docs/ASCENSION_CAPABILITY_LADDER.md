@@ -1,9 +1,17 @@
-# LORE ascension capability ladder — 2026-07-11
+# LORE ascension capability ladder — 2026-07-11 (metric reframed 2026-07-13)
 
 The two-fold bar (Jim): beat the symbolic SOTA (AutoAscend) AND do it with a novel
-LLM angle, not hard-coding on AA. Metric = ascension-progress. This doc is the
-paper-ready summary of the ENDGAME half: milestones AutoAscend structurally cannot
-reach, and what the LORE scenario layer has proven, with the current gap.
+LLM angle, not hard-coding on AA. This doc is the paper-ready summary of the ENDGAME
+half: milestones AutoAscend structurally cannot reach.
+
+**METRIC (Jim, Jul 13): NOT max-depth-per-run.** Depth is a local-minimum trap —
+dig-plummeting reaches deeper only by recklessly diving into danger and dying. The
+goal is ASCENSION via a STRONG, PREPARED, SURVIVING char on the PROPER descent
+(stairs / connected levels). Measure: survival (turns alive), strength retention
+(XL / HP / AC / kit intact, not drained), and MILESTONES reached (Valley cleared →
+special levels → Candelabrum → Book of the Dead → vibrating square → invocation →
+Sanctum → Amulet → planes → ascend). A shallow run that stays strong and survives
+beats a deep run that dies.
 
 ## Why the endgame is the LLM angle
 
