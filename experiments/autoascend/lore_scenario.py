@@ -2153,33 +2153,6 @@ def install_descent(target_depth, wishes=()):
                             lore_patches.COUNTERS.get("min_hp_frac", 1.0), _hpf), 2)
                     except Exception:
                         pass
-                    # LORE_AVOIDDRAIN: NEVER melee level-drainers / bursters. The
-                    # DL26-30 deaths are XP drain (vampires/wraiths gut XL30->3 -> max
-                    # HP collapses) and xorn bursts (phase through walls). Our kit has
-                    # NO drain resistance (artifact-only, unwishable for a Valkyrie), so
-                    # the fix is behavioral: flee/panic-escape them, don't trade blows.
-                    if _os2.environ.get("LORE_AVOIDDRAIN") == "1" and mons and mons[0][0] <= 6:
-                        _DRAINERS = ('vampire', 'wraith', 'xorn', 'lich', 'mind flayer',
-                                     'energy vortex', 'shade', 'ghost', 'wight')
-                        _dn = None
-                        try:
-                            for _m in mons:
-                                if int(_m[0]) > 6:
-                                    continue
-                                _mn = getattr(_m[3], 'mname', '').lower()
-                                if any(t in _mn for t in _DRAINERS):
-                                    _dn = _mn; break
-                        except Exception:
-                            _dn = None
-                        if _dn is not None:
-                            if not _panic_escape():
-                                prim_flee()
-                            lore_patches.COUNTERS["drain_flees"] = \
-                                lore_patches.COUNTERS.get("drain_flees", 0) + 1
-                            _dtn = lore_patches.COUNTERS.setdefault("drain_threat_names", [])
-                            if _dn not in _dtn and len(_dtn) < 15:
-                                _dtn.append(_dn)
-                            continue
                     if mons and mons[0][0] <= 6:
                         # PLAYBOOK: flee by default, fight only when cornered. A
                         # strong char that stands and fights Gehennom SWARMS still

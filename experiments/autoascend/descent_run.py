@@ -140,7 +140,6 @@ json.dump({"seed":seed,"lore":lore,"target":target,"score":s.get("score"),"turns
           "zap_msg":C.get("zap_msg"),"oracle_err":C.get("oracle_err"),"policy":C.get("policy"),
           "intr_have":C.get("intr_have"),"intr_eats":C.get("intr_eats"),"intr_eats_carried":C.get("intr_eats_carried"),"corpses_eaten":C.get("corpses_eaten"),
           "esp_scans":C.get("esp_scans"),"esp_mons_total":C.get("esp_mons_total"),"esp_sighted_total":C.get("esp_sighted_total"),"esp_threats_total":C.get("esp_threats_total"),"esp_threat_names":C.get("esp_threat_names"),"esp_err":C.get("esp_err"),
-          "drain_flees":C.get("drain_flees"),"drain_threat_names":C.get("drain_threat_names"),"peak_xl":C.get("peak_xl"),"cur_xl":C.get("cur_xl"),
           "reflex_calls":C.get("reflex_calls"),"reflex_missing_n":C.get("reflex_missing_n"),"setup_eat_msgs":C.get("setup_eat_msgs"),"setup_eat_dbg":C.get("setup_eat_dbg"),"setup_corpse_inv":C.get("setup_corpse_inv"),
           "blindfolded":C.get("blindfolded"),"blindfold_err":C.get("blindfold_err"),
           "panic_reads":C.get("panic_reads"),"scroll_types":C.get("scroll_types"),"reflex_flees":C.get("reflex_flees"),"reflex_fights":C.get("reflex_fights"),"perstep_panics":C.get("perstep_panics"),"inline_reads":C.get("inline_reads"),"inline_heals":C.get("inline_heals"),"inline_err":C.get("inline_err"),
