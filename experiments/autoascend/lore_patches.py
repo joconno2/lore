@@ -119,7 +119,50 @@ def apply():
         return Strategy(safe_factory, getattr(orig_strat, "config", None))
 
     _gl.GlobalLogic.solve_sokoban_strategy = patched
+    try:
+        patch_reveal_walkable()            # self-gated on LORE_REVEALWALK
+    except Exception:
+        pass
     return ["safe_solve_sokoban (Strategy-wrap)"]
+
+
+def patch_reveal_walkable():
+    """LORE_REVEALWALK (fair-play Gehennom stair-REACHING; OFF by default).
+
+    In Gehennom dig-down is dead ("the floor here is too hard to dig in") so the char
+    must take STAIRS, but AA's `walkable`/`bfs` refuse to traverse cells that ^F /
+    magic-map REVEALED but the char has not physically stepped on -> a CONNECTED
+    downstair stays `downstair_reachable=False` and the descent loops EXPLORE to the
+    iter cap (descents=0, the DL27-30 cap). Monkeypatch Agent.update_level to mark
+    revealed FLOOR/CORRIDOR/DOORWAY/STAIR glyphs walkable AFTER AA's own update, so
+    bfs paths the REAL connected corridors the map already revealed.
+
+    This is fair-play stair-reaching (walk the corridors magic-mapping showed), NOT
+    the walled-pocket dig: WALL glyphs are never marked, so a genuinely WALLED-off
+    downstair stays correctly unreachable (that case still needs dig-across). Mirrors
+    patch_water_walkable; AA stays frozen; persistent (re-applied every update_level).
+    """
+    import os as _os
+    if _os.environ.get("LORE_REVEALWALK") != "1":
+        return []
+    from autoascend.agent import Agent
+    from autoascend.glyph import G
+    from autoascend import utils as _u
+    if getattr(Agent, "_lore_revealwalk_patched", False):
+        return []
+    _orig = Agent.update_level
+
+    def _patched(self):
+        _orig(self)
+        try:
+            mask = _u.isin(self.glyphs, G.FLOOR, G.STAIR_UP, G.STAIR_DOWN)
+            if mask.any():
+                self.current_level().walkable[mask] = True
+        except Exception:
+            pass
+    Agent.update_level = _patched
+    Agent._lore_revealwalk_patched = True
+    return ["reveal_walkable"]
 
 
 # --- Intervention #2: oracle melee veto on knowledge-dependent instadeaths ---
