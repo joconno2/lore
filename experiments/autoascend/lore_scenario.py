@@ -1180,6 +1180,7 @@ def install_descent(target_depth, wishes=()):
                 "has_dig_wand": _wand_letter() is not None,
                 "on_stair": bool(on_stair),
                 "have_downstair": int(_u.isin(lvl.objects, G.STAIR_DOWN).sum()) > 0,
+                "downstair_reachable": bool((_u.isin(lvl.objects, G.STAIR_DOWN) & (agent.bfs() != -1)).any()),
                 "level_no_dig": lore_patches.COUNTERS.get("level_no_dig") == int(agent.blstats.depth),
                 "adjacent_threats": _adjacent_threats(),
             }
@@ -1219,10 +1220,19 @@ def install_descent(target_depth, wishes=()):
                 # opts back into dig-plummet for comparison only.
                 st = _build_state()
                 if _os2.environ.get("LORE_STAIRS_FIRST", "1") == "1":
-                    if st["have_downstair"]:
+                    # take the stair when it is REACHABLE (proper descent). When the
+                    # downstair is known but UNREACHABLE (the ^V lands at a random cell
+                    # walled off from it -- e.g. across the Valley's moat), don't loop
+                    # on it forever: DIG_DOWN falls straight past the barrier to the
+                    # next level. In a real descent (arrive on the connected upstair)
+                    # the stair is reachable, so this fallback only fixes the placement
+                    # artifact -- not reckless plummeting.
+                    if st["downstair_reachable"]:
                         return "DESCEND_STAIRS"
                     if st["has_dig_wand"] and not st["level_no_dig"]:
                         return "DIG_DOWN"
+                    if st["have_downstair"]:
+                        return "DESCEND_STAIRS"    # walled + no-dig -> dig toward it
                     return "EXPLORE"
                 if st["has_dig_wand"] and not st["level_no_dig"]:
                     return "DIG_DOWN"
@@ -1277,6 +1287,78 @@ def install_descent(target_depth, wishes=()):
                 d = int(agent.blstats.depth)
                 if d > lore_patches.COUNTERS.get("max_depth", 0):
                     lore_patches.COUNTERS["max_depth"] = d
+                # LOOP-LEVEL LLM NAV (LORE_LLM_NAV): if DEPTH stalls for many iters we
+                # are walled into a pocket. Fires regardless of which primitive the
+                # policy picks (stairs-first routes walled-downstair to prim_descend_
+                # stairs, not prim_explore, so the in-primitive hook never ran). Hand
+                # the LLM the revealed ASCII and dig the cardinal it points toward the
+                # walled-off downstair; re-query each stall so it tunnels an L-path.
+                _di2 = int(lore_patches.COUNTERS.get("descend_iters", 0))
+                if agent.__dict__.get("_lln_depth") != d:
+                    agent.__dict__["_lln_depth"] = d
+                    agent.__dict__["_lln_iter"] = _di2
+                elif _os2.environ.get("LORE_LLM_NAV") == "1" and \
+                        _di2 - agent.__dict__.get("_lln_iter", _di2) > 40:
+                    agent.__dict__["_lln_iter"] = _di2
+                    try:
+                        lvlA = agent.current_level(); bfA = agent.bfs()
+                        myA = (int(agent.blstats.y), int(agent.blstats.x))
+                        downA = _u.isin(lvlA.objects, G.STAIR_DOWN)
+                        upA = _u.isin(lvlA.objects, G.STAIR_UP)
+                        wallA = _u.isin(lvlA.objects, G.WALL)
+                        rowsA = []
+                        for ry in range(lvlA.objects.shape[0]):
+                            rr = ""
+                            for rx in range(lvlA.objects.shape[1]):
+                                if (ry, rx) == myA: rr += "@"
+                                elif downA[ry, rx]: rr += ">"
+                                elif upA[ry, rx]: rr += "<"
+                                elif wallA[ry, rx]: rr += "|"
+                                elif bfA[ry, rx] != -1: rr += "."
+                                elif lvlA.walkable[ry, rx]: rr += ":"
+                                else: rr += " "
+                            rowsA.append(rr.rstrip())
+                        act = _oracle.query_nav_dig("\n".join(rowsA))
+                        lore_patches.COUNTERS["llm_nav_q"] = lore_patches.COUNTERS.get("llm_nav_q", 0) + 1
+                        lore_patches.COUNTERS["llm_nav_" + str(act)] = \
+                            lore_patches.COUNTERS.get("llm_nav_" + str(act), 0) + 1
+                        # GROUND-TRUTH check: does the LLM's cardinal match the actual
+                        # direction to the nearest known downstair? (dominant axis).
+                        try:
+                            _dn = list(zip(*downA.nonzero()))
+                            if _dn:
+                                ty, tx = min(_dn, key=lambda p: abs(p[0] - myA[0]) + abs(p[1] - myA[1]))
+                                if abs(ty - myA[0]) >= abs(tx - myA[1]):
+                                    truth = "DIG_SOUTH" if ty > myA[0] else "DIG_NORTH"
+                                else:
+                                    truth = "DIG_EAST" if tx > myA[1] else "DIG_WEST"
+                                key = "llm_nav_correct" if act == truth else "llm_nav_wrong"
+                                lore_patches.COUNTERS[key] = lore_patches.COUNTERS.get(key, 0) + 1
+                        except Exception:
+                            pass
+                        dmap = {"DIG_NORTH": ("k", -1, 0), "DIG_SOUTH": ("j", 1, 0),
+                                "DIG_EAST": ("l", 0, 1), "DIG_WEST": ("h", 0, -1)}
+                        wl = _wand_letter()
+                        if act in dmap and wl:
+                            dc, dy, dx = dmap[act]
+                            y0, x0 = myA
+                            with agent.atom_operation():
+                                agent.step(_agz.A.Command.ZAP); agent.type_text(wl); agent.type_text(dc)
+                            lore_patches.COUNTERS["llm_digs"] = \
+                                lore_patches.COUNTERS.get("llm_digs", 0) + 1
+                            if 'too hard' not in str(agent.message):
+                                ny, nx = y0 + dy, x0 + dx
+                                try:
+                                    if lvlA.objects.shape[0] > ny >= 0 <= nx < lvlA.objects.shape[1] \
+                                            and agent.current_level().walkable[ny, nx]:
+                                        agent.move(ny, nx)
+                                except Exception:
+                                    pass
+                            continue
+                    except AgentFinished:
+                        raise
+                    except Exception as _le:
+                        lore_patches.COUNTERS["llm_nav_err"] = repr(_le)[:60]
                 # STRENGTH-RETENTION metric (Jim, Jul 13): a STRONG surviving char is
                 # the goal, not raw depth. Track peak vs current XL (drain = getting
                 # weaker: vampires/mind-flayers/wraiths drain levels) and min HP frac.
